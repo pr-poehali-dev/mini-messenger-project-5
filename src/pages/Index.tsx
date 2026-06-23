@@ -95,6 +95,22 @@ export default function Index() {
   const push = (s: Screen) => setScreen(s);
   const back = () => setScreen(user ? { name: 'tabs', tab: 'chats' } : { name: 'login' });
 
+  // При открытии приложения — если нет user в localStorage но есть device_id → автовход
+  useEffect(() => {
+    if (user) return;
+    const device_id = getDeviceId();
+    // Пытаемся восстановить сессию по device (nick не нужен — передаём пустой, backend найдёт по device)
+    api('login', 'POST', { nick: '__device_auto__', device_id }).then(data => {
+      if (data.user) {
+        const u = data.user;
+        setUser(u);
+        localStorage.setItem('orbit_user', JSON.stringify(u));
+        push(u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' });
+      }
+      // если ошибка — остаёмся на экране логина (новое устройство, нужно регистрироваться)
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const login = async () => {
     const nick = draftNick.trim().toLowerCase();
     if (nick.length < 2) return;
@@ -104,11 +120,34 @@ export default function Index() {
     const u = data.user;
     setUser(u);
     localStorage.setItem('orbit_user', JSON.stringify(u));
+    // Новый пользователь → всегда на setup (profile_complete = false)
     push(u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' });
   };
 
+  // Выход — НЕ удаляем device_id из localStorage, только user из памяти
+  // При следующем открытии автовход сработает по device_id
   const logout = () => {
     if (user) api('offline', 'POST', { user_id: user.id });
+    localStorage.removeItem('orbit_user');
+    setUser(null);
+    // Сразу пробуем автовход (устройство привязано)
+    const device_id = getDeviceId();
+    api('login', 'POST', { nick: '__device_auto__', device_id }).then(data => {
+      if (data.user) {
+        const u = data.user;
+        setUser(u);
+        localStorage.setItem('orbit_user', JSON.stringify(u));
+        push({ name: 'tabs', tab: 'chats' });
+      } else {
+        push({ name: 'login' });
+      }
+    });
+  };
+
+  // Удаление аккаунта — чистит device_id в БД → можно регистрироваться заново
+  const deleteAccount = async () => {
+    if (!user) return;
+    await api('delete_account', 'POST', { user_id: user.id });
     localStorage.removeItem('orbit_user');
     setUser(null);
     push({ name: 'login' });
@@ -137,7 +176,7 @@ export default function Index() {
     <TabsShell tab={tab} onTab={(t) => push({ name: 'tabs', tab: t })}>
       {tab === 'chats' && <ChatsTab user={user} onOpenChat={(c) => push({ name: 'chat', chatId: c.chat_id, peer: c.peer_id ? { id: c.peer_id, nick: c.peer_nick!, avatar_url: c.peer_avatar } : undefined, groupName: c.group_name })} onNewGroup={() => push({ name: 'new_group' })} />}
       {tab === 'search' && <SearchTab user={user} onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />}
-      {tab === 'profile' && <ProfileTab user={user} onLogout={logout} onUpdate={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); }} onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} lightTheme={lightTheme} onToggleTheme={() => setLightTheme(v => !v)} onDeleteAccount={() => { logout(); }} onSwitchAccount={() => { if (user) api('offline', 'POST', { user_id: user.id }); localStorage.removeItem('orbit_user'); setUser(null); push({ name: 'login' }); }} />}
+      {tab === 'profile' && <ProfileTab user={user} onLogout={logout} onUpdate={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); }} onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} lightTheme={lightTheme} onToggleTheme={() => setLightTheme(v => !v)} onDeleteAccount={deleteAccount} onSwitchAccount={logout} />}
     </TabsShell>
   );
 }

@@ -45,30 +45,33 @@ def handler(event: dict, context) -> dict:
         if action == 'login' and method == 'POST':
             nick = (body.get('nick') or '').strip().lower()
             device_id = (body.get('device_id') or '').strip()
-            if not nick or len(nick) < 2:
-                return _resp(400, {'error': 'Ник минимум 2 символа'})
-            if len(nick) > 30:
-                return _resp(400, {'error': 'Ник максимум 30 символов'})
 
-            # Устройство уже зарегистрировано — сразу входим
+            # Автовход по device_id (без ввода ника — выход/открытие приложения)
             if device_id:
-                cur.execute("SELECT id, nick, profile_complete, avatar_url FROM users WHERE device_id = %s", (device_id,))
+                cur.execute(
+                    "SELECT id, nick, profile_complete, avatar_url FROM users WHERE device_id = %s",
+                    (device_id,)
+                )
                 by_device = cur.fetchone()
                 if by_device:
                     cur.execute("UPDATE users SET is_online=TRUE, last_seen=NOW() WHERE id=%s", (by_device['id'],))
                     conn.commit()
                     return _resp(200, {'user': by_device})
 
-            # Проверяем ник — занят ли он?
-            cur.execute("SELECT id, device_id FROM users WHERE nick = %s", (nick,))
-            existing = cur.fetchone()
-            if existing:
-                # Ник занят другим устройством
+            # Обычная регистрация с ником
+            if not nick or nick == '__device_auto__' or len(nick) < 2:
+                return _resp(400, {'error': 'Ник не найден. Зарегистрируйся.'})
+            if len(nick) > 30:
+                return _resp(400, {'error': 'Ник максимум 30 символов'})
+
+            # Ник занят?
+            cur.execute("SELECT id FROM users WHERE nick = %s", (nick,))
+            if cur.fetchone():
                 return _resp(409, {'error': 'Этот ник уже занят. Придумай другой.'})
 
-            # Новый пользователь
+            # Новый пользователь — profile_complete = FALSE, setup обязателен
             cur.execute(
-                "INSERT INTO users (nick, device_id, is_online, last_seen) VALUES (%s, %s, TRUE, NOW()) RETURNING id, nick, profile_complete, avatar_url",
+                "INSERT INTO users (nick, device_id, is_online, last_seen, profile_complete) VALUES (%s, %s, TRUE, NOW(), FALSE) RETURNING id, nick, profile_complete, avatar_url",
                 (nick, device_id or None),
             )
             user = cur.fetchone()
@@ -401,6 +404,25 @@ def handler(event: dict, context) -> dict:
         if action == 'offline' and method == 'POST':
             uid = int(body.get('user_id') or 0)
             cur.execute("UPDATE users SET is_online=FALSE, last_seen=NOW() WHERE id=%s", (uid,))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── DELETE ACCOUNT ────────────────────────────────
+        if action == 'delete_account' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            if not uid:
+                return _resp(400, {'error': 'Нет user_id'})
+            # Удаляем все данные пользователя каскадно
+            cur.execute("DELETE FROM typing_status WHERE user_id=%s", (uid,))
+            cur.execute("DELETE FROM messages WHERE sender_id=%s", (uid,))
+            cur.execute("DELETE FROM follows WHERE follower_id=%s OR following_id=%s", (uid, uid))
+            cur.execute("DELETE FROM blocks WHERE blocker_id=%s OR blocked_id=%s", (uid, uid))
+            cur.execute("DELETE FROM group_members WHERE user_id=%s", (uid,))
+            # Чаты где пользователь один из участников (DM)
+            cur.execute("DELETE FROM messages WHERE chat_id IN (SELECT id FROM chats WHERE user_a=%s OR user_b=%s)", (uid, uid))
+            cur.execute("DELETE FROM chats WHERE user_a=%s OR user_b=%s", (uid, uid))
+            # Удаляем пользователя — device_id тоже уходит
+            cur.execute("DELETE FROM users WHERE id=%s", (uid,))
             conn.commit()
             return _resp(200, {'ok': True})
 
