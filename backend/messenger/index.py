@@ -254,25 +254,27 @@ def handler(event: dict, context) -> dict:
                 SELECT c.id AS chat_id,
                        NULL::int AS group_id, NULL AS group_name, NULL AS group_avatar,
                        u.id AS peer_id, u.nick AS peer_nick, u.avatar_url AS peer_avatar, u.is_online AS peer_online,
-                       (SELECT text FROM messages m WHERE m.chat_id=c.id ORDER BY m.id DESC LIMIT 1) AS last_text,
-                       (SELECT created_at FROM messages m WHERE m.chat_id=c.id ORDER BY m.id DESC LIMIT 1) AS last_at,
+                       (SELECT text FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE ORDER BY m.id DESC LIMIT 1) AS last_text,
+                       (SELECT created_at FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE ORDER BY m.id DESC LIMIT 1) AS last_at,
                        'dm' AS kind
                 FROM chats c
                 JOIN users u ON u.id = CASE WHEN c.user_a=%s THEN c.user_b ELSE c.user_a END
                 WHERE (c.user_a=%s OR c.user_b=%s) AND c.group_id IS NULL
+                  AND c.id NOT IN (SELECT chat_id FROM hidden_chats WHERE user_id=%s)
                 UNION ALL
                 SELECT c.id AS chat_id,
                        g.id AS group_id, g.name AS group_name, g.avatar_url AS group_avatar,
                        NULL, NULL, NULL, NULL,
-                       (SELECT text FROM messages m WHERE m.chat_id=c.id ORDER BY m.id DESC LIMIT 1) AS last_text,
-                       (SELECT created_at FROM messages m WHERE m.chat_id=c.id ORDER BY m.id DESC LIMIT 1) AS last_at,
+                       (SELECT text FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE ORDER BY m.id DESC LIMIT 1) AS last_text,
+                       (SELECT created_at FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE ORDER BY m.id DESC LIMIT 1) AS last_at,
                        'group' AS kind
                 FROM chats c
                 JOIN groups g ON g.id=c.group_id
                 JOIN group_members gm ON gm.group_id=g.id AND gm.user_id=%s
+                WHERE c.id NOT IN (SELECT chat_id FROM hidden_chats WHERE user_id=%s)
                 ORDER BY last_at DESC NULLS LAST
                 """,
-                (me, me, me, me),
+                (me, me, me, me, me, me),
             )
             return _resp(200, {'chats': cur.fetchall()})
 
@@ -334,15 +336,25 @@ def handler(event: dict, context) -> dict:
         if action == 'messages' and method == 'GET':
             chat_id = int(params.get('chat_id') or 0)
             after = int(params.get('after') or 0)
+            me = int(params.get('user_id') or 0)
             cur.execute(
                 """
                 SELECT m.id, m.sender_id, u.nick AS sender_nick, u.avatar_url AS sender_avatar,
-                       m.text, m.image_url, m.created_at
-                FROM messages m JOIN users u ON u.id=m.sender_id
+                       m.text, m.image_url, m.media_type, m.media_url, m.created_at,
+                       m.is_removed, m.removed_by_sender,
+                       COALESCE(
+                           json_agg(json_build_object('emoji', r.emoji, 'user_id', r.user_id))
+                           FILTER (WHERE r.message_id IS NOT NULL), '[]'
+                       ) AS reactions
+                FROM messages m
+                JOIN users u ON u.id = m.sender_id
+                LEFT JOIN message_reactions r ON r.message_id = m.id
                 WHERE m.chat_id=%s AND m.id>%s
+                  AND NOT (m.removed_by_sender = TRUE AND m.sender_id = %s)
+                GROUP BY m.id, u.nick, u.avatar_url
                 ORDER BY m.id ASC LIMIT 200
                 """,
-                (chat_id, after),
+                (chat_id, after, me),
             )
             return _resp(200, {'messages': cur.fetchall()})
 
@@ -352,16 +364,87 @@ def handler(event: dict, context) -> dict:
             sender = int(body.get('user_id') or 0)
             text = body.get('text')
             image_url = body.get('image_url')
-            if not chat_id or not sender or (not text and not image_url):
+            media_type = body.get('media_type')
+            media_url = body.get('media_url')
+            if not chat_id or not sender or (not text and not image_url and not media_url):
                 return _resp(400, {'error': 'Пустое сообщение'})
             cur.execute(
-                "INSERT INTO messages (chat_id, sender_id, text, image_url) VALUES (%s, %s, %s, %s) RETURNING id, sender_id, text, image_url, created_at",
-                (chat_id, sender, text, image_url),
+                """INSERT INTO messages (chat_id, sender_id, text, image_url, media_type, media_url)
+                   VALUES (%s, %s, %s, %s, %s, %s)
+                   RETURNING id, sender_id, text, image_url, media_type, media_url, created_at, is_removed""",
+                (chat_id, sender, text, image_url, media_type, media_url),
             )
             msg = cur.fetchone()
             cur.execute("DELETE FROM typing_status WHERE chat_id=%s AND user_id=%s", (chat_id, sender))
             conn.commit()
             return _resp(200, {'message': msg})
+
+        # ── UPLOAD MEDIA ──────────────────────────────────
+        if action == 'upload_media' and method == 'POST':
+            import base64, boto3
+            uid = int(body.get('user_id') or 0)
+            data_b64 = body.get('data', '')
+            ext = (body.get('ext') or 'jpg').lower()
+            media_type = body.get('media_type', 'image')
+            raw = base64.b64decode(data_b64)
+            import time
+            key = f"media/{uid}/{int(time.time())}.{ext}"
+            ct_map = {'image': f'image/{ext}', 'video': f'video/{ext}', 'audio': f'audio/{ext}', 'voice': 'audio/ogg'}
+            s3 = boto3.client('s3', endpoint_url='https://bucket.poehali.dev',
+                aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+                aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
+            s3.put_object(Bucket='files', Key=key, Body=raw, ContentType=ct_map.get(media_type, 'application/octet-stream'))
+            url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
+            return _resp(200, {'url': url, 'media_type': media_type})
+
+        # ── REACT ─────────────────────────────────────────
+        if action == 'react' and method == 'POST':
+            msg_id = int(body.get('message_id') or 0)
+            uid = int(body.get('user_id') or 0)
+            emoji = (body.get('emoji') or '').strip()
+            if not msg_id or not uid or not emoji:
+                return _resp(400, {'error': 'Нет данных'})
+            cur.execute("SELECT emoji FROM message_reactions WHERE message_id=%s AND user_id=%s", (msg_id, uid))
+            existing = cur.fetchone()
+            if existing and existing['emoji'] == emoji:
+                cur.execute("DELETE FROM message_reactions WHERE message_id=%s AND user_id=%s", (msg_id, uid))
+            else:
+                cur.execute(
+                    "INSERT INTO message_reactions (message_id, user_id, emoji) VALUES (%s, %s, %s) ON CONFLICT (message_id, user_id) DO UPDATE SET emoji=%s",
+                    (msg_id, uid, emoji, emoji),
+                )
+            conn.commit()
+            cur.execute(
+                "SELECT emoji, user_id FROM message_reactions WHERE message_id=%s", (msg_id,)
+            )
+            return _resp(200, {'reactions': cur.fetchall()})
+
+        # ── DELETE MESSAGE ────────────────────────────────
+        if action == 'delete_message' and method == 'POST':
+            msg_id = int(body.get('message_id') or 0)
+            uid = int(body.get('user_id') or 0)
+            for_all = body.get('for_all', False)
+            cur.execute("SELECT sender_id FROM messages WHERE id=%s", (msg_id,))
+            row = cur.fetchone()
+            if not row:
+                return _resp(404, {'error': 'Сообщение не найдено'})
+            if for_all and row['sender_id'] == uid:
+                cur.execute("UPDATE messages SET is_removed=TRUE WHERE id=%s", (msg_id,))
+            else:
+                cur.execute("UPDATE messages SET removed_by_sender=TRUE WHERE id=%s AND sender_id=%s", (msg_id, uid))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── HIDE CHAT ─────────────────────────────────────
+        if action == 'hide_chat' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            chat_id = int(body.get('chat_id') or 0)
+            cur.execute(
+                "INSERT INTO hidden_chats (user_id, chat_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                (uid, chat_id),
+            )
+            conn.commit()
+            return _resp(200, {'ok': True})
 
         # ── TYPING ───────────────────────────────────────
         if action == 'typing' and method == 'POST':
