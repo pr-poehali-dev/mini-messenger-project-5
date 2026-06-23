@@ -62,6 +62,35 @@ export default function Index() {
   const [screen, setScreen] = useState<Screen>(user ? { name: 'tabs', tab: 'chats' } : { name: 'login' });
   const [draftNick, setDraftNick] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [lightTheme, setLightTheme] = useState(() => localStorage.getItem('orbit_theme') === 'light');
+
+  useEffect(() => {
+    if (lightTheme) {
+      document.documentElement.style.setProperty('--background', '0 0% 97%');
+      document.documentElement.style.setProperty('--foreground', '240 20% 10%');
+      document.documentElement.style.setProperty('--card', '0 0% 100%');
+      document.documentElement.style.setProperty('--card-foreground', '240 20% 10%');
+      document.documentElement.style.setProperty('--secondary', '240 10% 90%');
+      document.documentElement.style.setProperty('--secondary-foreground', '240 20% 10%');
+      document.documentElement.style.setProperty('--muted', '240 10% 88%');
+      document.documentElement.style.setProperty('--muted-foreground', '240 10% 40%');
+      document.documentElement.style.setProperty('--border', '240 10% 82%');
+      document.documentElement.style.setProperty('--input', '240 10% 82%');
+      localStorage.setItem('orbit_theme', 'light');
+    } else {
+      document.documentElement.style.setProperty('--background', '240 30% 6%');
+      document.documentElement.style.setProperty('--foreground', '240 20% 96%');
+      document.documentElement.style.setProperty('--card', '240 25% 9%');
+      document.documentElement.style.setProperty('--card-foreground', '240 20% 96%');
+      document.documentElement.style.setProperty('--secondary', '240 20% 14%');
+      document.documentElement.style.setProperty('--secondary-foreground', '240 20% 96%');
+      document.documentElement.style.setProperty('--muted', '240 18% 16%');
+      document.documentElement.style.setProperty('--muted-foreground', '240 12% 60%');
+      document.documentElement.style.setProperty('--border', '240 18% 18%');
+      document.documentElement.style.setProperty('--input', '240 18% 18%');
+      localStorage.setItem('orbit_theme', 'dark');
+    }
+  }, [lightTheme]);
 
   const push = (s: Screen) => setScreen(s);
   const back = () => setScreen(user ? { name: 'tabs', tab: 'chats' } : { name: 'login' });
@@ -108,7 +137,7 @@ export default function Index() {
     <TabsShell tab={tab} onTab={(t) => push({ name: 'tabs', tab: t })}>
       {tab === 'chats' && <ChatsTab user={user} onOpenChat={(c) => push({ name: 'chat', chatId: c.chat_id, peer: c.peer_id ? { id: c.peer_id, nick: c.peer_nick!, avatar_url: c.peer_avatar } : undefined, groupName: c.group_name })} onNewGroup={() => push({ name: 'new_group' })} />}
       {tab === 'search' && <SearchTab user={user} onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />}
-      {tab === 'profile' && <ProfileTab user={user} onLogout={logout} onUpdate={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); }} onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} />}
+      {tab === 'profile' && <ProfileTab user={user} onLogout={logout} onUpdate={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); }} onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} lightTheme={lightTheme} onToggleTheme={() => setLightTheme(v => !v)} onDeleteAccount={() => { logout(); }} onSwitchAccount={() => { if (user) api('offline', 'POST', { user_id: user.id }); localStorage.removeItem('orbit_user'); setUser(null); push({ name: 'login' }); }} />}
     </TabsShell>
   );
 }
@@ -124,12 +153,12 @@ function LoginScreen({ draftNick, setDraftNick, onLogin, error }: { draftNick: s
       <div className="relative w-full max-w-md animate-fade-up">
         <div className="flex items-center justify-center gap-3 mb-10">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
-            <Icon name="Send" className="text-white" size={22} />
+            <span className="text-white font-display font-black text-lg leading-none">ВМ</span>
           </div>
-          <span className="font-display font-bold text-2xl tracking-tight">Orbit</span>
+          <span className="font-display font-bold text-2xl tracking-tight">Вай Мессенджер</span>
         </div>
         <div className="glass rounded-3xl p-8 shadow-2xl">
-          <h1 className="font-display font-extrabold text-3xl leading-tight mb-2">Войди в <span className="text-gradient">Orbit</span></h1>
+          <h1 className="font-display font-extrabold text-3xl leading-tight mb-2">Войди в <span className="text-gradient">Вай Мессенджер</span></h1>
           <p className="text-muted-foreground mb-8">Придумай ник — войдёшь с этого устройства</p>
           <div className="relative mb-2">
             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">@</span>
@@ -262,9 +291,9 @@ function ChatsTab({ user, onOpenChat, onNewGroup }: { user: User; onOpenChat: (c
       <header className="flex items-center justify-between px-4 py-4 glass">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
-            <Icon name="Send" className="text-white" size={18} />
+            <span className="text-white font-display font-black text-sm leading-none">ВМ</span>
           </div>
-          <span className="font-display font-bold text-xl tracking-tight">Orbit</span>
+          <span className="font-display font-bold text-xl tracking-tight">Вай Мессенджер</span>
         </div>
         <div className="relative">
           <button onClick={() => setShowMenu(!showMenu)} className="w-10 h-10 rounded-full hover:bg-secondary/60 flex items-center justify-center transition-colors">
@@ -453,13 +482,20 @@ function FollowersScreen({ userId, mode, me, onBack, onOpenProfile }: { userId: 
 // ══════════════════════════════════════════════════════════════════════════════
 // MY PROFILE TAB
 // ══════════════════════════════════════════════════════════════════════════════
-function ProfileTab({ user, onLogout, onUpdate, onFollowers }: { user: User; onLogout: () => void; onUpdate: (u: User) => void; onFollowers: (uid: number, mode: 'followers' | 'following') => void }) {
+function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggleTheme, onDeleteAccount, onSwitchAccount }: {
+  user: User; onLogout: () => void; onUpdate: (u: User) => void;
+  onFollowers: (uid: number, mode: 'followers' | 'following') => void;
+  lightTheme: boolean; onToggleTheme: () => void;
+  onDeleteAccount: () => void; onSwitchAccount: () => void;
+}) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [editing, setEditing] = useState(false);
   const [city, setCity] = useState('');
   const [birthdate, setBirthdate] = useState('');
   const [about, setAbout] = useState('');
   const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showAvatarMenu, setShowAvatarMenu] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
@@ -471,6 +507,7 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers }: { user: User; onL
 
   const pickAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
+    setShowAvatarMenu(false);
     const reader = new FileReader();
     reader.onload = async () => {
       const [header, b64] = (reader.result as string).split(',');
@@ -481,31 +518,55 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers }: { user: User; onL
     reader.readAsDataURL(file);
   };
 
+  const removeAvatar = async () => {
+    setShowAvatarMenu(false);
+    await api('profile_update', 'POST', { user_id: user.id, avatar_url: null });
+    onUpdate({ ...user, avatar_url: null });
+    load();
+  };
+
   const save = async () => {
     setSaving(true);
     const d = await api('profile_update', 'POST', { user_id: user.id, city: city || null, birthdate: birthdate || null, about: about || null });
     setSaving(false); setEditing(false); setProfile(d.user);
   };
 
+  const Toggle = ({ on, onToggle }: { on: boolean; onToggle: () => void }) => (
+    <button onClick={onToggle} className={`relative w-12 h-6 rounded-full transition-colors ${on ? 'bg-primary' : 'bg-secondary'}`}>
+      <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-6' : 'translate-x-0.5'}`} />
+    </button>
+  );
+
   return (
     <div className="flex flex-col h-full overflow-y-auto scrollbar-thin">
       <header className="px-4 py-4 glass flex items-center justify-between">
         <span className="font-display font-bold text-xl">Мой профиль</span>
-        <button onClick={onLogout} className="w-9 h-9 rounded-full hover:bg-destructive/10 flex items-center justify-center transition-colors">
-          <Icon name="LogOut" size={18} className="text-destructive" />
-        </button>
       </header>
+
       {profile && (
-        <div className="p-4 space-y-5">
-          <div className="flex flex-col items-center pt-2">
-            <div className="relative cursor-pointer" onClick={() => fileRef.current?.click()}>
+        <div className="p-4 space-y-4 pb-8">
+          {/* Аватар */}
+          <div className="flex flex-col items-center pt-2 relative">
+            <div className="relative cursor-pointer" onClick={() => setShowAvatarMenu(v => !v)}>
               <Avatar url={profile.avatar_url} nick={profile.nick} size={88} />
               <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow">
                 <Icon name="Camera" size={14} className="text-white" />
               </div>
             </div>
             <input ref={fileRef} type="file" accept="image/*" hidden onChange={pickAvatar} />
-            <h2 className="font-display font-bold text-2xl mt-3">@{profile.nick}</h2>
+            {showAvatarMenu && (
+              <div className="absolute top-24 glass rounded-2xl p-1 z-50 w-52 shadow-xl">
+                <button onClick={() => { setShowAvatarMenu(false); fileRef.current?.click(); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-secondary/60 transition-colors text-sm">
+                  <Icon name="Camera" size={16} className="text-accent" /> Изменить фото
+                </button>
+                {profile.avatar_url && (
+                  <button onClick={removeAvatar} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-destructive/10 transition-colors text-sm text-destructive">
+                    <Icon name="Trash2" size={16} /> Удалить фото
+                  </button>
+                )}
+              </div>
+            )}
+            <h2 className="font-display font-bold text-2xl mt-4">@{profile.nick}</h2>
             <div className="flex gap-8 mt-4">
               <button onClick={() => onFollowers(user.id, 'followers')} className="flex flex-col items-center hover:text-primary transition-colors">
                 <span className="font-display font-bold text-xl">{profile.followers}</span>
@@ -518,6 +579,7 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers }: { user: User; onL
             </div>
           </div>
 
+          {/* Инфо / редактирование */}
           {!editing ? (
             <div className="glass rounded-3xl p-5 space-y-3">
               {profile.city && <div className="flex items-center gap-2 text-sm"><Icon name="MapPin" size={15} className="text-accent" />{profile.city}</div>}
@@ -550,6 +612,45 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers }: { user: User; onL
               </div>
             </div>
           )}
+
+          {/* Настройки */}
+          <div className="glass rounded-3xl p-5 space-y-1">
+            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-3 px-1">Настройки</p>
+            <div className="flex items-center justify-between py-2 px-1">
+              <div className="flex items-center gap-3">
+                <Icon name={lightTheme ? 'Sun' : 'Moon'} size={18} className="text-accent" />
+                <span className="text-sm font-medium">{lightTheme ? 'Светлая тема' : 'Тёмная тема'}</span>
+              </div>
+              <Toggle on={lightTheme} onToggle={onToggleTheme} />
+            </div>
+          </div>
+
+          {/* Аккаунт */}
+          <div className="glass rounded-3xl p-5 space-y-1">
+            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-3 px-1">Аккаунт</p>
+            <button onClick={onSwitchAccount} className="w-full flex items-center gap-3 py-3 px-1 rounded-2xl hover:bg-secondary/60 transition-colors">
+              <Icon name="RefreshCw" size={18} className="text-accent" />
+              <span className="text-sm font-medium">Сменить аккаунт</span>
+            </button>
+            <button onClick={onLogout} className="w-full flex items-center gap-3 py-3 px-1 rounded-2xl hover:bg-secondary/60 transition-colors">
+              <Icon name="LogOut" size={18} className="text-muted-foreground" />
+              <span className="text-sm font-medium">Выйти</span>
+            </button>
+            {!confirmDelete ? (
+              <button onClick={() => setConfirmDelete(true)} className="w-full flex items-center gap-3 py-3 px-1 rounded-2xl hover:bg-destructive/10 transition-colors">
+                <Icon name="Trash2" size={18} className="text-destructive" />
+                <span className="text-sm font-medium text-destructive">Удалить аккаунт</span>
+              </button>
+            ) : (
+              <div className="pt-2">
+                <p className="text-sm text-destructive mb-3 px-1">Удалить аккаунт навсегда? Это нельзя отменить.</p>
+                <div className="flex gap-2">
+                  <button onClick={onDeleteAccount} className="flex-1 py-2.5 rounded-2xl bg-destructive text-white text-sm font-semibold">Удалить</button>
+                  <button onClick={() => setConfirmDelete(false)} className="flex-1 py-2.5 rounded-2xl glass border border-border text-sm">Отмена</button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
