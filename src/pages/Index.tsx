@@ -1231,11 +1231,14 @@ function NewGroupScreen({ user, onBack, onCreated }: { user: User; onBack: () =>
   const toggle = (u: User) => setSelected(s => s.find(x => x.id === u.id) ? s.filter(x => x.id !== u.id) : [...s, u]);
 
   const create = async () => {
-    if (!name.trim()) return;
+    if (!name.trim() || creating) return;
     setCreating(true);
     const d = await api('create_group', 'POST', { user_id: user.id, name: name.trim(), member_ids: selected.map(u => u.id) });
     setCreating(false);
-    onCreated(d.chat_id, name.trim(), d.group_id);
+    const chatId = Number(d.chat_id);
+    const groupId = Number(d.group_id);
+    if (!chatId || !groupId) return;
+    onCreated(chatId, name.trim(), groupId);
   };
 
   return (

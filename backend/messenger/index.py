@@ -310,11 +310,16 @@ def handler(event: dict, context) -> dict:
             )
             group = cur.fetchone()
             gid = group['id']
+            # Для группового чата group_id определяет чат, user_a/user_b = создатель
             cur.execute("INSERT INTO chats (user_a, user_b, group_id) VALUES (%s, %s, %s) RETURNING id", (me, me, gid))
             chat = cur.fetchone()
             all_members = list({me} | {int(x) for x in member_ids})
             for uid in all_members:
-                cur.execute("INSERT INTO group_members (group_id, user_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (gid, uid))
+                role = 'owner' if uid == me else 'member'
+                cur.execute(
+                    "INSERT INTO group_members (group_id, user_id, role) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                    (gid, uid, role),
+                )
             conn.commit()
             return _resp(200, {'group_id': gid, 'chat_id': chat['id'], 'invite_token': group['invite_token']})
 
