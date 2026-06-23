@@ -146,6 +146,24 @@ export default function Index() {
 // LOGIN
 // ══════════════════════════════════════════════════════════════════════════════
 function LoginScreen({ draftNick, setDraftNick, onLogin, error }: { draftNick: string; setDraftNick: (v: string) => void; onLogin: () => void; error: string }) {
+  const [nickStatus, setNickStatus] = useState<'idle' | 'checking' | 'ok' | 'taken'>('idle');
+  const [nickHint, setNickHint] = useState('');
+
+  useEffect(() => {
+    const q = draftNick.trim().toLowerCase();
+    if (q.length < 2) { setNickStatus('idle'); setNickHint(''); return; }
+    setNickStatus('checking');
+    const t = setTimeout(async () => {
+      const d = await api(`check_nick&nick=${encodeURIComponent(q)}&user_id=0`);
+      if (d.available) { setNickStatus('ok'); setNickHint('Ник свободен!'); }
+      else { setNickStatus('taken'); setNickHint(d.error || 'Ник занят'); }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [draftNick]);
+
+  const nickColor = nickStatus === 'ok' ? 'text-green-400' : nickStatus === 'taken' ? 'text-destructive' : 'text-muted-foreground';
+  const borderColor = nickStatus === 'ok' ? 'border-green-400/60' : nickStatus === 'taken' ? 'border-destructive/60' : 'border-border';
+
   return (
     <div className="min-h-screen grad-mesh relative overflow-hidden flex items-center justify-center p-6">
       <div className="absolute top-1/4 -left-20 w-96 h-96 rounded-full bg-primary/30 blur-[120px] animate-float" />
@@ -159,15 +177,32 @@ function LoginScreen({ draftNick, setDraftNick, onLogin, error }: { draftNick: s
         </div>
         <div className="glass rounded-3xl p-8 shadow-2xl">
           <h1 className="font-display font-extrabold text-3xl leading-tight mb-2">Войди в <span className="text-gradient">Вай Мессенджер</span></h1>
-          <p className="text-muted-foreground mb-8">Придумай ник — войдёшь с этого устройства</p>
-          <div className="relative mb-2">
+          <p className="text-muted-foreground mb-2">Придумай уникальный ник. Только латиница, цифры и _</p>
+          <p className="text-xs text-muted-foreground mb-6">С этого устройства будешь входить автоматически</p>
+          <div className="relative mb-1">
             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">@</span>
-            <input value={draftNick} onChange={(e) => setDraftNick(e.target.value.replace(/\s/g, ''))} onKeyDown={(e) => e.key === 'Enter' && onLogin()} placeholder="cosmonaut" className="w-full bg-secondary/60 border border-border rounded-2xl pl-9 pr-4 py-3.5 outline-none focus:ring-2 focus:ring-primary transition-all" />
+            <input
+              value={draftNick}
+              onChange={(e) => setDraftNick(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
+              onKeyDown={(e) => e.key === 'Enter' && nickStatus === 'ok' && onLogin()}
+              placeholder="my_nickname"
+              maxLength={30}
+              className={`w-full bg-secondary/60 border rounded-2xl pl-9 pr-10 py-3.5 outline-none focus:ring-2 focus:ring-primary transition-all ${borderColor}`}
+            />
+            <span className="absolute right-4 top-1/2 -translate-y-1/2">
+              {nickStatus === 'checking' && <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin block" />}
+              {nickStatus === 'ok' && <Icon name="Check" size={16} className="text-green-400" />}
+              {nickStatus === 'taken' && <Icon name="X" size={16} className="text-destructive" />}
+            </span>
           </div>
+          <p className={`text-xs mb-5 h-4 ${nickColor}`}>{nickHint}</p>
           {error && <p className="text-destructive text-sm mb-4">{error}</p>}
-          {!error && <div className="mb-4" />}
-          <button disabled={draftNick.trim().length < 2} onClick={onLogin} className="w-full py-4 rounded-2xl font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-40 transition-all shadow-lg shadow-primary/30 text-white">
-            Поехали →
+          <button
+            disabled={draftNick.trim().length < 2 || nickStatus !== 'ok'}
+            onClick={onLogin}
+            className="w-full py-4 rounded-2xl font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-40 transition-all shadow-lg shadow-primary/30 text-white"
+          >
+            Зарегистрироваться →
           </button>
         </div>
       </div>
@@ -207,13 +242,22 @@ function SetupScreen({ user, onDone }: { user: User; onDone: (u: User) => void }
     onDone(d.user);
   };
 
+  const canSave = city.trim() && birthdate;
+
   return (
-    <div className="min-h-screen grad-mesh flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-md animate-fade-up">
+    <div className="min-h-screen grad-mesh flex flex-col items-center justify-center p-4 overflow-y-auto">
+      <div className="w-full max-w-md animate-fade-up py-8">
+        <div className="flex items-center justify-center gap-2 mb-6">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center">
+            <span className="text-white font-display font-black text-sm">ВМ</span>
+          </div>
+          <span className="font-display font-bold text-xl">Вай Мессенджер</span>
+        </div>
         <h1 className="font-display font-bold text-2xl mb-1 text-center">Заполни профиль</h1>
-        <p className="text-muted-foreground text-sm text-center mb-8">Можно пропустить и вернуться позже</p>
+        <p className="text-muted-foreground text-sm text-center mb-6">Это видят все пользователи. Заполни чтобы продолжить.</p>
         <div className="glass rounded-3xl p-6 space-y-5">
-          <div className="flex flex-col items-center gap-3">
+          {/* Аватар */}
+          <div className="flex flex-col items-center gap-2">
             <button onClick={() => fileRef.current?.click()} className="relative">
               {avatar
                 ? <img src={avatar} className="w-24 h-24 rounded-full object-cover" />
@@ -222,25 +266,31 @@ function SetupScreen({ user, onDone }: { user: User; onDone: (u: User) => void }
               <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center"><Icon name="Plus" size={14} className="text-white" /></div>
             </button>
             <input ref={fileRef} type="file" accept="image/*" hidden onChange={pickAvatar} />
-            <span className="text-sm text-muted-foreground">Фото профиля</span>
+            <span className="text-xs text-muted-foreground">Фото профиля (необязательно)</span>
           </div>
-          {[
-            { label: 'Город', value: city, set: setCity, placeholder: 'Москва', type: 'text' },
-            { label: 'Дата рождения', value: birthdate, set: setBirthdate, placeholder: '', type: 'date' },
-          ].map(f => (
-            <div key={f.label}>
-              <label className="text-xs text-muted-foreground mb-1 block">{f.label}</label>
-              <input type={f.type} value={f.value} onChange={(e) => f.set(e.target.value)} placeholder={f.placeholder} className="w-full bg-secondary/60 border border-border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary transition-all" />
-            </div>
-          ))}
+
+          {/* Ник — только читаем */}
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Ник</label>
+            <div className="w-full bg-secondary/30 border border-border rounded-2xl px-4 py-3 text-muted-foreground text-sm">@{user.nick}</div>
+          </div>
+
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Город <span className="text-destructive">*</span></label>
+            <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Москва" className="w-full bg-secondary/60 border border-border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary transition-all" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Дата рождения <span className="text-destructive">*</span></label>
+            <input type="date" value={birthdate} onChange={(e) => setBirthdate(e.target.value)} className="w-full bg-secondary/60 border border-border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary transition-all" />
+          </div>
           <div>
             <label className="text-xs text-muted-foreground mb-1 block">О себе</label>
             <textarea value={about} onChange={(e) => setAbout(e.target.value)} rows={3} placeholder="Расскажи о себе..." className="w-full bg-secondary/60 border border-border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary transition-all resize-none" />
           </div>
-          <button onClick={save} disabled={saving} className="w-full py-4 rounded-2xl font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-50 transition-all shadow-lg shadow-primary/30 text-white">
-            {saving ? 'Сохраняю...' : 'Сохранить и войти'}
+          {!canSave && <p className="text-xs text-muted-foreground text-center">Заполни город и дату рождения чтобы продолжить</p>}
+          <button onClick={save} disabled={saving || !canSave} className="w-full py-4 rounded-2xl font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-40 transition-all shadow-lg shadow-primary/30 text-white">
+            {saving ? 'Сохраняю...' : 'Готово →'}
           </button>
-          <button onClick={() => onDone(user)} className="w-full py-3 rounded-2xl text-muted-foreground hover:text-foreground transition-colors text-sm">Пропустить</button>
         </div>
       </div>
     </div>
@@ -498,6 +548,13 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
   const [showAvatarMenu, setShowAvatarMenu] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // ник
+  const [editingNick, setEditingNick] = useState(false);
+  const [newNick, setNewNick] = useState('');
+  const [nickStatus, setNickStatus] = useState<'idle' | 'checking' | 'ok' | 'taken'>('idle');
+  const [nickHint, setNickHint] = useState('');
+  const [nickSaving, setNickSaving] = useState(false);
+
   const load = async () => {
     const d = await api(`profile&user_id=${user.id}&me=${user.id}`);
     const p = d.user; setProfile(p);
@@ -529,6 +586,33 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
     setSaving(true);
     const d = await api('profile_update', 'POST', { user_id: user.id, city: city || null, birthdate: birthdate || null, about: about || null });
     setSaving(false); setEditing(false); setProfile(d.user);
+  };
+
+  // проверка ника при вводе
+  useEffect(() => {
+    if (!editingNick) return;
+    const q = newNick.trim().toLowerCase();
+    if (q.length < 2) { setNickStatus('idle'); setNickHint(''); return; }
+    if (q === profile?.nick) { setNickStatus('ok'); setNickHint('Это твой текущий ник'); return; }
+    setNickStatus('checking');
+    const t = setTimeout(async () => {
+      const d = await api(`check_nick&nick=${encodeURIComponent(q)}&user_id=${user.id}`);
+      if (d.available) { setNickStatus('ok'); setNickHint('Ник свободен!'); }
+      else { setNickStatus('taken'); setNickHint(d.error || 'Ник занят'); }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [newNick, editingNick, profile?.nick, user.id]);
+
+  const saveNick = async () => {
+    const q = newNick.trim().toLowerCase();
+    if (!q || nickStatus !== 'ok' || q === profile?.nick) { setEditingNick(false); return; }
+    setNickSaving(true);
+    const d = await api('change_nick', 'POST', { user_id: user.id, nick: q });
+    setNickSaving(false);
+    if (d.error) { setNickHint(d.error); setNickStatus('taken'); return; }
+    onUpdate({ ...user, nick: d.user.nick });
+    setEditingNick(false);
+    load();
   };
 
   const Toggle = ({ on, onToggle }: { on: boolean; onToggle: () => void }) => (
@@ -566,7 +650,39 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
                 )}
               </div>
             )}
-            <h2 className="font-display font-bold text-2xl mt-4">@{profile.nick}</h2>
+            {/* Ник с редактированием */}
+            {!editingNick ? (
+              <button onClick={() => { setNewNick(profile.nick); setEditingNick(true); setNickStatus('idle'); setNickHint(''); }} className="flex items-center gap-2 mt-4 group">
+                <h2 className="font-display font-bold text-2xl">@{profile.nick}</h2>
+                <Icon name="Pencil" size={16} className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
+            ) : (
+              <div className="mt-4 w-full px-4">
+                <div className="relative mb-1">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">@</span>
+                  <input
+                    autoFocus
+                    value={newNick}
+                    onChange={(e) => setNewNick(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
+                    onKeyDown={(e) => { if (e.key === 'Enter') saveNick(); if (e.key === 'Escape') setEditingNick(false); }}
+                    maxLength={30}
+                    className="w-full bg-secondary/60 border border-border rounded-2xl pl-8 pr-10 py-2.5 outline-none focus:ring-2 focus:ring-primary transition-all text-center font-display font-bold text-lg"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2">
+                    {nickStatus === 'checking' && <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin block" />}
+                    {nickStatus === 'ok' && <Icon name="Check" size={15} className="text-green-400" />}
+                    {nickStatus === 'taken' && <Icon name="X" size={15} className="text-destructive" />}
+                  </span>
+                </div>
+                <p className={`text-xs text-center mb-2 h-4 ${nickStatus === 'ok' ? 'text-green-400' : 'text-destructive'}`}>{nickHint}</p>
+                <div className="flex gap-2">
+                  <button onClick={saveNick} disabled={nickSaving || nickStatus !== 'ok'} className="flex-1 py-2 rounded-xl bg-gradient-to-r from-primary to-accent text-white text-sm font-semibold disabled:opacity-40">
+                    {nickSaving ? '...' : 'Сохранить'}
+                  </button>
+                  <button onClick={() => setEditingNick(false)} className="flex-1 py-2 rounded-xl glass border border-border text-sm">Отмена</button>
+                </div>
+              </div>
+            )}
             <div className="flex gap-8 mt-4">
               <button onClick={() => onFollowers(user.id, 'followers')} className="flex flex-col items-center hover:text-primary transition-colors">
                 <span className="font-display font-bold text-xl">{profile.followers}</span>

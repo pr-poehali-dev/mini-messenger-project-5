@@ -24,7 +24,7 @@ def _resp(status, body):
 
 
 def handler(event: dict, context) -> dict:
-    """Orbit мессенджер: профили, чаты, группы, подписки"""
+    """Вай Мессенджер: профили, чаты, группы, подписки"""
     if event.get('httpMethod') == 'OPTIONS':
         return _resp(200, {})
 
@@ -47,7 +47,10 @@ def handler(event: dict, context) -> dict:
             device_id = (body.get('device_id') or '').strip()
             if not nick or len(nick) < 2:
                 return _resp(400, {'error': 'Ник минимум 2 символа'})
+            if len(nick) > 30:
+                return _resp(400, {'error': 'Ник максимум 30 символов'})
 
+            # Устройство уже зарегистрировано — сразу входим
             if device_id:
                 cur.execute("SELECT id, nick, profile_complete, avatar_url FROM users WHERE device_id = %s", (device_id,))
                 by_device = cur.fetchone()
@@ -56,19 +59,56 @@ def handler(event: dict, context) -> dict:
                     conn.commit()
                     return _resp(200, {'user': by_device})
 
-            cur.execute("SELECT id, nick, profile_complete, avatar_url, device_id FROM users WHERE nick = %s", (nick,))
+            # Проверяем ник — занят ли он?
+            cur.execute("SELECT id, device_id FROM users WHERE nick = %s", (nick,))
             existing = cur.fetchone()
             if existing:
-                if existing['device_id'] and existing['device_id'] != device_id:
-                    return _resp(409, {'error': 'Этот ник уже занят другим устройством'})
-                if device_id and not existing['device_id']:
-                    cur.execute("UPDATE users SET device_id=%s, is_online=TRUE, last_seen=NOW() WHERE id=%s", (device_id, existing['id']))
-                    conn.commit()
-                return _resp(200, {'user': existing})
+                # Ник занят другим устройством
+                return _resp(409, {'error': 'Этот ник уже занят. Придумай другой.'})
 
+            # Новый пользователь
             cur.execute(
                 "INSERT INTO users (nick, device_id, is_online, last_seen) VALUES (%s, %s, TRUE, NOW()) RETURNING id, nick, profile_complete, avatar_url",
                 (nick, device_id or None),
+            )
+            user = cur.fetchone()
+            conn.commit()
+            return _resp(200, {'user': user})
+
+        # ── CHECK NICK ─────────────────────────────────────
+        if action == 'check_nick' and method == 'GET':
+            nick = (params.get('nick') or '').strip().lower()
+            me = int(params.get('user_id') or 0)
+            if not nick or len(nick) < 2:
+                return _resp(200, {'available': False, 'error': 'Минимум 2 символа'})
+            if len(nick) > 30:
+                return _resp(200, {'available': False, 'error': 'Максимум 30 символов'})
+            import re
+            if not re.match(r'^[a-z0-9_]+$', nick):
+                return _resp(200, {'available': False, 'error': 'Только латиница, цифры и _'})
+            cur.execute("SELECT id FROM users WHERE nick = %s AND id != %s", (nick, me))
+            taken = cur.fetchone()
+            if taken:
+                return _resp(200, {'available': False, 'error': 'Ник уже занят'})
+            return _resp(200, {'available': True})
+
+        # ── CHANGE NICK ────────────────────────────────────
+        if action == 'change_nick' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            new_nick = (body.get('nick') or '').strip().lower()
+            if not new_nick or len(new_nick) < 2:
+                return _resp(400, {'error': 'Ник минимум 2 символа'})
+            if len(new_nick) > 30:
+                return _resp(400, {'error': 'Ник максимум 30 символов'})
+            import re
+            if not re.match(r'^[a-z0-9_]+$', new_nick):
+                return _resp(400, {'error': 'Только латиница, цифры и _'})
+            cur.execute("SELECT id FROM users WHERE nick = %s AND id != %s", (new_nick, uid))
+            if cur.fetchone():
+                return _resp(409, {'error': 'Этот ник уже занят'})
+            cur.execute(
+                "UPDATE users SET nick=%s, nick_changed_at=NOW() WHERE id=%s RETURNING id, nick, avatar_url, profile_complete",
+                (new_nick, uid),
             )
             user = cur.fetchone()
             conn.commit()
