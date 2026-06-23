@@ -676,10 +676,13 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
   const [nickHint, setNickHint] = useState('');
   const [nickSaving, setNickSaving] = useState(false);
 
+  const [loadError, setLoadError] = useState(false);
+
   const load = async () => {
+    setLoadError(false);
     const d = await api(`profile&user_id=${user.id}&me=${user.id}`);
     const p = d.user as Profile | undefined;
-    if (!p) return;
+    if (!p) { setLoadError(true); return; }
     setProfile(p);
     setCity((p.city as string) || '');
     setBirthdate(p.birthdate ? (p.birthdate as string).slice(0, 10) : '');
@@ -753,6 +756,21 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
         <span className="font-display font-bold text-xl">Мой профиль</span>
       </header>
 
+      {!profile && !loadError && (
+        <div className="flex flex-col items-center justify-center flex-1 gap-3 mt-20">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-muted-foreground">Загружаю профиль...</p>
+        </div>
+      )}
+      {!profile && loadError && (
+        <div className="flex flex-col items-center justify-center flex-1 gap-3 mt-20 px-6">
+          <Icon name="WifiOff" size={40} className="text-muted-foreground opacity-50" />
+          <p className="text-sm text-muted-foreground text-center">Не удалось загрузить профиль</p>
+          <button onClick={load} className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-primary to-accent text-white text-sm font-semibold">
+            Повторить
+          </button>
+        </div>
+      )}
       {profile && (
         <div className="p-4 space-y-4 pb-8">
           {/* Аватар */}
