@@ -1,286 +1,264 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import Icon from '@/components/ui/icon';
-import { Button } from '@/components/ui/button';
 
 const API = 'https://functions.poehali.dev/b927178a-1937-4d4d-8fd6-2a1ffe4d52be';
 
-type User = { id: number; nick: string };
-type ChatItem = {
-  chat_id: number;
-  peer_id: number;
-  peer_nick: string;
-  last_text: string | null;
-  last_image: string | null;
-  last_at: string | null;
+// ── helpers ──────────────────────────────────────────────────────────────────
+function getDeviceId() {
+  let id = localStorage.getItem('orbit_device');
+  if (!id) { id = Math.random().toString(36).slice(2) + Date.now(); localStorage.setItem('orbit_device', id); }
+  return id;
+}
+const api = async (action: string, method = 'GET', body?: object) => {
+  const r = await fetch(`${API}?action=${action}`, {
+    method, headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return r.json();
 };
-type Message = {
-  id: number;
-  sender_id: number;
-  text: string | null;
-  image_url: string | null;
-  created_at: string;
-};
-type View = 'list' | 'search' | 'chat';
-
 const fmtTime = (iso: string | null) => {
   if (!iso) return '';
-  return new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  const d = new Date(iso);
+  const today = new Date();
+  if (d.toDateString() === today.toDateString())
+    return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
 };
+const fmtLastSeen = (iso: string | null) => {
+  if (!iso) return '';
+  return 'был(а) ' + new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+};
+const Avatar = ({ url, nick, size = 40, online }: { url?: string | null; nick: string; size?: number; online?: boolean }) => (
+  <div className="relative shrink-0" style={{ width: size, height: size }}>
+    {url
+      ? <img src={url} className="rounded-full object-cover w-full h-full" />
+      : <div className="rounded-full bg-gradient-to-br from-accent to-primary flex items-center justify-center font-display font-bold text-white w-full h-full" style={{ fontSize: size * 0.38 }}>{nick.slice(0, 1).toUpperCase()}</div>
+    }
+    {online && <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-400 border-2 border-card" />}
+  </div>
+);
+
+// ── types ─────────────────────────────────────────────────────────────────────
+type User = { id: number; nick: string; avatar_url?: string | null; profile_complete?: boolean; is_online?: boolean };
+type Profile = User & { city?: string; birthdate?: string; about?: string; is_online?: boolean; last_seen?: string; followers: number; following: number; i_follow?: boolean; i_blocked?: boolean };
+type ChatItem = { chat_id: number; kind: 'dm' | 'group'; peer_id?: number; peer_nick?: string; peer_avatar?: string | null; peer_online?: boolean; group_id?: number; group_name?: string; group_avatar?: string | null; last_text?: string | null; last_at?: string | null };
+type Message = { id: number; sender_id: number; sender_nick: string; sender_avatar?: string | null; text?: string | null; image_url?: string | null; created_at: string };
+type Tab = 'chats' | 'search' | 'profile';
+
+// ── screens ───────────────────────────────────────────────────────────────────
+type Screen =
+  | { name: 'login' }
+  | { name: 'setup' }
+  | { name: 'tabs'; tab: Tab }
+  | { name: 'chat'; chatId: number; peer?: User; groupName?: string; groupId?: number }
+  | { name: 'user_profile'; userId: number }
+  | { name: 'followers'; userId: number; mode: 'followers' | 'following' }
+  | { name: 'new_group' };
 
 export default function Index() {
   const [user, setUser] = useState<User | null>(() => {
-    const raw = localStorage.getItem('orbit_user');
-    return raw ? JSON.parse(raw) : null;
+    const r = localStorage.getItem('orbit_user'); return r ? JSON.parse(r) : null;
   });
+  const [screen, setScreen] = useState<Screen>(user ? { name: 'tabs', tab: 'chats' } : { name: 'login' });
   const [draftNick, setDraftNick] = useState('');
-  const [view, setView] = useState<View>('list');
+  const [loginError, setLoginError] = useState('');
 
-  const [chats, setChats] = useState<ChatItem[]>([]);
-
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<User[]>([]);
-
-  const [chatId, setChatId] = useState<number | null>(null);
-  const [peer, setPeer] = useState<User | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-
-  const endRef = useRef<HTMLDivElement>(null);
-  const lastIdRef = useRef(0);
+  const push = (s: Screen) => setScreen(s);
+  const back = () => setScreen(user ? { name: 'tabs', tab: 'chats' } : { name: 'login' });
 
   const login = async () => {
     const nick = draftNick.trim().toLowerCase();
     if (nick.length < 2) return;
-    const r = await fetch(`${API}?action=login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nick }),
-    });
-    const data = await r.json();
-    if (data.user) {
-      setUser(data.user);
-      localStorage.setItem('orbit_user', JSON.stringify(data.user));
-    }
+    setLoginError('');
+    const data = await api('login', 'POST', { nick, device_id: getDeviceId() });
+    if (data.error) { setLoginError(data.error); return; }
+    const u = data.user;
+    setUser(u);
+    localStorage.setItem('orbit_user', JSON.stringify(u));
+    push(u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' });
   };
 
   const logout = () => {
+    if (user) api('offline', 'POST', { user_id: user.id });
     localStorage.removeItem('orbit_user');
     setUser(null);
-    setView('list');
-    setChats([]);
-    setChatId(null);
+    push({ name: 'login' });
   };
 
-  const loadChats = useCallback(async () => {
+  // ping online every 30s
+  useEffect(() => {
     if (!user) return;
-    const r = await fetch(`${API}?action=chats&user_id=${user.id}`);
-    const data = await r.json();
-    setChats(data.chats || []);
+    const iv = setInterval(() => api('ping', 'POST', { user_id: user.id }), 30000);
+    api('ping', 'POST', { user_id: user.id });
+    const off = () => api('offline', 'POST', { user_id: user.id });
+    window.addEventListener('beforeunload', off);
+    return () => { clearInterval(iv); window.removeEventListener('beforeunload', off); };
   }, [user]);
 
-  useEffect(() => {
-    if (user && view === 'list') loadChats();
-  }, [user, view, loadChats]);
+  if (!user || screen.name === 'login') return <LoginScreen draftNick={draftNick} setDraftNick={setDraftNick} onLogin={login} error={loginError} />;
+  if (screen.name === 'setup') return <SetupScreen user={user} onDone={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); push({ name: 'tabs', tab: 'chats' }); }} />;
+  if (screen.name === 'chat') return <ChatScreen user={user} chatId={screen.chatId} peer={screen.peer} groupName={screen.groupName} onBack={() => push({ name: 'tabs', tab: 'chats' })} onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />;
+  if (screen.name === 'user_profile') return <UserProfileScreen me={user} userId={screen.userId} onBack={back} onOpenChat={async (peerId) => { const d = await api('open_chat', 'POST', { user_id: user.id, peer_id: peerId }); push({ name: 'chat', chatId: d.chat_id, peer: d.peer }); }} onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} />;
+  if (screen.name === 'followers') return <FollowersScreen userId={screen.userId} mode={screen.mode} me={user} onBack={back} onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />;
+  if (screen.name === 'new_group') return <NewGroupScreen user={user} onBack={() => push({ name: 'tabs', tab: 'chats' })} onCreated={(chatId, groupName) => push({ name: 'chat', chatId, groupName })} />;
 
-  useEffect(() => {
-    if (view !== 'search' || !user) return;
-    const q = query.trim();
-    if (!q) { setResults([]); return; }
-    const t = setTimeout(async () => {
-      const r = await fetch(`${API}?action=search&q=${encodeURIComponent(q)}&user_id=${user.id}`);
-      const data = await r.json();
-      setResults(data.users || []);
-    }, 250);
-    return () => clearTimeout(t);
-  }, [query, view, user]);
+  // tabs
+  const tab = (screen as { name: 'tabs'; tab: Tab }).tab;
+  return (
+    <TabsShell tab={tab} onTab={(t) => push({ name: 'tabs', tab: t })}>
+      {tab === 'chats' && <ChatsTab user={user} onOpenChat={(c) => push({ name: 'chat', chatId: c.chat_id, peer: c.peer_id ? { id: c.peer_id, nick: c.peer_nick!, avatar_url: c.peer_avatar } : undefined, groupName: c.group_name })} onNewGroup={() => push({ name: 'new_group' })} />}
+      {tab === 'search' && <SearchTab user={user} onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />}
+      {tab === 'profile' && <ProfileTab user={user} onLogout={logout} onUpdate={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); }} onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} />}
+    </TabsShell>
+  );
+}
 
-  const openChat = async (peerId: number) => {
-    if (!user) return;
-    const r = await fetch(`${API}?action=open_chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: user.id, peer_id: peerId }),
-    });
-    const data = await r.json();
-    setChatId(data.chat_id);
-    setPeer(data.peer);
-    setMessages([]);
-    lastIdRef.current = 0;
-    setView('chat');
-    setQuery('');
-    setResults([]);
-  };
-
-  useEffect(() => {
-    if (view !== 'chat' || !chatId) return;
-    let alive = true;
-    const poll = async () => {
-      const r = await fetch(`${API}?action=messages&chat_id=${chatId}&after=${lastIdRef.current}`);
-      const data = await r.json();
-      if (!alive) return;
-      const fresh: Message[] = data.messages || [];
-      if (fresh.length) {
-        lastIdRef.current = fresh[fresh.length - 1].id;
-        setMessages((m) => [...m, ...fresh]);
-      }
-    };
-    poll();
-    const iv = setInterval(poll, 1500);
-    return () => { alive = false; clearInterval(iv); };
-  }, [view, chatId]);
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const send = async () => {
-    if (!input.trim() || !chatId || !user) return;
-    const text = input.trim();
-    setInput('');
-    await fetch(`${API}?action=send`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, user_id: user.id, text }),
-    });
-  };
-
-  if (!user) {
-    return (
-      <div className="min-h-screen grad-mesh relative overflow-hidden flex items-center justify-center p-6">
-        <div className="absolute top-1/4 -left-20 w-96 h-96 rounded-full bg-primary/30 blur-[120px] animate-float" />
-        <div className="absolute bottom-1/4 -right-20 w-96 h-96 rounded-full bg-accent/20 blur-[120px] animate-float" style={{ animationDelay: '2s' }} />
-        <div className="relative w-full max-w-md animate-fade-up">
-          <div className="flex items-center justify-center gap-3 mb-10">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
-              <Icon name="Send" className="text-white" size={22} />
-            </div>
-            <span className="font-display font-bold text-2xl tracking-tight">Orbit</span>
+// ══════════════════════════════════════════════════════════════════════════════
+// LOGIN
+// ══════════════════════════════════════════════════════════════════════════════
+function LoginScreen({ draftNick, setDraftNick, onLogin, error }: { draftNick: string; setDraftNick: (v: string) => void; onLogin: () => void; error: string }) {
+  return (
+    <div className="min-h-screen grad-mesh relative overflow-hidden flex items-center justify-center p-6">
+      <div className="absolute top-1/4 -left-20 w-96 h-96 rounded-full bg-primary/30 blur-[120px] animate-float" />
+      <div className="absolute bottom-1/4 -right-20 w-96 h-96 rounded-full bg-accent/20 blur-[120px] animate-float" style={{ animationDelay: '2s' }} />
+      <div className="relative w-full max-w-md animate-fade-up">
+        <div className="flex items-center justify-center gap-3 mb-10">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
+            <Icon name="Send" className="text-white" size={22} />
           </div>
-          <div className="glass rounded-3xl p-8 shadow-2xl">
-            <h1 className="font-display font-extrabold text-3xl leading-tight mb-2">
-              Войди в <span className="text-gradient">Orbit</span>
-            </h1>
-            <p className="text-muted-foreground mb-8">Придумай ник — и найди друзей по нику</p>
-            <div className="relative mb-6">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">@</span>
-              <input
-                value={draftNick}
-                onChange={(e) => setDraftNick(e.target.value.replace(/\s/g, ''))}
-                onKeyDown={(e) => e.key === 'Enter' && login()}
-                placeholder="cosmonaut"
-                className="w-full bg-secondary/60 border border-border rounded-2xl pl-9 pr-4 py-3.5 outline-none focus:ring-2 focus:ring-primary transition-all"
-              />
-            </div>
-            <Button
-              disabled={draftNick.trim().length < 2}
-              onClick={login}
-              className="w-full py-6 rounded-2xl text-base font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 transition-all shadow-lg shadow-primary/30"
-            >
-              Поехали <Icon name="ArrowRight" size={18} className="ml-1" />
-            </Button>
-          </div>
+          <span className="font-display font-bold text-2xl tracking-tight">Orbit</span>
         </div>
-      </div>
-    );
-  }
-
-  if (view === 'chat' && peer) {
-    return (
-      <div className="min-h-screen grad-mesh flex flex-col">
-        <header className="flex items-center gap-3 px-4 py-3 glass">
-          <button onClick={() => setView('list')} className="w-10 h-10 rounded-full hover:bg-secondary/60 flex items-center justify-center transition-colors">
-            <Icon name="ArrowLeft" size={20} />
-          </button>
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-accent to-primary flex items-center justify-center font-display font-bold text-white">
-            {peer.nick.slice(0, 1).toUpperCase()}
+        <div className="glass rounded-3xl p-8 shadow-2xl">
+          <h1 className="font-display font-extrabold text-3xl leading-tight mb-2">Войди в <span className="text-gradient">Orbit</span></h1>
+          <p className="text-muted-foreground mb-8">Придумай ник — войдёшь с этого устройства</p>
+          <div className="relative mb-2">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">@</span>
+            <input value={draftNick} onChange={(e) => setDraftNick(e.target.value.replace(/\s/g, ''))} onKeyDown={(e) => e.key === 'Enter' && onLogin()} placeholder="cosmonaut" className="w-full bg-secondary/60 border border-border rounded-2xl pl-9 pr-4 py-3.5 outline-none focus:ring-2 focus:ring-primary transition-all" />
           </div>
-          <div className="flex-1">
-            <div className="font-semibold">@{peer.nick}</div>
-            <div className="text-xs text-green-400">в сети</div>
-          </div>
-          <button className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
-            <Icon name="Video" size={18} className="text-white" />
-          </button>
-        </header>
-
-        <main className="flex-1 overflow-y-auto scrollbar-thin px-4 py-5 space-y-3">
-          {messages.length === 0 && (
-            <div className="text-center text-muted-foreground mt-10 text-sm">
-              Напиши первое сообщение @{peer.nick} 👋
-            </div>
-          )}
-          {messages.map((m) => {
-            const mine = m.sender_id === user.id;
-            return (
-              <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'} animate-msg-in`}>
-                <div className={`max-w-[75%] rounded-3xl px-4 py-2.5 ${mine ? 'bg-gradient-to-br from-primary to-accent text-white rounded-br-md' : 'bg-secondary/70 rounded-bl-md'}`}>
-                  {m.image_url ? (
-                    <img src={m.image_url} alt="" className="rounded-2xl max-h-60 mb-1" />
-                  ) : (
-                    <p className="leading-relaxed break-words">{m.text}</p>
-                  )}
-                  <span className={`block text-[10px] mt-1 ${mine ? 'text-white/70' : 'text-muted-foreground'}`}>{fmtTime(m.created_at)}</span>
-                </div>
-              </div>
-            );
-          })}
-          <div ref={endRef} />
-        </main>
-
-        <div className="flex items-center gap-2 p-3 glass">
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && send()}
-            placeholder="Напиши сообщение…"
-            className="flex-1 bg-secondary/60 border border-border rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-primary transition-all"
-          />
-          <button onClick={send} className="w-11 h-11 shrink-0 rounded-full bg-gradient-to-br from-primary to-accent hover:opacity-90 flex items-center justify-center shadow-lg shadow-primary/30">
-            <Icon name="Send" size={18} className="text-white" />
+          {error && <p className="text-destructive text-sm mb-4">{error}</p>}
+          {!error && <div className="mb-4" />}
+          <button disabled={draftNick.trim().length < 2} onClick={onLogin} className="w-full py-4 rounded-2xl font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-40 transition-all shadow-lg shadow-primary/30 text-white">
+            Поехали →
           </button>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
-  if (view === 'search') {
-    return (
-      <div className="min-h-screen grad-mesh flex flex-col">
-        <header className="flex items-center gap-3 px-4 py-3 glass">
-          <button onClick={() => { setView('list'); setQuery(''); setResults([]); }} className="w-10 h-10 rounded-full hover:bg-secondary/60 flex items-center justify-center transition-colors">
-            <Icon name="ArrowLeft" size={20} />
-          </button>
-          <div className="relative flex-1">
-            <Icon name="Search" size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <input
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Найти человека по нику…"
-              className="w-full bg-secondary/60 border border-border rounded-full pl-10 pr-4 py-2.5 outline-none focus:ring-2 focus:ring-primary transition-all"
-            />
-          </div>
-        </header>
-        <main className="flex-1 overflow-y-auto scrollbar-thin p-3">
-          {query.trim() && results.length === 0 && (
-            <div className="text-center text-muted-foreground mt-10 text-sm">Никого не нашли по «{query}»</div>
-          )}
-          {results.map((u) => (
-            <button key={u.id} onClick={() => openChat(u.id)} className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-secondary/50 transition-colors animate-fade-up">
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-accent to-primary flex items-center justify-center font-display font-bold text-white">
-                {u.nick.slice(0, 1).toUpperCase()}
-              </div>
-              <div className="flex-1 text-left font-medium">@{u.nick}</div>
-              <Icon name="MessageCirclePlus" size={20} className="text-accent" />
-            </button>
-          ))}
-        </main>
-      </div>
-    );
-  }
+// ══════════════════════════════════════════════════════════════════════════════
+// SETUP PROFILE
+// ══════════════════════════════════════════════════════════════════════════════
+function SetupScreen({ user, onDone }: { user: User; onDone: (u: User) => void }) {
+  const [avatar, setAvatar] = useState<string | null>(null);
+  const [city, setCity] = useState('');
+  const [birthdate, setBirthdate] = useState('');
+  const [about, setAbout] = useState('');
+  const [saving, setSaving] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const pickAvatar = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setAvatar(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    let avatar_url = null;
+    if (avatar) {
+      const [header, b64] = avatar.split(',');
+      const ext = header.includes('png') ? 'png' : 'jpg';
+      const d = await api('upload_avatar', 'POST', { user_id: user.id, data: b64, ext });
+      avatar_url = d.url;
+    }
+    const d = await api('profile_update', 'POST', { user_id: user.id, avatar_url, city: city || null, birthdate: birthdate || null, about: about || null });
+    setSaving(false);
+    onDone(d.user);
+  };
 
   return (
+    <div className="min-h-screen grad-mesh flex flex-col items-center justify-center p-6">
+      <div className="w-full max-w-md animate-fade-up">
+        <h1 className="font-display font-bold text-2xl mb-1 text-center">Заполни профиль</h1>
+        <p className="text-muted-foreground text-sm text-center mb-8">Можно пропустить и вернуться позже</p>
+        <div className="glass rounded-3xl p-6 space-y-5">
+          <div className="flex flex-col items-center gap-3">
+            <button onClick={() => fileRef.current?.click()} className="relative">
+              {avatar
+                ? <img src={avatar} className="w-24 h-24 rounded-full object-cover" />
+                : <div className="w-24 h-24 rounded-full bg-secondary/60 border-2 border-dashed border-border flex items-center justify-center"><Icon name="Camera" size={28} className="text-muted-foreground" /></div>
+              }
+              <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center"><Icon name="Plus" size={14} className="text-white" /></div>
+            </button>
+            <input ref={fileRef} type="file" accept="image/*" hidden onChange={pickAvatar} />
+            <span className="text-sm text-muted-foreground">Фото профиля</span>
+          </div>
+          {[
+            { label: 'Город', value: city, set: setCity, placeholder: 'Москва', type: 'text' },
+            { label: 'Дата рождения', value: birthdate, set: setBirthdate, placeholder: '', type: 'date' },
+          ].map(f => (
+            <div key={f.label}>
+              <label className="text-xs text-muted-foreground mb-1 block">{f.label}</label>
+              <input type={f.type} value={f.value} onChange={(e) => f.set(e.target.value)} placeholder={f.placeholder} className="w-full bg-secondary/60 border border-border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary transition-all" />
+            </div>
+          ))}
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">О себе</label>
+            <textarea value={about} onChange={(e) => setAbout(e.target.value)} rows={3} placeholder="Расскажи о себе..." className="w-full bg-secondary/60 border border-border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary transition-all resize-none" />
+          </div>
+          <button onClick={save} disabled={saving} className="w-full py-4 rounded-2xl font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-50 transition-all shadow-lg shadow-primary/30 text-white">
+            {saving ? 'Сохраняю...' : 'Сохранить и войти'}
+          </button>
+          <button onClick={() => onDone(user)} className="w-full py-3 rounded-2xl text-muted-foreground hover:text-foreground transition-colors text-sm">Пропустить</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TABS SHELL
+// ══════════════════════════════════════════════════════════════════════════════
+function TabsShell({ tab, onTab, children }: { tab: Tab; onTab: (t: Tab) => void; children: React.ReactNode }) {
+  const tabs: { key: Tab; icon: string; label: string }[] = [
+    { key: 'chats', icon: 'MessageCircle', label: 'Чаты' },
+    { key: 'search', icon: 'Search', label: 'Поиск' },
+    { key: 'profile', icon: 'User', label: 'Профиль' },
+  ];
+  return (
     <div className="min-h-screen grad-mesh flex flex-col">
+      <div className="flex-1 overflow-hidden flex flex-col pb-20">{children}</div>
+      <nav className="fixed bottom-0 left-0 right-0 glass border-t border-border flex">
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => onTab(t.key)} className={`flex-1 flex flex-col items-center justify-center py-3 gap-0.5 transition-colors ${tab === t.key ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}>
+            <Icon name={t.icon} size={22} />
+            <span className="text-[10px] font-medium">{t.label}</span>
+            {tab === t.key && <span className="absolute bottom-0 w-10 h-0.5 bg-primary rounded-full" />}
+          </button>
+        ))}
+      </nav>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CHATS TAB
+// ══════════════════════════════════════════════════════════════════════════════
+function ChatsTab({ user, onOpenChat, onNewGroup }: { user: User; onOpenChat: (c: ChatItem) => void; onNewGroup: () => void }) {
+  const [chats, setChats] = useState<ChatItem[]>([]);
+  const [showMenu, setShowMenu] = useState(false);
+
+  const load = useCallback(async () => {
+    const d = await api(`chats&user_id=${user.id}`);
+    setChats(d.chats || []);
+  }, [user.id]);
+
+  useEffect(() => { load(); const iv = setInterval(load, 3000); return () => clearInterval(iv); }, [load]);
+
+  return (
+    <div className="flex flex-col h-full">
       <header className="flex items-center justify-between px-4 py-4 glass">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
@@ -288,49 +266,477 @@ export default function Index() {
           </div>
           <span className="font-display font-bold text-xl tracking-tight">Orbit</span>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 rounded-full glass pl-2 pr-3 py-1.5">
-            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-accent to-primary flex items-center justify-center font-bold text-xs text-white">
-              {user.nick.slice(0, 1).toUpperCase()}
-            </div>
-            <span className="font-medium text-sm">@{user.nick}</span>
-          </div>
-          <button onClick={logout} className="w-9 h-9 rounded-full hover:bg-destructive/10 flex items-center justify-center transition-colors">
-            <Icon name="LogOut" size={18} className="text-destructive" />
+        <div className="relative">
+          <button onClick={() => setShowMenu(!showMenu)} className="w-10 h-10 rounded-full hover:bg-secondary/60 flex items-center justify-center transition-colors">
+            <Icon name="Plus" size={22} />
           </button>
+          {showMenu && (
+            <div className="absolute right-0 top-12 glass rounded-2xl p-1 z-50 w-48 shadow-xl">
+              <button onClick={() => { setShowMenu(false); onNewGroup(); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-secondary/60 transition-colors text-sm">
+                <Icon name="Users" size={16} className="text-accent" /> Создать группу
+              </button>
+            </div>
+          )}
         </div>
       </header>
-
-      <main className="flex-1 overflow-y-auto scrollbar-thin p-3">
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-2">
         {chats.length === 0 && (
-          <div className="text-center text-muted-foreground mt-16">
-            <Icon name="MessagesSquare" size={48} className="mx-auto mb-3 opacity-40" />
-            <p>Пока нет чатов</p>
-            <p className="text-sm mt-1">Найди друга по нику и начни общение</p>
+          <div className="text-center text-muted-foreground mt-20">
+            <Icon name="MessagesSquare" size={48} className="mx-auto mb-3 opacity-30" />
+            <p className="font-medium">Нет чатов</p>
+            <p className="text-sm mt-1">Найди людей через поиск</p>
           </div>
         )}
-        {chats.map((c) => (
-          <button key={c.chat_id} onClick={() => openChat(c.peer_id)} className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-secondary/50 transition-colors animate-fade-up">
-            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-accent to-primary flex items-center justify-center font-display font-bold text-white">
-              {c.peer_nick.slice(0, 1).toUpperCase()}
-            </div>
+        {chats.map(c => (
+          <button key={c.chat_id} onClick={() => onOpenChat(c)} className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl hover:bg-secondary/40 transition-colors">
+            {c.kind === 'group'
+              ? <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary/70 to-accent/70 flex items-center justify-center shrink-0"><Icon name="Users" size={22} className="text-white" /></div>
+              : <Avatar url={c.peer_avatar} nick={c.peer_nick || '?'} size={48} online={c.peer_online} />
+            }
             <div className="flex-1 min-w-0 text-left">
-              <div className="font-semibold">@{c.peer_nick}</div>
-              <div className="text-sm text-muted-foreground truncate">
-                {c.last_image ? '📷 Фото' : c.last_text || 'Нет сообщений'}
-              </div>
+              <div className="font-semibold truncate">{c.kind === 'group' ? c.group_name : `@${c.peer_nick}`}</div>
+              <div className="text-sm text-muted-foreground truncate">{c.last_text || 'Нет сообщений'}</div>
             </div>
-            <span className="text-[11px] text-muted-foreground shrink-0">{fmtTime(c.last_at)}</span>
+            <span className="text-[11px] text-muted-foreground shrink-0">{fmtTime(c.last_at || null)}</span>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SEARCH TAB
+// ══════════════════════════════════════════════════════════════════════════════
+function SearchTab({ user, onOpenProfile }: { user: User; onOpenProfile: (id: number) => void }) {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<(User & { city?: string; is_online?: boolean })[]>([]);
+
+  useEffect(() => {
+    if (!q.trim()) { setResults([]); return; }
+    const t = setTimeout(async () => {
+      const d = await api(`search&q=${encodeURIComponent(q.trim())}&user_id=${user.id}`);
+      setResults(d.users || []);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q, user.id]);
+
+  return (
+    <div className="flex flex-col h-full">
+      <header className="px-4 py-4 glass">
+        <h2 className="font-display font-bold text-xl mb-3">Поиск людей</h2>
+        <div className="relative">
+          <Icon name="Search" size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Найти по нику…" className="w-full bg-secondary/60 border border-border rounded-full pl-10 pr-4 py-2.5 outline-none focus:ring-2 focus:ring-primary transition-all" />
+        </div>
+      </header>
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-2">
+        {q.trim() && results.length === 0 && <p className="text-center text-muted-foreground mt-12 text-sm">Никого не найдено</p>}
+        {results.map(u => (
+          <button key={u.id} onClick={() => onOpenProfile(u.id)} className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl hover:bg-secondary/40 transition-colors animate-fade-up">
+            <Avatar url={u.avatar_url} nick={u.nick} size={48} online={u.is_online} />
+            <div className="flex-1 text-left">
+              <div className="font-semibold">@{u.nick}</div>
+              {u.city && <div className="text-xs text-muted-foreground">{u.city}</div>}
+            </div>
+            <Icon name="ChevronRight" size={18} className="text-muted-foreground" />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// USER PROFILE SCREEN (чужой)
+// ══════════════════════════════════════════════════════════════════════════════
+function UserProfileScreen({ me, userId, onBack, onOpenChat, onFollowers }: { me: User; userId: number; onBack: () => void; onOpenChat: (id: number) => void; onFollowers: (uid: number, mode: 'followers' | 'following') => void }) {
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    const d = await api(`profile&user_id=${userId}&me=${me.id}`);
+    setProfile(d.user); setLoading(false);
+  };
+  useEffect(() => { load(); }, [userId]);
+
+  const follow = async () => { await api('follow', 'POST', { user_id: me.id, target_id: userId }); load(); };
+  const unfollow = async () => { await api('unfollow', 'POST', { user_id: me.id, target_id: userId }); load(); };
+  const block = async () => { await api('block', 'POST', { user_id: me.id, target_id: userId }); load(); };
+  const unblock = async () => { await api('unblock', 'POST', { user_id: me.id, target_id: userId }); load(); };
+
+  return (
+    <div className="min-h-screen grad-mesh flex flex-col">
+      <header className="flex items-center gap-3 px-4 py-3 glass">
+        <button onClick={onBack} className="w-10 h-10 rounded-full hover:bg-secondary/60 flex items-center justify-center transition-colors"><Icon name="ArrowLeft" size={20} /></button>
+        <span className="font-semibold flex-1">{profile ? `@${profile.nick}` : '...'}</span>
+      </header>
+      {loading && <div className="flex-1 flex items-center justify-center"><div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>}
+      {profile && (
+        <div className="flex-1 overflow-y-auto scrollbar-thin">
+          <div className="flex flex-col items-center pt-8 pb-4 px-6">
+            <Avatar url={profile.avatar_url} nick={profile.nick} size={96} online={profile.is_online} />
+            <h2 className="font-display font-bold text-2xl mt-4">@{profile.nick}</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {profile.is_online ? <span className="text-green-400">в сети</span> : fmtLastSeen(profile.last_seen || null)}
+            </p>
+            <div className="flex gap-8 mt-5">
+              <button onClick={() => onFollowers(userId, 'followers')} className="flex flex-col items-center hover:text-primary transition-colors">
+                <span className="font-display font-bold text-xl">{profile.followers}</span>
+                <span className="text-xs text-muted-foreground">подписчиков</span>
+              </button>
+              <button onClick={() => onFollowers(userId, 'following')} className="flex flex-col items-center hover:text-primary transition-colors">
+                <span className="font-display font-bold text-xl">{profile.following}</span>
+                <span className="text-xs text-muted-foreground">подписок</span>
+              </button>
+            </div>
+          </div>
+          <div className="px-4 space-y-2 mb-4">
+            {profile.city && <div className="flex items-center gap-2 text-sm"><Icon name="MapPin" size={16} className="text-accent" />{profile.city}</div>}
+            {profile.birthdate && <div className="flex items-center gap-2 text-sm"><Icon name="Cake" size={16} className="text-accent" />{new Date(profile.birthdate).toLocaleDateString('ru-RU')}</div>}
+            {profile.about && <p className="text-sm mt-3 leading-relaxed text-muted-foreground">{profile.about}</p>}
+          </div>
+          <div className="px-4 space-y-3 pb-8">
+            {!profile.i_blocked ? (
+              <>
+                <button onClick={() => onOpenChat(userId)} className="w-full py-3.5 rounded-2xl font-semibold bg-gradient-to-r from-primary to-accent text-white hover:opacity-90 transition-all shadow-lg shadow-primary/30">
+                  <Icon name="MessageCircle" size={18} className="inline mr-2" />Написать
+                </button>
+                {profile.i_follow
+                  ? <button onClick={unfollow} className="w-full py-3.5 rounded-2xl font-semibold glass border border-border hover:bg-secondary/60 transition-colors"><Icon name="UserCheck" size={18} className="inline mr-2 text-green-400" />Отписаться</button>
+                  : <button onClick={follow} className="w-full py-3.5 rounded-2xl font-semibold glass border border-border hover:bg-secondary/60 transition-colors"><Icon name="UserPlus" size={18} className="inline mr-2 text-accent" />Подписаться</button>
+                }
+                <button onClick={block} className="w-full py-3 rounded-2xl text-destructive text-sm hover:bg-destructive/10 transition-colors">
+                  <Icon name="Ban" size={16} className="inline mr-2" />Заблокировать
+                </button>
+              </>
+            ) : (
+              <button onClick={unblock} className="w-full py-3.5 rounded-2xl font-semibold glass border border-border hover:bg-secondary/60 transition-colors text-destructive">
+                <Icon name="Ban" size={18} className="inline mr-2" />Разблокировать
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FOLLOWERS LIST
+// ══════════════════════════════════════════════════════════════════════════════
+function FollowersScreen({ userId, mode, me, onBack, onOpenProfile }: { userId: number; mode: 'followers' | 'following'; me: User; onBack: () => void; onOpenProfile: (id: number) => void }) {
+  const [list, setList] = useState<User[]>([]);
+  useEffect(() => {
+    api(`${mode}&user_id=${userId}`).then(d => setList(d.users || []));
+  }, [userId, mode]);
+  return (
+    <div className="min-h-screen grad-mesh flex flex-col">
+      <header className="flex items-center gap-3 px-4 py-3 glass">
+        <button onClick={onBack} className="w-10 h-10 rounded-full hover:bg-secondary/60 flex items-center justify-center"><Icon name="ArrowLeft" size={20} /></button>
+        <span className="font-semibold">{mode === 'followers' ? 'Подписчики' : 'Подписки'}</span>
+      </header>
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-2">
+        {list.length === 0 && <p className="text-center text-muted-foreground mt-12 text-sm">Пусто</p>}
+        {list.map(u => (
+          <button key={u.id} onClick={() => onOpenProfile(u.id)} className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl hover:bg-secondary/40 transition-colors">
+            <Avatar url={u.avatar_url} nick={u.nick} size={44} online={u.is_online} />
+            <span className="font-semibold flex-1 text-left">@{u.nick}</span>
+            <Icon name="ChevronRight" size={18} className="text-muted-foreground" />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MY PROFILE TAB
+// ══════════════════════════════════════════════════════════════════════════════
+function ProfileTab({ user, onLogout, onUpdate, onFollowers }: { user: User; onLogout: () => void; onUpdate: (u: User) => void; onFollowers: (uid: number, mode: 'followers' | 'following') => void }) {
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [city, setCity] = useState('');
+  const [birthdate, setBirthdate] = useState('');
+  const [about, setAbout] = useState('');
+  const [saving, setSaving] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const load = async () => {
+    const d = await api(`profile&user_id=${user.id}&me=${user.id}`);
+    const p = d.user; setProfile(p);
+    setCity(p.city || ''); setBirthdate(p.birthdate ? p.birthdate.slice(0, 10) : ''); setAbout(p.about || '');
+  };
+  useEffect(() => { load(); }, [user.id]);
+
+  const pickAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const [header, b64] = (reader.result as string).split(',');
+      const ext = header.includes('png') ? 'png' : 'jpg';
+      const d = await api('upload_avatar', 'POST', { user_id: user.id, data: b64, ext });
+      if (d.url) { onUpdate({ ...user, avatar_url: d.url }); load(); }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    const d = await api('profile_update', 'POST', { user_id: user.id, city: city || null, birthdate: birthdate || null, about: about || null });
+    setSaving(false); setEditing(false); setProfile(d.user);
+  };
+
+  return (
+    <div className="flex flex-col h-full overflow-y-auto scrollbar-thin">
+      <header className="px-4 py-4 glass flex items-center justify-between">
+        <span className="font-display font-bold text-xl">Мой профиль</span>
+        <button onClick={onLogout} className="w-9 h-9 rounded-full hover:bg-destructive/10 flex items-center justify-center transition-colors">
+          <Icon name="LogOut" size={18} className="text-destructive" />
+        </button>
+      </header>
+      {profile && (
+        <div className="p-4 space-y-5">
+          <div className="flex flex-col items-center pt-2">
+            <div className="relative cursor-pointer" onClick={() => fileRef.current?.click()}>
+              <Avatar url={profile.avatar_url} nick={profile.nick} size={88} />
+              <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow">
+                <Icon name="Camera" size={14} className="text-white" />
+              </div>
+            </div>
+            <input ref={fileRef} type="file" accept="image/*" hidden onChange={pickAvatar} />
+            <h2 className="font-display font-bold text-2xl mt-3">@{profile.nick}</h2>
+            <div className="flex gap-8 mt-4">
+              <button onClick={() => onFollowers(user.id, 'followers')} className="flex flex-col items-center hover:text-primary transition-colors">
+                <span className="font-display font-bold text-xl">{profile.followers}</span>
+                <span className="text-xs text-muted-foreground">подписчиков</span>
+              </button>
+              <button onClick={() => onFollowers(user.id, 'following')} className="flex flex-col items-center hover:text-primary transition-colors">
+                <span className="font-display font-bold text-xl">{profile.following}</span>
+                <span className="text-xs text-muted-foreground">подписок</span>
+              </button>
+            </div>
+          </div>
+
+          {!editing ? (
+            <div className="glass rounded-3xl p-5 space-y-3">
+              {profile.city && <div className="flex items-center gap-2 text-sm"><Icon name="MapPin" size={15} className="text-accent" />{profile.city}</div>}
+              {profile.birthdate && <div className="flex items-center gap-2 text-sm"><Icon name="Cake" size={15} className="text-accent" />{new Date(profile.birthdate).toLocaleDateString('ru-RU')}</div>}
+              {profile.about && <p className="text-sm text-muted-foreground leading-relaxed">{profile.about}</p>}
+              {!profile.city && !profile.birthdate && !profile.about && <p className="text-sm text-muted-foreground">Профиль не заполнен</p>}
+              <button onClick={() => setEditing(true)} className="w-full py-3 rounded-2xl font-medium glass border border-border hover:bg-secondary/60 transition-colors mt-2">
+                <Icon name="Pencil" size={16} className="inline mr-2" />Редактировать
+              </button>
+            </div>
+          ) : (
+            <div className="glass rounded-3xl p-5 space-y-4">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Город</label>
+                <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Москва" className="w-full bg-secondary/60 border border-border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary transition-all" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Дата рождения</label>
+                <input type="date" value={birthdate} onChange={(e) => setBirthdate(e.target.value)} className="w-full bg-secondary/60 border border-border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary transition-all" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">О себе</label>
+                <textarea value={about} onChange={(e) => setAbout(e.target.value)} rows={3} className="w-full bg-secondary/60 border border-border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary transition-all resize-none" />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={save} disabled={saving} className="flex-1 py-3 rounded-2xl font-semibold bg-gradient-to-r from-primary to-accent text-white hover:opacity-90 disabled:opacity-50 transition-all">
+                  {saving ? 'Сохраняю...' : 'Сохранить'}
+                </button>
+                <button onClick={() => setEditing(false)} className="flex-1 py-3 rounded-2xl glass border border-border hover:bg-secondary/60 transition-colors">Отмена</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CHAT SCREEN
+// ══════════════════════════════════════════════════════════════════════════════
+function ChatScreen({ user, chatId, peer, groupName, onBack, onOpenProfile }: { user: User; chatId: number; peer?: User; groupName?: string; onBack: () => void; onOpenProfile: (id: number) => void }) {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
+  const [typing, setTyping] = useState<string[]>([]);
+  const [peerOnline, setPeerOnline] = useState(false);
+  const lastIdRef = useRef(0);
+  const endRef = useRef<HTMLDivElement>(null);
+  const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const poll = useCallback(async () => {
+    const d = await api(`messages&chat_id=${chatId}&after=${lastIdRef.current}`);
+    const fresh: Message[] = d.messages || [];
+    if (fresh.length) { lastIdRef.current = fresh[fresh.length - 1].id; setMessages(m => [...m, ...fresh]); }
+    const s = await api(`chat_status&chat_id=${chatId}&user_id=${user.id}`);
+    setTyping(s.typing || []);
+    if (peer) {
+      const pd = await api(`profile&user_id=${peer.id}&me=${user.id}`);
+      setPeerOnline(pd.user?.is_online || false);
+    }
+  }, [chatId, user.id, peer]);
+
+  useEffect(() => {
+    poll();
+    const iv = setInterval(poll, 1500);
+    return () => clearInterval(iv);
+  }, [poll]);
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
+  const handleInput = (v: string) => {
+    setInput(v);
+    api('typing', 'POST', { chat_id: chatId, user_id: user.id, typing: true });
+    if (typingTimer.current) clearTimeout(typingTimer.current);
+    typingTimer.current = setTimeout(() => api('typing', 'POST', { chat_id: chatId, user_id: user.id, typing: false }), 3000);
+  };
+
+  const send = async () => {
+    if (!input.trim()) return;
+    const text = input.trim(); setInput('');
+    if (typingTimer.current) clearTimeout(typingTimer.current);
+    await api('send', 'POST', { chat_id: chatId, user_id: user.id, text });
+  };
+
+  const title = groupName || (peer ? `@${peer.nick}` : '');
+  const subtitle = groupName ? 'Группа' : (peerOnline ? 'в сети' : '');
+
+  return (
+    <div className="min-h-screen grad-mesh flex flex-col">
+      <header className="flex items-center gap-3 px-4 py-3 glass">
+        <button onClick={onBack} className="w-10 h-10 rounded-full hover:bg-secondary/60 flex items-center justify-center transition-colors"><Icon name="ArrowLeft" size={20} /></button>
+        <button className="flex items-center gap-3 flex-1" onClick={() => peer && onOpenProfile(peer.id)}>
+          {peer ? <Avatar url={peer.avatar_url} nick={peer.nick} size={38} online={peerOnline} />
+            : <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/70 to-accent/70 flex items-center justify-center"><Icon name="Users" size={18} className="text-white" /></div>}
+          <div className="text-left">
+            <div className="font-semibold text-sm">{title}</div>
+            {subtitle && <div className={`text-xs ${subtitle === 'в сети' ? 'text-green-400' : 'text-muted-foreground'}`}>{subtitle}</div>}
+            {typing.length > 0 && <div className="text-xs text-primary">печатает...</div>}
+          </div>
+        </button>
+        <button className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
+          <Icon name="Video" size={18} className="text-white" />
+        </button>
+      </header>
+
+      <main className="flex-1 overflow-y-auto scrollbar-thin px-4 py-4 space-y-2">
+        {messages.length === 0 && (
+          <p className="text-center text-muted-foreground text-sm mt-12">Напишите первое сообщение 👋</p>
+        )}
+        {messages.map((m, i) => {
+          const mine = m.sender_id === user.id;
+          const showNick = !mine && groupName && (i === 0 || messages[i - 1].sender_id !== m.sender_id);
+          return (
+            <div key={m.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'} animate-msg-in`}>
+              {showNick && <span className="text-[11px] text-accent ml-2 mb-0.5">{m.sender_nick}</span>}
+              <div className={`flex items-end gap-2 ${mine ? 'flex-row-reverse' : ''}`}>
+                {!mine && groupName && <Avatar url={m.sender_avatar} nick={m.sender_nick} size={28} />}
+                <div className={`max-w-[75%] rounded-3xl px-4 py-2.5 ${mine ? 'bg-gradient-to-br from-primary to-accent text-white rounded-br-md' : 'bg-secondary/70 rounded-bl-md'}`}>
+                  {m.image_url ? <img src={m.image_url} alt="" className="rounded-2xl max-h-60 mb-1" />
+                    : <p className="leading-relaxed break-words text-sm">{m.text}</p>}
+                  <span className={`block text-[10px] mt-0.5 ${mine ? 'text-white/60' : 'text-muted-foreground'}`}>{fmtTime(m.created_at)}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        <div ref={endRef} />
       </main>
 
-      <button
-        onClick={() => setView('search')}
-        className="fixed bottom-6 right-6 p-4 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-xl shadow-primary/40 hover:scale-105 transition-transform"
-      >
-        <Icon name="Plus" size={26} className="text-white" />
-      </button>
+      <div className="flex items-center gap-2 p-3 glass">
+        <input value={input} onChange={(e) => handleInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Сообщение…" className="flex-1 bg-secondary/60 border border-border rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-primary transition-all text-sm" />
+        <button onClick={send} className="w-11 h-11 shrink-0 rounded-full bg-gradient-to-br from-primary to-accent hover:opacity-90 flex items-center justify-center shadow-lg shadow-primary/30">
+          <Icon name="Send" size={18} className="text-white" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// NEW GROUP SCREEN
+// ══════════════════════════════════════════════════════════════════════════════
+function NewGroupScreen({ user, onBack, onCreated }: { user: User; onBack: () => void; onCreated: (chatId: number, name: string) => void }) {
+  const [name, setName] = useState('');
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<User[]>([]);
+  const [selected, setSelected] = useState<User[]>([]);
+  const [creating, setCreating] = useState(false);
+  const [link, setLink] = useState('');
+
+  useEffect(() => {
+    if (!q.trim()) { setResults([]); return; }
+    const t = setTimeout(async () => {
+      const d = await api(`search&q=${encodeURIComponent(q.trim())}&user_id=${user.id}`);
+      setResults(d.users || []);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q, user.id]);
+
+  const toggle = (u: User) => setSelected(s => s.find(x => x.id === u.id) ? s.filter(x => x.id !== u.id) : [...s, u]);
+
+  const create = async () => {
+    if (!name.trim()) return;
+    setCreating(true);
+    const d = await api('create_group', 'POST', { user_id: user.id, name: name.trim(), member_ids: selected.map(u => u.id) });
+    setCreating(false);
+    const inviteUrl = `${window.location.origin}/?join=${d.invite_token}`;
+    setLink(inviteUrl);
+    onCreated(d.chat_id, name.trim());
+  };
+
+  return (
+    <div className="min-h-screen grad-mesh flex flex-col">
+      <header className="flex items-center gap-3 px-4 py-3 glass">
+        <button onClick={onBack} className="w-10 h-10 rounded-full hover:bg-secondary/60 flex items-center justify-center"><Icon name="ArrowLeft" size={20} /></button>
+        <span className="font-semibold flex-1">Новая группа</span>
+        <button onClick={create} disabled={!name.trim() || creating} className="px-5 py-2 rounded-full bg-gradient-to-r from-primary to-accent text-white text-sm font-semibold disabled:opacity-40">
+          {creating ? '...' : 'Создать'}
+        </button>
+      </header>
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-4">
+        <div>
+          <label className="text-xs text-muted-foreground mb-1 block">Название группы</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Моя группа" className="w-full bg-secondary/60 border border-border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary transition-all" />
+        </div>
+        {selected.length > 0 && (
+          <div className="flex gap-2 flex-wrap">
+            {selected.map(u => (
+              <div key={u.id} className="flex items-center gap-1.5 bg-primary/20 rounded-full pl-2 pr-3 py-1">
+                <Avatar url={u.avatar_url} nick={u.nick} size={20} />
+                <span className="text-xs font-medium">@{u.nick}</span>
+                <button onClick={() => toggle(u)}><Icon name="X" size={12} className="text-muted-foreground" /></button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="relative">
+          <Icon name="Search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Добавить участников…" className="w-full bg-secondary/60 border border-border rounded-full pl-9 pr-4 py-2.5 outline-none focus:ring-2 focus:ring-primary transition-all text-sm" />
+        </div>
+        {results.map(u => (
+          <button key={u.id} onClick={() => toggle(u)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-secondary/40 transition-colors">
+            <Avatar url={u.avatar_url} nick={u.nick} size={40} />
+            <span className="flex-1 text-left font-medium">@{u.nick}</span>
+            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${selected.find(x => x.id === u.id) ? 'bg-primary border-primary' : 'border-border'}`}>
+              {selected.find(x => x.id === u.id) && <Icon name="Check" size={12} className="text-white" />}
+            </div>
+          </button>
+        ))}
+        {link && (
+          <div className="glass rounded-2xl p-4">
+            <p className="text-xs text-muted-foreground mb-2">Ссылка-приглашение в группу:</p>
+            <p className="text-sm font-medium truncate mb-3">{link}</p>
+            <button onClick={() => navigator.clipboard?.writeText(link)} className="w-full py-2.5 rounded-xl bg-gradient-to-r from-primary to-accent text-white text-sm font-semibold">
+              <Icon name="Copy" size={14} className="inline mr-1.5" />Скопировать
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

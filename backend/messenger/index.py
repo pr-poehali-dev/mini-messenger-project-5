@@ -1,5 +1,6 @@
 import json
 import os
+import secrets
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
@@ -15,21 +16,21 @@ def _resp(status, body):
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, X-User-Id, X-Auth-Token, X-Session-Id',
+            'Access-Control-Allow-Headers': 'Content-Type, X-User-Id',
         },
         'isBase64Encoded': False,
-        'body': json.dumps(body),
+        'body': json.dumps(body, default=str),
     }
 
 
 def handler(event: dict, context) -> dict:
-    '''Мессенджер: регистрация по нику, поиск людей, чаты и сообщения'''
-    method = event.get('httpMethod', 'GET')
-    if method == 'OPTIONS':
+    """Orbit мессенджер: профили, чаты, группы, подписки"""
+    if event.get('httpMethod') == 'OPTIONS':
         return _resp(200, {})
 
     params = event.get('queryStringParameters') or {}
     action = params.get('action', '')
+    method = event.get('httpMethod', 'GET')
 
     try:
         body = json.loads(event.get('body') or '{}')
@@ -40,88 +41,270 @@ def handler(event: dict, context) -> dict:
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        if method == 'POST' and action == 'login':
+        # ── AUTH ──────────────────────────────────────────
+        if action == 'login' and method == 'POST':
             nick = (body.get('nick') or '').strip().lower()
+            device_id = (body.get('device_id') or '').strip()
             if not nick or len(nick) < 2:
                 return _resp(400, {'error': 'Ник минимум 2 символа'})
-            cur.execute("SELECT id, nick FROM users WHERE nick = %s", (nick,))
+
+            if device_id:
+                cur.execute("SELECT id, nick, profile_complete, avatar_url FROM users WHERE device_id = %s", (device_id,))
+                by_device = cur.fetchone()
+                if by_device:
+                    cur.execute("UPDATE users SET is_online=TRUE, last_seen=NOW() WHERE id=%s", (by_device['id'],))
+                    conn.commit()
+                    return _resp(200, {'user': by_device})
+
+            cur.execute("SELECT id, nick, profile_complete, avatar_url, device_id FROM users WHERE nick = %s", (nick,))
+            existing = cur.fetchone()
+            if existing:
+                if existing['device_id'] and existing['device_id'] != device_id:
+                    return _resp(409, {'error': 'Этот ник уже занят другим устройством'})
+                if device_id and not existing['device_id']:
+                    cur.execute("UPDATE users SET device_id=%s, is_online=TRUE, last_seen=NOW() WHERE id=%s", (device_id, existing['id']))
+                    conn.commit()
+                return _resp(200, {'user': existing})
+
+            cur.execute(
+                "INSERT INTO users (nick, device_id, is_online, last_seen) VALUES (%s, %s, TRUE, NOW()) RETURNING id, nick, profile_complete, avatar_url",
+                (nick, device_id or None),
+            )
             user = cur.fetchone()
-            if not user:
-                cur.execute(
-                    "INSERT INTO users (nick) VALUES (%s) RETURNING id, nick",
-                    (nick,),
-                )
-                user = cur.fetchone()
-                conn.commit()
+            conn.commit()
             return _resp(200, {'user': user})
 
-        if method == 'GET' and action == 'search':
+        # ── PROFILE GET ───────────────────────────────────
+        if action == 'profile' and method == 'GET':
+            uid = int(params.get('user_id') or 0)
+            me = int(params.get('me') or 0)
+            cur.execute(
+                """
+                SELECT u.id, u.nick, u.avatar_url, u.city, u.birthdate, u.about, u.is_online, u.last_seen,
+                       (SELECT COUNT(*) FROM follows WHERE following_id = u.id) AS followers,
+                       (SELECT COUNT(*) FROM follows WHERE follower_id = u.id) AS following,
+                       (SELECT TRUE FROM follows WHERE follower_id=%s AND following_id=u.id) AS i_follow,
+                       (SELECT TRUE FROM blocks WHERE blocker_id=%s AND blocked_id=u.id) AS i_blocked
+                FROM users u WHERE u.id=%s
+                """,
+                (me, me, uid),
+            )
+            user = cur.fetchone()
+            if not user:
+                return _resp(404, {'error': 'Не найден'})
+            return _resp(200, {'user': user})
+
+        # ── PROFILE UPDATE ────────────────────────────────
+        if action == 'profile_update' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            fields = {}
+            for f in ('avatar_url', 'city', 'birthdate', 'about'):
+                if f in body:
+                    fields[f] = body[f] or None
+            if not fields:
+                return _resp(400, {'error': 'Нет данных'})
+            fields['profile_complete'] = True
+            set_clause = ', '.join(f"{k} = %s" for k in fields)
+            cur.execute(
+                f"UPDATE users SET {set_clause} WHERE id = %s RETURNING id, nick, avatar_url, city, birthdate, about, profile_complete",
+                list(fields.values()) + [uid],
+            )
+            user = cur.fetchone()
+            conn.commit()
+            return _resp(200, {'user': user})
+
+        # ── UPLOAD AVATAR ─────────────────────────────────
+        if action == 'upload_avatar' and method == 'POST':
+            import base64
+            import boto3
+            uid = int(body.get('user_id') or 0)
+            data_b64 = body.get('data', '')
+            ext = (body.get('ext') or 'jpg').lower()
+            raw = base64.b64decode(data_b64)
+            key = f"avatars/{uid}.{ext}"
+            s3 = boto3.client(
+                's3',
+                endpoint_url='https://bucket.poehali.dev',
+                aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+                aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
+            )
+            s3.put_object(Bucket='files', Key=key, Body=raw, ContentType=f'image/{ext}')
+            url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
+            cur.execute("UPDATE users SET avatar_url=%s, profile_complete=TRUE WHERE id=%s", (url, uid))
+            conn.commit()
+            return _resp(200, {'url': url})
+
+        # ── SEARCH ───────────────────────────────────────
+        if action == 'search' and method == 'GET':
             q = (params.get('q') or '').strip().lower()
             me = int(params.get('user_id') or 0)
             if not q:
                 return _resp(200, {'users': []})
             cur.execute(
-                "SELECT id, nick FROM users WHERE nick LIKE %s AND id != %s ORDER BY nick LIMIT 20",
-                (f'%{q}%', me),
+                """
+                SELECT u.id, u.nick, u.avatar_url, u.city, u.is_online
+                FROM users u
+                WHERE u.nick LIKE %s AND u.id != %s
+                  AND u.id NOT IN (SELECT blocked_id FROM blocks WHERE blocker_id=%s)
+                ORDER BY u.nick LIMIT 20
+                """,
+                (f'%{q}%', me, me),
             )
             return _resp(200, {'users': cur.fetchall()})
 
-        if method == 'GET' and action == 'chats':
+        # ── FOLLOW / UNFOLLOW ─────────────────────────────
+        if action == 'follow' and method == 'POST':
+            me = int(body.get('user_id') or 0)
+            target = int(body.get('target_id') or 0)
+            cur.execute("INSERT INTO follows (follower_id, following_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (me, target))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        if action == 'unfollow' and method == 'POST':
+            me = int(body.get('user_id') or 0)
+            target = int(body.get('target_id') or 0)
+            cur.execute("DELETE FROM follows WHERE follower_id=%s AND following_id=%s", (me, target))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── BLOCK / UNBLOCK ───────────────────────────────
+        if action == 'block' and method == 'POST':
+            me = int(body.get('user_id') or 0)
+            target = int(body.get('target_id') or 0)
+            cur.execute("INSERT INTO blocks (blocker_id, blocked_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (me, target))
+            cur.execute(
+                "DELETE FROM follows WHERE (follower_id=%s AND following_id=%s) OR (follower_id=%s AND following_id=%s)",
+                (me, target, target, me),
+            )
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        if action == 'unblock' and method == 'POST':
+            me = int(body.get('user_id') or 0)
+            target = int(body.get('target_id') or 0)
+            cur.execute("DELETE FROM blocks WHERE blocker_id=%s AND blocked_id=%s", (me, target))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── FOLLOWERS / FOLLOWING ─────────────────────────
+        if action == 'followers' and method == 'GET':
+            uid = int(params.get('user_id') or 0)
+            cur.execute(
+                "SELECT u.id, u.nick, u.avatar_url, u.is_online FROM users u JOIN follows f ON f.follower_id=u.id WHERE f.following_id=%s",
+                (uid,),
+            )
+            return _resp(200, {'users': cur.fetchall()})
+
+        if action == 'following' and method == 'GET':
+            uid = int(params.get('user_id') or 0)
+            cur.execute(
+                "SELECT u.id, u.nick, u.avatar_url, u.is_online FROM users u JOIN follows f ON f.following_id=u.id WHERE f.follower_id=%s",
+                (uid,),
+            )
+            return _resp(200, {'users': cur.fetchall()})
+
+        # ── CHATS LIST ────────────────────────────────────
+        if action == 'chats' and method == 'GET':
             me = int(params.get('user_id') or 0)
             cur.execute(
                 """
                 SELECT c.id AS chat_id,
-                       u.id AS peer_id,
-                       u.nick AS peer_nick,
-                       (SELECT text FROM messages m WHERE m.chat_id = c.id ORDER BY m.id DESC LIMIT 1) AS last_text,
-                       (SELECT image_url FROM messages m WHERE m.chat_id = c.id ORDER BY m.id DESC LIMIT 1) AS last_image,
-                       (SELECT created_at FROM messages m WHERE m.chat_id = c.id ORDER BY m.id DESC LIMIT 1) AS last_at
+                       NULL::int AS group_id, NULL AS group_name, NULL AS group_avatar,
+                       u.id AS peer_id, u.nick AS peer_nick, u.avatar_url AS peer_avatar, u.is_online AS peer_online,
+                       (SELECT text FROM messages m WHERE m.chat_id=c.id ORDER BY m.id DESC LIMIT 1) AS last_text,
+                       (SELECT created_at FROM messages m WHERE m.chat_id=c.id ORDER BY m.id DESC LIMIT 1) AS last_at,
+                       'dm' AS kind
                 FROM chats c
-                JOIN users u ON u.id = CASE WHEN c.user_a = %s THEN c.user_b ELSE c.user_a END
-                WHERE c.user_a = %s OR c.user_b = %s
+                JOIN users u ON u.id = CASE WHEN c.user_a=%s THEN c.user_b ELSE c.user_a END
+                WHERE (c.user_a=%s OR c.user_b=%s) AND c.group_id IS NULL
+                UNION ALL
+                SELECT c.id AS chat_id,
+                       g.id AS group_id, g.name AS group_name, g.avatar_url AS group_avatar,
+                       NULL, NULL, NULL, NULL,
+                       (SELECT text FROM messages m WHERE m.chat_id=c.id ORDER BY m.id DESC LIMIT 1) AS last_text,
+                       (SELECT created_at FROM messages m WHERE m.chat_id=c.id ORDER BY m.id DESC LIMIT 1) AS last_at,
+                       'group' AS kind
+                FROM chats c
+                JOIN groups g ON g.id=c.group_id
+                JOIN group_members gm ON gm.group_id=g.id AND gm.user_id=%s
                 ORDER BY last_at DESC NULLS LAST
                 """,
-                (me, me, me),
+                (me, me, me, me),
             )
             return _resp(200, {'chats': cur.fetchall()})
 
-        if method == 'POST' and action == 'open_chat':
+        # ── OPEN DM CHAT ──────────────────────────────────
+        if action == 'open_chat' and method == 'POST':
             me = int(body.get('user_id') or 0)
             peer = int(body.get('peer_id') or 0)
             if not me or not peer or me == peer:
                 return _resp(400, {'error': 'Некорректные пользователи'})
             a, b = min(me, peer), max(me, peer)
-            cur.execute(
-                "SELECT id FROM chats WHERE user_a = %s AND user_b = %s",
-                (a, b),
-            )
+            cur.execute("SELECT id FROM chats WHERE user_a=%s AND user_b=%s AND group_id IS NULL", (a, b))
             row = cur.fetchone()
             if not row:
-                cur.execute(
-                    "INSERT INTO chats (user_a, user_b) VALUES (%s, %s) RETURNING id",
-                    (a, b),
-                )
+                cur.execute("INSERT INTO chats (user_a, user_b) VALUES (%s, %s) RETURNING id", (a, b))
                 row = cur.fetchone()
                 conn.commit()
-            cur.execute("SELECT id, nick FROM users WHERE id = %s", (peer,))
+            cur.execute("SELECT id, nick, avatar_url, is_online, last_seen FROM users WHERE id=%s", (peer,))
             peer_user = cur.fetchone()
             return _resp(200, {'chat_id': row['id'], 'peer': peer_user})
 
-        if method == 'GET' and action == 'messages':
+        # ── CREATE GROUP ──────────────────────────────────
+        if action == 'create_group' and method == 'POST':
+            me = int(body.get('user_id') or 0)
+            name = (body.get('name') or '').strip()
+            member_ids = body.get('member_ids') or []
+            if not name:
+                return _resp(400, {'error': 'Введи название группы'})
+            token = secrets.token_urlsafe(12)
+            cur.execute(
+                "INSERT INTO groups (name, owner_id, invite_token) VALUES (%s, %s, %s) RETURNING id, invite_token",
+                (name, me, token),
+            )
+            group = cur.fetchone()
+            gid = group['id']
+            cur.execute("INSERT INTO chats (user_a, user_b, group_id) VALUES (%s, %s, %s) RETURNING id", (me, me, gid))
+            chat = cur.fetchone()
+            all_members = list({me} | {int(x) for x in member_ids})
+            for uid in all_members:
+                cur.execute("INSERT INTO group_members (group_id, user_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (gid, uid))
+            conn.commit()
+            return _resp(200, {'group_id': gid, 'chat_id': chat['id'], 'invite_token': group['invite_token']})
+
+        # ── JOIN GROUP BY TOKEN ───────────────────────────
+        if action == 'join_group' and method == 'POST':
+            me = int(body.get('user_id') or 0)
+            token = (body.get('token') or '').strip()
+            cur.execute("SELECT id, name FROM groups WHERE invite_token=%s", (token,))
+            group = cur.fetchone()
+            if not group:
+                return _resp(404, {'error': 'Ссылка недействительна'})
+            gid = group['id']
+            cur.execute("INSERT INTO group_members (group_id, user_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (gid, me))
+            cur.execute("SELECT id FROM chats WHERE group_id=%s", (gid,))
+            chat = cur.fetchone()
+            conn.commit()
+            return _resp(200, {'group_id': gid, 'chat_id': chat['id'], 'name': group['name']})
+
+        # ── MESSAGES ──────────────────────────────────────
+        if action == 'messages' and method == 'GET':
             chat_id = int(params.get('chat_id') or 0)
             after = int(params.get('after') or 0)
             cur.execute(
                 """
-                SELECT id, sender_id, text, image_url, created_at
-                FROM messages
-                WHERE chat_id = %s AND id > %s
-                ORDER BY id ASC LIMIT 200
+                SELECT m.id, m.sender_id, u.nick AS sender_nick, u.avatar_url AS sender_avatar,
+                       m.text, m.image_url, m.created_at
+                FROM messages m JOIN users u ON u.id=m.sender_id
+                WHERE m.chat_id=%s AND m.id>%s
+                ORDER BY m.id ASC LIMIT 200
                 """,
                 (chat_id, after),
             )
             return _resp(200, {'messages': cur.fetchall()})
 
-        if method == 'POST' and action == 'send':
+        # ── SEND MESSAGE ──────────────────────────────────
+        if action == 'send' and method == 'POST':
             chat_id = int(body.get('chat_id') or 0)
             sender = int(body.get('user_id') or 0)
             text = body.get('text')
@@ -129,16 +312,57 @@ def handler(event: dict, context) -> dict:
             if not chat_id or not sender or (not text and not image_url):
                 return _resp(400, {'error': 'Пустое сообщение'})
             cur.execute(
-                """
-                INSERT INTO messages (chat_id, sender_id, text, image_url)
-                VALUES (%s, %s, %s, %s)
-                RETURNING id, sender_id, text, image_url, created_at
-                """,
+                "INSERT INTO messages (chat_id, sender_id, text, image_url) VALUES (%s, %s, %s, %s) RETURNING id, sender_id, text, image_url, created_at",
                 (chat_id, sender, text, image_url),
             )
             msg = cur.fetchone()
+            cur.execute("DELETE FROM typing_status WHERE chat_id=%s AND user_id=%s", (chat_id, sender))
             conn.commit()
             return _resp(200, {'message': msg})
+
+        # ── TYPING ───────────────────────────────────────
+        if action == 'typing' and method == 'POST':
+            chat_id = int(body.get('chat_id') or 0)
+            uid = int(body.get('user_id') or 0)
+            is_typing = body.get('typing', True)
+            if is_typing:
+                cur.execute(
+                    "INSERT INTO typing_status (chat_id, user_id, updated_at) VALUES (%s, %s, NOW()) ON CONFLICT (chat_id, user_id) DO UPDATE SET updated_at=NOW()",
+                    (chat_id, uid),
+                )
+            else:
+                cur.execute("DELETE FROM typing_status WHERE chat_id=%s AND user_id=%s", (chat_id, uid))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── CHAT STATUS ───────────────────────────────────
+        if action == 'chat_status' and method == 'GET':
+            chat_id = int(params.get('chat_id') or 0)
+            me = int(params.get('user_id') or 0)
+            cur.execute(
+                """
+                SELECT u.nick FROM typing_status ts
+                JOIN users u ON u.id=ts.user_id
+                WHERE ts.chat_id=%s AND ts.user_id!=%s
+                  AND ts.updated_at > NOW() - INTERVAL '5 seconds'
+                """,
+                (chat_id, me),
+            )
+            typing = [r['nick'] for r in cur.fetchall()]
+            return _resp(200, {'typing': typing})
+
+        # ── PING / OFFLINE ───────────────────────────────
+        if action == 'ping' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            cur.execute("UPDATE users SET is_online=TRUE, last_seen=NOW() WHERE id=%s", (uid,))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        if action == 'offline' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            cur.execute("UPDATE users SET is_online=FALSE, last_seen=NOW() WHERE id=%s", (uid,))
+            conn.commit()
+            return _resp(200, {'ok': True})
 
         return _resp(404, {'error': 'Неизвестное действие'})
     finally:
