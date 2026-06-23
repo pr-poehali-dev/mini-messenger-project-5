@@ -509,6 +509,167 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return _resp(200, {'ok': True})
 
+        # ── NOTIFICATIONS GET ─────────────────────────────
+        if action == 'notifications' and method == 'GET':
+            uid = int(params.get('user_id') or 0)
+            cur.execute(
+                """
+                SELECT n.id, n.type, n.from_user_id, n.chat_id, n.group_id,
+                       n.payload, n.is_read, n.created_at,
+                       u.nick AS from_nick, u.avatar_url AS from_avatar
+                FROM notifications n
+                LEFT JOIN users u ON u.id = n.from_user_id
+                WHERE n.user_id = %s
+                ORDER BY n.created_at DESC LIMIT 50
+                """,
+                (uid,),
+            )
+            notifs = cur.fetchall()
+            cur.execute("SELECT COUNT(*) AS cnt FROM notifications WHERE user_id=%s AND is_read=FALSE", (uid,))
+            unread = cur.fetchone()['cnt']
+            return _resp(200, {'notifications': notifs, 'unread': unread})
+
+        # ── NOTIFICATIONS READ ────────────────────────────
+        if action == 'notifications_read' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            notif_id = body.get('notif_id')
+            if notif_id:
+                cur.execute("UPDATE notifications SET is_read=TRUE WHERE id=%s AND user_id=%s", (int(notif_id), uid))
+            else:
+                cur.execute("UPDATE notifications SET is_read=TRUE WHERE user_id=%s", (uid,))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── NOTIFY (call missed) ──────────────────────────
+        if action == 'notify_call' and method == 'POST':
+            from_uid = int(body.get('from_user_id') or 0)
+            to_uid = int(body.get('to_user_id') or 0)
+            call_type = body.get('call_type', 'audio')
+            cur.execute(
+                "INSERT INTO notifications (user_id, type, from_user_id, payload) VALUES (%s, %s, %s, %s)",
+                (to_uid, 'missed_call', from_uid, call_type),
+            )
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── GROUP INFO ────────────────────────────────────
+        if action == 'group_info' and method == 'GET':
+            gid = int(params.get('group_id') or 0)
+            me = int(params.get('user_id') or 0)
+            cur.execute(
+                """
+                SELECT g.id, g.name, g.about, g.photo_url, g.invite_token, g.owner_id,
+                       (SELECT role FROM group_members WHERE group_id=g.id AND user_id=%s) AS my_role,
+                       (SELECT COUNT(*) FROM group_members WHERE group_id=g.id) AS member_count
+                FROM groups g WHERE g.id=%s
+                """,
+                (me, gid),
+            )
+            group = cur.fetchone()
+            if not group:
+                return _resp(404, {'error': 'Группа не найдена'})
+            cur.execute(
+                """
+                SELECT u.id, u.nick, u.avatar_url, u.is_online, gm.role
+                FROM group_members gm JOIN users u ON u.id=gm.user_id
+                WHERE gm.group_id=%s ORDER BY gm.role DESC, u.nick
+                """,
+                (gid,),
+            )
+            members = cur.fetchall()
+            return _resp(200, {'group': group, 'members': members})
+
+        # ── GROUP UPDATE ──────────────────────────────────
+        if action == 'group_update' and method == 'POST':
+            gid = int(body.get('group_id') or 0)
+            uid = int(body.get('user_id') or 0)
+            cur.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s", (gid, uid))
+            row = cur.fetchone()
+            if not row or row['role'] not in ('admin', 'owner'):
+                return _resp(403, {'error': 'Нет прав'})
+            fields = {}
+            for f in ('name', 'about', 'photo_url'):
+                if f in body:
+                    fields[f] = body[f] or None
+            if not fields:
+                return _resp(400, {'error': 'Нет данных'})
+            set_clause = ', '.join(f"{k}=%s" for k in fields)
+            cur.execute(f"UPDATE groups SET {set_clause} WHERE id=%s", list(fields.values()) + [gid])
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── GROUP TRANSFER OWNER ──────────────────────────
+        if action == 'group_transfer' and method == 'POST':
+            gid = int(body.get('group_id') or 0)
+            uid = int(body.get('user_id') or 0)
+            new_owner = int(body.get('new_owner_id') or 0)
+            cur.execute("SELECT owner_id FROM groups WHERE id=%s", (gid,))
+            g = cur.fetchone()
+            if not g or g['owner_id'] != uid:
+                return _resp(403, {'error': 'Только владелец может передать права'})
+            cur.execute("UPDATE groups SET owner_id=%s WHERE id=%s", (new_owner, gid))
+            cur.execute("UPDATE group_members SET role='owner' WHERE group_id=%s AND user_id=%s", (gid, new_owner))
+            cur.execute("UPDATE group_members SET role='member' WHERE group_id=%s AND user_id=%s", (gid, uid))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── GROUP SET ROLE ────────────────────────────────
+        if action == 'group_set_role' and method == 'POST':
+            gid = int(body.get('group_id') or 0)
+            uid = int(body.get('user_id') or 0)
+            target = int(body.get('target_id') or 0)
+            role = body.get('role', 'member')
+            cur.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s", (gid, uid))
+            r = cur.fetchone()
+            if not r or r['role'] not in ('admin', 'owner'):
+                return _resp(403, {'error': 'Нет прав'})
+            cur.execute("UPDATE group_members SET role=%s WHERE group_id=%s AND user_id=%s", (role, gid, target))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── GROUP KICK ────────────────────────────────────
+        if action == 'group_kick' and method == 'POST':
+            gid = int(body.get('group_id') or 0)
+            uid = int(body.get('user_id') or 0)
+            target = int(body.get('target_id') or 0)
+            cur.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s", (gid, uid))
+            r = cur.fetchone()
+            if not r or r['role'] not in ('admin', 'owner'):
+                return _resp(403, {'error': 'Нет прав'})
+            cur.execute("DELETE FROM group_members WHERE group_id=%s AND user_id=%s", (gid, target))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── GROUP LEAVE ───────────────────────────────────
+        if action == 'group_leave' and method == 'POST':
+            gid = int(body.get('group_id') or 0)
+            uid = int(body.get('user_id') or 0)
+            cur.execute("DELETE FROM group_members WHERE group_id=%s AND user_id=%s", (gid, uid))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── UPLOAD GROUP PHOTO ────────────────────────────
+        if action == 'upload_group_photo' and method == 'POST':
+            import base64, boto3, time
+            gid = int(body.get('group_id') or 0)
+            uid = int(body.get('user_id') or 0)
+            cur.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s", (gid, uid))
+            r = cur.fetchone()
+            if not r or r['role'] not in ('admin', 'owner'):
+                return _resp(403, {'error': 'Нет прав'})
+            data_b64 = body.get('data', '')
+            ext = (body.get('ext') or 'jpg').lower()
+            raw = base64.b64decode(data_b64)
+            key = f"groups/{gid}/photo.{ext}"
+            s3 = boto3.client('s3', endpoint_url='https://bucket.poehali.dev',
+                aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+                aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
+            s3.put_object(Bucket='files', Key=key, Body=raw, ContentType=f'image/{ext}')
+            url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}?t={int(time.time())}"
+            cur.execute("UPDATE groups SET photo_url=%s WHERE id=%s", (url, gid))
+            conn.commit()
+            return _resp(200, {'url': url})
+
         return _resp(404, {'error': 'Неизвестное действие'})
     finally:
         conn.close()

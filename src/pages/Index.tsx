@@ -43,7 +43,10 @@ type User = { id: number; nick: string; avatar_url?: string | null; profile_comp
 type Profile = User & { city?: string; birthdate?: string; about?: string; is_online?: boolean; last_seen?: string; followers: number; following: number; i_follow?: boolean; i_blocked?: boolean };
 type ChatItem = { chat_id: number; kind: 'dm' | 'group'; peer_id?: number; peer_nick?: string; peer_avatar?: string | null; peer_online?: boolean; group_id?: number; group_name?: string; group_avatar?: string | null; last_text?: string | null; last_at?: string | null };
 type Message = { id: number; sender_id: number; sender_nick: string; sender_avatar?: string | null; text?: string | null; image_url?: string | null; media_type?: string | null; media_url?: string | null; created_at: string; is_removed?: boolean; reactions?: { emoji: string; user_id: number }[] };
-type Tab = 'chats' | 'search' | 'profile';
+type Tab = 'search' | 'chats' | 'notifications' | 'profile';
+type Notif = { id: number; type: string; from_user_id?: number; from_nick?: string; from_avatar?: string | null; chat_id?: number; group_id?: number; payload?: string; is_read: boolean; created_at: string };
+type GroupInfo = { id: number; name: string; about?: string; photo_url?: string | null; invite_token: string; owner_id: number; my_role?: string; member_count: number };
+type GroupMember = User & { role: string };
 
 // ── screens ───────────────────────────────────────────────────────────────────
 type Screen =
@@ -53,7 +56,8 @@ type Screen =
   | { name: 'chat'; chatId: number; peer?: User; groupName?: string; groupId?: number }
   | { name: 'user_profile'; userId: number }
   | { name: 'followers'; userId: number; mode: 'followers' | 'following' }
-  | { name: 'new_group' };
+  | { name: 'new_group' }
+  | { name: 'group_info'; groupId: number; chatId: number };
 
 export default function Index() {
   const [user, setUser] = useState<User | null>(() => {
@@ -165,17 +169,32 @@ export default function Index() {
 
   if (!user || screen.name === 'login') return <LoginScreen draftNick={draftNick} setDraftNick={setDraftNick} onLogin={login} error={loginError} />;
   if (screen.name === 'setup') return <SetupScreen user={user} onDone={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); push({ name: 'tabs', tab: 'chats' }); }} />;
-  if (screen.name === 'chat') return <ChatScreen user={user} chatId={screen.chatId} peer={screen.peer} groupName={screen.groupName} onBack={() => push({ name: 'tabs', tab: 'chats' })} onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />;
-  if (screen.name === 'user_profile') return <UserProfileScreen me={user} userId={screen.userId} onBack={back} onOpenChat={async (peerId) => { const d = await api('open_chat', 'POST', { user_id: user.id, peer_id: peerId }); push({ name: 'chat', chatId: d.chat_id, peer: d.peer }); }} onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} />;
+  if (screen.name === 'chat') return <ChatScreen user={user} chatId={screen.chatId} peer={screen.peer} groupName={screen.groupName} groupId={screen.groupId}
+    onBack={() => push({ name: 'tabs', tab: 'chats' })}
+    onOpenProfile={(id) => push({ name: 'user_profile', userId: id })}
+    onOpenGroup={(gid, chatId) => push({ name: 'group_info', groupId: gid, chatId })} />;
+  if (screen.name === 'user_profile') return <UserProfileScreen me={user} userId={screen.userId} onBack={back}
+    onOpenChat={async (peerId) => { const d = await api('open_chat', 'POST', { user_id: user.id, peer_id: peerId }); push({ name: 'chat', chatId: d.chat_id, peer: d.peer }); }}
+    onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} />;
   if (screen.name === 'followers') return <FollowersScreen userId={screen.userId} mode={screen.mode} me={user} onBack={back} onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />;
-  if (screen.name === 'new_group') return <NewGroupScreen user={user} onBack={() => push({ name: 'tabs', tab: 'chats' })} onCreated={(chatId, groupName) => push({ name: 'chat', chatId, groupName })} />;
+  if (screen.name === 'new_group') return <NewGroupScreen user={user} onBack={() => push({ name: 'tabs', tab: 'chats' })}
+    onCreated={(chatId, groupName, groupId) => push({ name: 'group_info', groupId, chatId })} />;
+  if (screen.name === 'group_info') return <GroupInfoScreen user={user} groupId={screen.groupId} chatId={screen.chatId}
+    onBack={() => push({ name: 'tabs', tab: 'chats' })}
+    onOpenChat={() => push({ name: 'chat', chatId: screen.chatId, groupId: screen.groupId, groupName: '' })}
+    onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />;
 
-  // tabs
   const tab = (screen as { name: 'tabs'; tab: Tab }).tab;
   return (
-    <TabsShell tab={tab} onTab={(t) => push({ name: 'tabs', tab: t })}>
-      {tab === 'chats' && <ChatsTab user={user} onOpenChat={(c) => push({ name: 'chat', chatId: c.chat_id, peer: c.peer_id ? { id: c.peer_id, nick: c.peer_nick!, avatar_url: c.peer_avatar } : undefined, groupName: c.group_name })} onNewGroup={() => push({ name: 'new_group' })} />}
+    <TabsShell tab={tab} onTab={(t) => push({ name: 'tabs', tab: t })} user={user}>
       {tab === 'search' && <SearchTab user={user} onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />}
+      {tab === 'chats' && <ChatsTab user={user}
+        onOpenChat={(c) => push({ name: 'chat', chatId: c.chat_id, peer: c.peer_id ? { id: c.peer_id, nick: c.peer_nick!, avatar_url: c.peer_avatar } : undefined, groupName: c.group_name, groupId: c.group_id })}
+        onNewGroup={() => push({ name: 'new_group' })}
+        onOpenGroup={(gid, chatId) => push({ name: 'group_info', groupId: gid, chatId })} />}
+      {tab === 'notifications' && <NotificationsTab user={user}
+        onOpenChat={(chatId) => push({ name: 'chat', chatId })}
+        onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />}
       {tab === 'profile' && <ProfileTab user={user} onLogout={logout} onUpdate={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); }} onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} lightTheme={lightTheme} onToggleTheme={() => setLightTheme(v => !v)} onDeleteAccount={deleteAccount} onSwitchAccount={logout} />}
     </TabsShell>
   );
@@ -339,21 +358,38 @@ function SetupScreen({ user, onDone }: { user: User; onDone: (u: User) => void }
 // ══════════════════════════════════════════════════════════════════════════════
 // TABS SHELL
 // ══════════════════════════════════════════════════════════════════════════════
-function TabsShell({ tab, onTab, children }: { tab: Tab; onTab: (t: Tab) => void; children: React.ReactNode }) {
-  const tabs: { key: Tab; icon: string; label: string }[] = [
-    { key: 'chats', icon: 'MessageCircle', label: 'Чаты' },
+function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (t: Tab) => void; children: React.ReactNode; user: User }) {
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    const load = () => api(`notifications&user_id=${user.id}`).then(d => setUnread(d.unread || 0));
+    load();
+    const iv = setInterval(load, 10000);
+    return () => clearInterval(iv);
+  }, [user.id]);
+
+  const tabs: { key: Tab; icon: string; label: string; badge?: number }[] = [
     { key: 'search', icon: 'Search', label: 'Поиск' },
+    { key: 'chats', icon: 'MessageCircle', label: 'Чаты' },
+    { key: 'notifications', icon: 'Bell', label: 'Уведомления', badge: unread },
     { key: 'profile', icon: 'User', label: 'Профиль' },
   ];
   return (
     <div className="min-h-screen grad-mesh flex flex-col">
-      <div className="flex-1 overflow-hidden flex flex-col pb-20">{children}</div>
-      <nav className="fixed bottom-0 left-0 right-0 glass border-t border-border flex">
+      <div className="flex-1 overflow-hidden flex flex-col pb-[68px]">{children}</div>
+      <nav className="fixed bottom-0 left-0 right-0 glass border-t border-border flex safe-area-pb">
         {tabs.map(t => (
-          <button key={t.key} onClick={() => onTab(t.key)} className={`flex-1 flex flex-col items-center justify-center py-3 gap-0.5 transition-colors ${tab === t.key ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}>
-            <Icon name={t.icon} size={22} />
+          <button key={t.key} onClick={() => onTab(t.key)}
+            className={`flex-1 flex flex-col items-center justify-center py-2.5 gap-0.5 transition-colors relative ${tab === t.key ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}>
+            <div className="relative">
+              <Icon name={t.icon} size={22} />
+              {(t.badge || 0) > 0 && (
+                <span className="absolute -top-1.5 -right-2 min-w-[16px] h-4 rounded-full bg-destructive text-white text-[9px] font-bold flex items-center justify-center px-1">
+                  {t.badge! > 99 ? '99+' : t.badge}
+                </span>
+              )}
+            </div>
             <span className="text-[10px] font-medium">{t.label}</span>
-            {tab === t.key && <span className="absolute bottom-0 w-10 h-0.5 bg-primary rounded-full" />}
+            {tab === t.key && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-primary rounded-full" />}
           </button>
         ))}
       </nav>
@@ -364,7 +400,7 @@ function TabsShell({ tab, onTab, children }: { tab: Tab; onTab: (t: Tab) => void
 // ══════════════════════════════════════════════════════════════════════════════
 // CHATS TAB
 // ══════════════════════════════════════════════════════════════════════════════
-function ChatsTab({ user, onOpenChat, onNewGroup }: { user: User; onOpenChat: (c: ChatItem) => void; onNewGroup: () => void }) {
+function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup }: { user: User; onOpenChat: (c: ChatItem) => void; onNewGroup: () => void; onOpenGroup: (gid: number, chatId: number) => void }) {
   const [chats, setChats] = useState<ChatItem[]>([]);
   const [showMenu, setShowMenu] = useState(false);
   const [swipedId, setSwipedId] = useState<number | null>(null);
@@ -433,14 +469,27 @@ function ChatsTab({ user, onOpenChat, onNewGroup }: { user: User; onOpenChat: (c
               }}
               className={`w-full flex items-center gap-3 px-3 py-3 rounded-2xl hover:bg-secondary/40 transition-all ${swipedId === c.chat_id ? 'translate-x-[-80px]' : 'translate-x-0'}`}>
               {c.kind === 'group'
-                ? <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary/70 to-accent/70 flex items-center justify-center shrink-0"><Icon name="Users" size={22} className="text-white" /></div>
+                ? <div className="w-12 h-12 rounded-full shrink-0 overflow-hidden">
+                    {c.group_avatar
+                      ? <img src={c.group_avatar} className="w-full h-full object-cover" />
+                      : <div className="w-full h-full bg-gradient-to-br from-primary/70 to-accent/70 flex items-center justify-center"><Icon name="Users" size={22} className="text-white" /></div>
+                    }
+                  </div>
                 : <Avatar url={c.peer_avatar} nick={c.peer_nick || '?'} size={48} online={c.peer_online} />
               }
               <div className="flex-1 min-w-0 text-left">
                 <div className="font-semibold truncate">{c.kind === 'group' ? c.group_name : `@${c.peer_nick}`}</div>
                 <div className="text-sm text-muted-foreground truncate">{c.last_text || 'Нет сообщений'}</div>
               </div>
-              <span className="text-[11px] text-muted-foreground shrink-0">{fmtTime(c.last_at || null)}</span>
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <span className="text-[11px] text-muted-foreground">{fmtTime(c.last_at || null)}</span>
+                {c.kind === 'group' && c.group_id && (
+                  <button onClick={e => { e.stopPropagation(); onOpenGroup(c.group_id!, c.chat_id); }}
+                    className="w-6 h-6 rounded-full hover:bg-secondary/80 flex items-center justify-center transition-colors">
+                    <Icon name="Info" size={14} className="text-accent" />
+                  </button>
+                )}
+              </div>
             </button>
           </div>
         ))}
@@ -846,9 +895,9 @@ const EMOJIS = ['❤️','😂','😮','😢','👍','👎','🔥','🎉','😍'
 type Reaction = { emoji: string; user_id: number };
 type MsgExt = Message & { reactions?: Reaction[]; is_removed?: boolean; media_type?: string; media_url?: string };
 
-function ChatScreen({ user, chatId, peer, groupName, onBack, onOpenProfile }: {
-  user: User; chatId: number; peer?: User; groupName?: string;
-  onBack: () => void; onOpenProfile: (id: number) => void;
+function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProfile, onOpenGroup }: {
+  user: User; chatId: number; peer?: User; groupName?: string; groupId?: number;
+  onBack: () => void; onOpenProfile: (id: number) => void; onOpenGroup: (gid: number, chatId: number) => void;
 }) {
   const [messages, setMessages] = useState<MsgExt[]>([]);
   const [input, setInput] = useState('');
@@ -958,7 +1007,8 @@ function ChatScreen({ user, chatId, peer, groupName, onBack, onOpenProfile }: {
         <button onClick={onBack} className="w-10 h-10 rounded-full hover:bg-secondary/60 flex items-center justify-center transition-colors">
           <Icon name="ArrowLeft" size={20} />
         </button>
-        <button className="flex items-center gap-3 flex-1 text-left" onClick={() => peer && onOpenProfile(peer.id)}>
+        <button className="flex items-center gap-3 flex-1 text-left"
+          onClick={() => peer ? onOpenProfile(peer.id) : groupId && onOpenGroup(groupId, chatId)}>
           {peer ? <Avatar url={peer.avatar_url} nick={peer.nick} size={38} online={peerOnline} />
             : <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/70 to-accent/70 flex items-center justify-center shrink-0"><Icon name="Users" size={18} className="text-white" /></div>}
           <div>
@@ -1116,7 +1166,11 @@ function ChatScreen({ user, chatId, peer, groupName, onBack, onOpenProfile }: {
                 <Icon name="Video" size={22} />
               </button>
             )}
-            <button onClick={() => setInCall(null)} className="w-16 h-16 rounded-full bg-destructive flex items-center justify-center shadow-lg shadow-destructive/40">
+            <button onClick={() => {
+              // Фиксируем пропущенный звонок у собеседника
+              if (peer) api('notify_call', 'POST', { from_user_id: user.id, to_user_id: peer.id, call_type: inCall, chat_id: chatId });
+              setInCall(null);
+            }} className="w-16 h-16 rounded-full bg-destructive flex items-center justify-center shadow-lg shadow-destructive/40">
               <Icon name="PhoneOff" size={26} className="text-white" />
             </button>
           </div>
@@ -1129,7 +1183,7 @@ function ChatScreen({ user, chatId, peer, groupName, onBack, onOpenProfile }: {
 // ══════════════════════════════════════════════════════════════════════════════
 // NEW GROUP SCREEN (с подписчиками сразу)
 // ══════════════════════════════════════════════════════════════════════════════
-function NewGroupScreen({ user, onBack, onCreated }: { user: User; onBack: () => void; onCreated: (chatId: number, name: string) => void }) {
+function NewGroupScreen({ user, onBack, onCreated }: { user: User; onBack: () => void; onCreated: (chatId: number, name: string, groupId: number) => void }) {
   const [name, setName] = useState('');
   const [followers, setFollowers] = useState<User[]>([]);
   const [q, setQ] = useState('');
@@ -1151,7 +1205,7 @@ function NewGroupScreen({ user, onBack, onCreated }: { user: User; onBack: () =>
     setCreating(true);
     const d = await api('create_group', 'POST', { user_id: user.id, name: name.trim(), member_ids: selected.map(u => u.id) });
     setCreating(false);
-    onCreated(d.chat_id, name.trim());
+    onCreated(d.chat_id, name.trim(), d.group_id);
   };
 
   return (
@@ -1202,6 +1256,311 @@ function NewGroupScreen({ user, onBack, onCreated }: { user: User; onBack: () =>
               </div>
             </button>
           ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// NOTIFICATIONS TAB
+// ══════════════════════════════════════════════════════════════════════════════
+const NOTIF_LABELS: Record<string, string> = {
+  missed_call: 'Пропущенный звонок',
+  new_message: 'Новое сообщение',
+  follow: 'Подписался на тебя',
+  group_invite: 'Добавлен в группу',
+};
+const NOTIF_ICONS: Record<string, string> = {
+  missed_call: 'PhoneMissed',
+  new_message: 'MessageCircle',
+  follow: 'UserPlus',
+  group_invite: 'Users',
+};
+
+function NotificationsTab({ user, onOpenChat, onOpenProfile }: {
+  user: User; onOpenChat: (chatId: number) => void; onOpenProfile: (id: number) => void;
+}) {
+  const [notifs, setNotifs] = useState<Notif[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api(`notifications&user_id=${user.id}`).then(d => {
+      setNotifs(d.notifications || []);
+      setLoading(false);
+      api('notifications_read', 'POST', { user_id: user.id });
+    });
+  }, [user.id]);
+
+  return (
+    <div className="flex flex-col h-full">
+      <header className="px-4 py-4 glass">
+        <h2 className="font-display font-bold text-xl">Уведомления</h2>
+      </header>
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-3">
+        {loading && <div className="flex justify-center mt-12"><div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>}
+        {!loading && notifs.length === 0 && (
+          <div className="text-center text-muted-foreground mt-20">
+            <Icon name="BellOff" size={48} className="mx-auto mb-3 opacity-30" />
+            <p>Нет уведомлений</p>
+          </div>
+        )}
+        {notifs.map(n => (
+          <div key={n.id} className={`flex items-start gap-3 px-3 py-3.5 rounded-2xl mb-1 ${!n.is_read ? 'bg-primary/10' : 'hover:bg-secondary/40'} transition-colors`}>
+            <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 overflow-hidden ${n.type === 'missed_call' ? 'bg-destructive/20' : 'bg-accent/20'}`}>
+              {n.from_avatar
+                ? <img src={n.from_avatar} className="w-full h-full object-cover" />
+                : <Icon name={NOTIF_ICONS[n.type] || 'Bell'} size={20} className={n.type === 'missed_call' ? 'text-destructive' : 'text-accent'} />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold">{NOTIF_LABELS[n.type] || n.type}</div>
+              {n.from_nick && <div className="text-sm text-muted-foreground">@{n.from_nick}</div>}
+              <div className="text-xs text-muted-foreground mt-0.5">{fmtTime(n.created_at)}</div>
+              <div className="flex gap-2 mt-2 flex-wrap">
+                {n.type === 'missed_call' && n.from_user_id && (
+                  <>
+                    <button onClick={() => onOpenProfile(n.from_user_id!)}
+                      className="text-xs glass rounded-full px-3 py-1.5 hover:bg-secondary/80 flex items-center gap-1">
+                      <Icon name="User" size={12} /> Профиль
+                    </button>
+                    {n.chat_id && (
+                      <button onClick={() => onOpenChat(n.chat_id!)}
+                        className="text-xs bg-primary/20 text-primary rounded-full px-3 py-1.5 hover:bg-primary/30 flex items-center gap-1">
+                        <Icon name="Phone" size={12} /> Перезвонить
+                      </button>
+                    )}
+                  </>
+                )}
+                {n.type === 'follow' && n.from_user_id && (
+                  <button onClick={() => onOpenProfile(n.from_user_id!)}
+                    className="text-xs bg-accent/20 text-accent rounded-full px-3 py-1.5 hover:bg-accent/30 flex items-center gap-1">
+                    <Icon name="UserPlus" size={12} /> Посмотреть профиль
+                  </button>
+                )}
+                {(n.type === 'new_message' || n.type === 'group_invite') && n.chat_id && (
+                  <button onClick={() => onOpenChat(n.chat_id!)}
+                    className="text-xs bg-primary/20 text-primary rounded-full px-3 py-1.5 hover:bg-primary/30 flex items-center gap-1">
+                    <Icon name="MessageCircle" size={12} /> Открыть чат
+                  </button>
+                )}
+              </div>
+            </div>
+            {!n.is_read && <span className="w-2 h-2 rounded-full bg-primary shrink-0 mt-2" />}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GROUP INFO SCREEN
+// ══════════════════════════════════════════════════════════════════════════════
+function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProfile }: {
+  user: User; groupId: number; chatId: number;
+  onBack: () => void; onOpenChat: () => void; onOpenProfile: (id: number) => void;
+}) {
+  const [group, setGroup] = useState<GroupInfo | null>(null);
+  const [members, setMembers] = useState<GroupMember[]>([]);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editAbout, setEditAbout] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [transferTarget, setTransferTarget] = useState<number | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const load = useCallback(async () => {
+    const d = await api(`group_info&group_id=${groupId}&user_id=${user.id}`);
+    setGroup(d.group); setMembers(d.members || []);
+    setEditName(d.group?.name || ''); setEditAbout(d.group?.about || '');
+  }, [groupId, user.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const isAdmin = group?.my_role === 'owner' || group?.my_role === 'admin';
+  const isOwner = group?.my_role === 'owner' || group?.owner_id === user.id;
+
+  const saveEdit = async () => {
+    setSaving(true);
+    await api('group_update', 'POST', { group_id: groupId, user_id: user.id, name: editName, about: editAbout });
+    setSaving(false); setEditing(false); load();
+  };
+
+  const uploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const [header, b64] = (reader.result as string).split(',');
+      const ext = header.includes('png') ? 'png' : 'jpg';
+      await api('upload_group_photo', 'POST', { group_id: groupId, user_id: user.id, data: b64, ext });
+      load();
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const copyLink = () => {
+    const link = `${window.location.origin}/?join=${group?.invite_token}`;
+    navigator.clipboard?.writeText(link);
+    setCopied(true); setTimeout(() => setCopied(false), 1800);
+  };
+
+  const setRole = async (targetId: number, role: string) => {
+    await api('group_set_role', 'POST', { group_id: groupId, user_id: user.id, target_id: targetId, role });
+    load();
+  };
+
+  const kick = async (targetId: number) => {
+    await api('group_kick', 'POST', { group_id: groupId, user_id: user.id, target_id: targetId });
+    load();
+  };
+
+  const transfer = async () => {
+    if (!transferTarget) return;
+    await api('group_transfer', 'POST', { group_id: groupId, user_id: user.id, new_owner_id: transferTarget });
+    setTransferTarget(null); load();
+  };
+
+  const leave = async () => {
+    await api('group_leave', 'POST', { group_id: groupId, user_id: user.id });
+    onBack();
+  };
+
+  const roleLabel: Record<string, string> = { owner: '👑 Владелец', admin: '⭐ Админ', member: 'Участник' };
+
+  if (!group) return (
+    <div className="min-h-screen grad-mesh flex items-center justify-center">
+      <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen grad-mesh flex flex-col">
+      <header className="flex items-center gap-3 px-4 py-3 glass">
+        <button onClick={onBack} className="w-10 h-10 rounded-full hover:bg-secondary/60 flex items-center justify-center">
+          <Icon name="ArrowLeft" size={20} />
+        </button>
+        <span className="font-semibold flex-1">Информация о группе</span>
+        <button onClick={onOpenChat} className="px-4 py-2 rounded-full bg-gradient-to-r from-primary to-accent text-white text-sm font-semibold">
+          <Icon name="MessageCircle" size={15} className="inline mr-1" />Чат
+        </button>
+      </header>
+
+      <div className="flex-1 overflow-y-auto scrollbar-thin pb-8">
+        <div className="flex flex-col items-center pt-6 pb-4 px-4">
+          <div className="relative cursor-pointer" onClick={() => isAdmin && fileRef.current?.click()}>
+            <div className="w-24 h-24 rounded-full overflow-hidden">
+              {group.photo_url
+                ? <img src={group.photo_url} className="w-full h-full object-cover" />
+                : <div className="w-full h-full bg-gradient-to-br from-primary/70 to-accent/70 flex items-center justify-center"><Icon name="Users" size={36} className="text-white" /></div>}
+            </div>
+            {isAdmin && (
+              <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow">
+                <Icon name="Camera" size={14} className="text-white" />
+              </div>
+            )}
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" hidden onChange={uploadPhoto} />
+
+          {!editing ? (
+            <>
+              <h2 className="font-display font-bold text-2xl mt-4">{group.name}</h2>
+              {group.about && <p className="text-sm text-muted-foreground mt-2 text-center">{group.about}</p>}
+              <p className="text-xs text-muted-foreground mt-1">{group.member_count} участников</p>
+              {isAdmin && (
+                <button onClick={() => setEditing(true)} className="mt-3 flex items-center gap-1.5 text-accent text-sm hover:opacity-80 transition-opacity">
+                  <Icon name="Pencil" size={14} />Редактировать
+                </button>
+              )}
+            </>
+          ) : (
+            <div className="w-full mt-4 space-y-3">
+              <input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Название"
+                className="w-full bg-secondary/60 border border-border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary transition-all" />
+              <textarea value={editAbout} onChange={e => setEditAbout(e.target.value)} rows={2} placeholder="О группе"
+                className="w-full bg-secondary/60 border border-border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary transition-all resize-none" />
+              <div className="flex gap-2">
+                <button onClick={saveEdit} disabled={saving}
+                  className="flex-1 py-2.5 rounded-2xl bg-gradient-to-r from-primary to-accent text-white text-sm font-semibold disabled:opacity-50">
+                  {saving ? '...' : 'Сохранить'}
+                </button>
+                <button onClick={() => setEditing(false)} className="flex-1 py-2.5 rounded-2xl glass border border-border text-sm">Отмена</button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Ссылка-приглашение */}
+        <div className="mx-4 glass rounded-2xl p-4 mb-3">
+          <p className="text-xs text-muted-foreground mb-1">Пригласительная ссылка</p>
+          <p className="text-xs text-muted-foreground truncate mb-3">{window.location.origin}/?join={group.invite_token}</p>
+          <button onClick={copyLink} className="w-full py-2.5 rounded-xl bg-gradient-to-r from-primary to-accent text-white text-sm font-semibold">
+            <Icon name={copied ? 'Check' : 'Copy'} size={14} className="inline mr-1.5" />
+            {copied ? 'Скопировано!' : 'Скопировать ссылку'}
+          </button>
+        </div>
+
+        {/* Участники */}
+        <div className="mx-4 mb-3">
+          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-2 px-1">Участники · {group.member_count}</p>
+          <div className="glass rounded-3xl overflow-hidden">
+            {members.map((m, i) => (
+              <div key={m.id} className={`flex items-center gap-3 px-4 py-3 ${i < members.length - 1 ? 'border-b border-border/40' : ''}`}>
+                <button onClick={() => m.id !== user.id && onOpenProfile(m.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                  <Avatar url={m.avatar_url} nick={m.nick} size={40} online={m.is_online} />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm truncate">@{m.nick}{m.id === user.id ? ' (вы)' : ''}</div>
+                    <div className="text-xs text-muted-foreground">{roleLabel[m.role] || 'Участник'}</div>
+                  </div>
+                </button>
+                {isAdmin && m.id !== user.id && (
+                  <div className="flex gap-1 shrink-0">
+                    {isOwner && m.role !== 'admin' && m.role !== 'owner' && (
+                      <button onClick={() => setRole(m.id, 'admin')} title="Назначить админом"
+                        className="w-8 h-8 rounded-full hover:bg-accent/20 flex items-center justify-center">
+                        <Icon name="Star" size={14} className="text-accent" />
+                      </button>
+                    )}
+                    {isOwner && m.role === 'admin' && (
+                      <button onClick={() => setRole(m.id, 'member')} title="Снять права"
+                        className="w-8 h-8 rounded-full hover:bg-secondary/60 flex items-center justify-center">
+                        <Icon name="StarOff" size={14} className="text-muted-foreground" />
+                      </button>
+                    )}
+                    {isOwner && (
+                      <button onClick={() => setTransferTarget(m.id)} title="Передать группу"
+                        className="w-8 h-8 rounded-full hover:bg-primary/20 flex items-center justify-center">
+                        <Icon name="Crown" size={14} className="text-primary" />
+                      </button>
+                    )}
+                    <button onClick={() => kick(m.id)} title="Исключить"
+                      className="w-8 h-8 rounded-full hover:bg-destructive/20 flex items-center justify-center">
+                      <Icon name="UserX" size={14} className="text-destructive" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Передача прав */}
+        {transferTarget && (
+          <div className="mx-4 mb-3 glass rounded-2xl p-4">
+            <p className="text-sm mb-3">Передать владение @{members.find(m => m.id === transferTarget)?.nick}? Вы станете обычным участником.</p>
+            <div className="flex gap-2">
+              <button onClick={transfer} className="flex-1 py-2.5 rounded-2xl bg-gradient-to-r from-primary to-accent text-white text-sm font-semibold">Передать</button>
+              <button onClick={() => setTransferTarget(null)} className="flex-1 py-2.5 rounded-2xl glass border border-border text-sm">Отмена</button>
+            </div>
+          </div>
+        )}
+
+        {/* Покинуть группу */}
+        <div className="mx-4">
+          <button onClick={leave} className="w-full py-3.5 rounded-2xl text-destructive hover:bg-destructive/10 transition-colors text-sm font-medium flex items-center justify-center gap-2">
+            <Icon name="LogOut" size={16} />Покинуть группу
+          </button>
         </div>
       </div>
     </div>
