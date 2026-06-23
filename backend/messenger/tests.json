@@ -1,0 +1,21 @@
+{
+  "tests": [
+    {
+      "name": "Login creates user",
+      "method": "POST",
+      "path": "/?action=login",
+      "body": {"nick": "tester1"},
+      "expectedStatus": 200,
+      "expectedBody": {"user": {"nick": "tester1"}},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Search returns list",
+      "method": "GET",
+      "path": "/?action=search&q=zzzznotexist&user_id=0",
+      "expectedStatus": 200,
+      "expectedBody": {"users": []},
+      "bodyMatcher": "partial"
+    }
+  ]
+}
