@@ -559,7 +559,7 @@ def handler(event: dict, context) -> dict:
             me = int(params.get('user_id') or 0)
             cur.execute(
                 """
-                SELECT g.id, g.name, g.about, g.photo_url, g.invite_token, g.owner_id,
+                SELECT g.id, g.name, g.about, g.photo_url, g.invite_token, g.owner_id, g.is_public,
                        (SELECT role FROM group_members WHERE group_id=g.id AND user_id=%s) AS my_role,
                        (SELECT COUNT(*) FROM group_members WHERE group_id=g.id) AS member_count
                 FROM groups g WHERE g.id=%s
@@ -578,7 +578,19 @@ def handler(event: dict, context) -> dict:
                 (gid,),
             )
             members = cur.fetchall()
-            return _resp(200, {'group': group, 'members': members})
+            # Подписчики владельца, кого ещё нет в группе
+            cur.execute(
+                """
+                SELECT u.id, u.nick, u.avatar_url, u.is_online
+                FROM follows f JOIN users u ON u.id = f.following_id
+                WHERE f.follower_id = %s
+                  AND u.id NOT IN (SELECT user_id FROM group_members WHERE group_id=%s)
+                ORDER BY u.nick LIMIT 50
+                """,
+                (me, gid),
+            )
+            invitable = cur.fetchall()
+            return _resp(200, {'group': group, 'members': members, 'invitable': invitable})
 
         # ── GROUP UPDATE ──────────────────────────────────
         if action == 'group_update' and method == 'POST':
@@ -592,10 +604,47 @@ def handler(event: dict, context) -> dict:
             for f in ('name', 'about', 'photo_url'):
                 if f in body:
                     fields[f] = body[f] or None
+            if 'is_public' in body:
+                fields['is_public'] = bool(body['is_public'])
             if not fields:
                 return _resp(400, {'error': 'Нет данных'})
             set_clause = ', '.join(f"{k}=%s" for k in fields)
             cur.execute(f"UPDATE groups SET {set_clause} WHERE id=%s", list(fields.values()) + [gid])
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── GROUP REMOVE PHOTO ────────────────────────────
+        if action == 'remove_group_photo' and method == 'POST':
+            gid = int(body.get('group_id') or 0)
+            uid = int(body.get('user_id') or 0)
+            cur.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s", (gid, uid))
+            r = cur.fetchone()
+            if not r or r['role'] not in ('admin', 'owner'):
+                return _resp(403, {'error': 'Нет прав'})
+            cur.execute("UPDATE groups SET photo_url=NULL WHERE id=%s", (gid,))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── GROUP ADD MEMBER ──────────────────────────────
+        if action == 'group_add_member' and method == 'POST':
+            gid = int(body.get('group_id') or 0)
+            uid = int(body.get('user_id') or 0)
+            target = int(body.get('target_id') or 0)
+            cur.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s", (gid, uid))
+            r = cur.fetchone()
+            if not r or r['role'] not in ('admin', 'owner'):
+                return _resp(403, {'error': 'Нет прав'})
+            cur.execute(
+                "INSERT INTO group_members (group_id, user_id, role) VALUES (%s, %s, 'member') ON CONFLICT DO NOTHING",
+                (gid, target),
+            )
+            # Уведомление приглашённому
+            cur.execute("SELECT id FROM chats WHERE group_id=%s", (gid,))
+            chat_row = cur.fetchone()
+            cur.execute(
+                "INSERT INTO notifications (user_id, type, from_user_id, chat_id, group_id) VALUES (%s,'group_invite',%s,%s,%s)",
+                (target, uid, chat_row['id'] if chat_row else None, gid),
+            )
             conn.commit()
             return _resp(200, {'ok': True})
 

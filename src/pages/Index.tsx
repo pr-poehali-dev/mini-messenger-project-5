@@ -50,7 +50,7 @@ type ChatItem = { chat_id: number; kind: 'dm' | 'group'; peer_id?: number; peer_
 type Message = { id: number; sender_id: number; sender_nick: string; sender_avatar?: string | null; text?: string | null; image_url?: string | null; media_type?: string | null; media_url?: string | null; created_at: string; is_removed?: boolean; reactions?: { emoji: string; user_id: number }[] };
 type Tab = 'search' | 'chats' | 'notifications' | 'profile';
 type Notif = { id: number; type: string; from_user_id?: number; from_nick?: string; from_avatar?: string | null; chat_id?: number; group_id?: number; payload?: string; is_read: boolean; created_at: string };
-type GroupInfo = { id: number; name: string; about?: string; photo_url?: string | null; invite_token: string; owner_id: number; my_role?: string; member_count: number };
+type GroupInfo = { id: number; name: string; about?: string; photo_url?: string | null; invite_token: string; owner_id: number; my_role?: string; member_count: number; is_public?: boolean };
 type GroupMember = User & { role: string };
 
 // ── screens ───────────────────────────────────────────────────────────────────
@@ -1401,21 +1401,27 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
 }) {
   const [group, setGroup] = useState<GroupInfo | null>(null);
   const [members, setMembers] = useState<GroupMember[]>([]);
-  const [editing, setEditing] = useState(false);
+  const [invitable, setInvitable] = useState<User[]>([]);
   const [editName, setEditName] = useState('');
   const [editAbout, setEditAbout] = useState('');
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showPhotoMenu, setShowPhotoMenu] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteQ, setInviteQ] = useState('');
   const [transferTarget, setTransferTarget] = useState<number | null>(null);
+  const [kickTarget, setKickTarget] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     const d = await api(`group_info&group_id=${groupId}&user_id=${user.id}`);
     if (d.group) {
-      setGroup(d.group as GroupInfo);
+      const g = d.group as GroupInfo & { is_public?: boolean };
+      setGroup(g);
       setMembers((d.members as GroupMember[]) || []);
-      setEditName((d.group as GroupInfo).name || '');
-      setEditAbout((d.group as GroupInfo).about || '');
+      setInvitable((d.invitable as User[]) || []);
+      setEditName(g.name || '');
+      setEditAbout(g.about || '');
     }
   }, [groupId, user.id]);
 
@@ -1424,14 +1430,15 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
   const isAdmin = group?.my_role === 'owner' || group?.my_role === 'admin';
   const isOwner = group?.my_role === 'owner' || group?.owner_id === user.id;
 
-  const saveEdit = async () => {
+  const saveField = async (fields: Record<string, unknown>) => {
     setSaving(true);
-    await api('group_update', 'POST', { group_id: groupId, user_id: user.id, name: editName, about: editAbout });
-    setSaving(false); setEditing(false); load();
+    await api('group_update', 'POST', { group_id: groupId, user_id: user.id, ...fields });
+    setSaving(false); load();
   };
 
   const uploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
+    setShowPhotoMenu(false);
     const reader = new FileReader();
     reader.onload = async () => {
       const [header, b64] = (reader.result as string).split(',');
@@ -1443,19 +1450,30 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
     e.target.value = '';
   };
 
+  const removePhoto = async () => {
+    setShowPhotoMenu(false);
+    await api('remove_group_photo', 'POST', { group_id: groupId, user_id: user.id });
+    load();
+  };
+
   const copyLink = () => {
     const link = `${window.location.origin}/?join=${group?.invite_token}`;
     navigator.clipboard?.writeText(link);
     setCopied(true); setTimeout(() => setCopied(false), 1800);
   };
 
-  const setRole = async (targetId: number, role: string) => {
-    await api('group_set_role', 'POST', { group_id: groupId, user_id: user.id, target_id: targetId, role });
-    load();
+  const addMember = async (targetId: number) => {
+    await api('group_add_member', 'POST', { group_id: groupId, user_id: user.id, target_id: targetId });
+    setShowInvite(false); load();
   };
 
   const kick = async (targetId: number) => {
     await api('group_kick', 'POST', { group_id: groupId, user_id: user.id, target_id: targetId });
+    setKickTarget(null); load();
+  };
+
+  const setRole = async (targetId: number, role: string) => {
+    await api('group_set_role', 'POST', { group_id: groupId, user_id: user.id, target_id: targetId, role });
     load();
   };
 
@@ -1471,6 +1489,9 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
   };
 
   const roleLabel: Record<string, string> = { owner: '👑 Владелец', admin: '⭐ Админ', member: 'Участник' };
+  const filteredInvitable = inviteQ.trim()
+    ? invitable.filter(u => u.nick.toLowerCase().includes(inviteQ.toLowerCase()))
+    : invitable;
 
   if (!group) return (
     <div className="min-h-screen grad-mesh flex items-center justify-center">
@@ -1478,75 +1499,161 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
     </div>
   );
 
+  const isPublic = group.is_public !== false;
+
   return (
-    <div className="min-h-screen grad-mesh flex flex-col">
-      <header className="flex items-center gap-3 px-4 py-3 glass">
+    <div className="min-h-screen grad-mesh flex flex-col" onClick={() => { setShowPhotoMenu(false); setShowInvite(false); }}>
+      <header className="flex items-center gap-3 px-4 py-3 glass" onClick={e => e.stopPropagation()}>
         <button onClick={onBack} className="w-10 h-10 rounded-full hover:bg-secondary/60 flex items-center justify-center">
           <Icon name="ArrowLeft" size={20} />
         </button>
-        <span className="font-semibold flex-1">Информация о группе</span>
+        <span className="font-semibold flex-1">Группа</span>
         <button onClick={onOpenChat} className="px-4 py-2 rounded-full bg-gradient-to-r from-primary to-accent text-white text-sm font-semibold">
           <Icon name="MessageCircle" size={15} className="inline mr-1" />Чат
         </button>
       </header>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin pb-8">
-        <div className="flex flex-col items-center pt-6 pb-4 px-4">
-          <div className="relative cursor-pointer" onClick={() => isAdmin && fileRef.current?.click()}>
-            <div className="w-24 h-24 rounded-full overflow-hidden">
+
+        {/* ── Шапка: фото + название + описание ── */}
+        <div className="flex flex-col items-center pt-6 pb-2 px-4">
+          <input ref={fileRef} type="file" accept="image/*" hidden onChange={uploadPhoto} />
+
+          {/* Фото группы */}
+          <div className="relative" onClick={e => { e.stopPropagation(); if (isAdmin) setShowPhotoMenu(v => !v); }}>
+            <div className="w-24 h-24 rounded-full overflow-hidden cursor-pointer">
               {group.photo_url
                 ? <img src={group.photo_url} className="w-full h-full object-cover" />
-                : <div className="w-full h-full bg-gradient-to-br from-primary/70 to-accent/70 flex items-center justify-center"><Icon name="Users" size={36} className="text-white" /></div>}
+                : <div className="w-full h-full bg-gradient-to-br from-primary/70 to-accent/70 flex items-center justify-center">
+                    <Icon name="Users" size={36} className="text-white" />
+                  </div>}
             </div>
             {isAdmin && (
-              <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow">
+              <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow cursor-pointer">
                 <Icon name="Camera" size={14} className="text-white" />
               </div>
             )}
+            {/* Меню фото */}
+            {showPhotoMenu && (
+              <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 glass rounded-2xl p-1 z-50 w-48 shadow-xl" onClick={e => e.stopPropagation()}>
+                <button onClick={() => { setShowPhotoMenu(false); fileRef.current?.click(); }}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl hover:bg-secondary/60 text-sm">
+                  <Icon name="Camera" size={15} className="text-accent" /> Изменить фото
+                </button>
+                {group.photo_url && (
+                  <button onClick={removePhoto}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl hover:bg-destructive/10 text-sm text-destructive">
+                    <Icon name="Trash2" size={15} /> Удалить фото
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-          <input ref={fileRef} type="file" accept="image/*" hidden onChange={uploadPhoto} />
 
-          {!editing ? (
-            <>
-              <h2 className="font-display font-bold text-2xl mt-4">{group.name}</h2>
-              {group.about && <p className="text-sm text-muted-foreground mt-2 text-center">{group.about}</p>}
-              <p className="text-xs text-muted-foreground mt-1">{group.member_count} участников</p>
-              {isAdmin && (
-                <button onClick={() => setEditing(true)} className="mt-3 flex items-center gap-1.5 text-accent text-sm hover:opacity-80 transition-opacity">
-                  <Icon name="Pencil" size={14} />Редактировать
-                </button>
-              )}
-            </>
+          {/* Название (редактируемое) */}
+          {isAdmin ? (
+            <input
+              value={editName}
+              onChange={e => setEditName(e.target.value)}
+              onBlur={() => editName.trim() && editName !== group.name && saveField({ name: editName.trim() })}
+              className="font-display font-bold text-2xl mt-4 text-center bg-transparent outline-none border-b border-transparent focus:border-primary/50 transition-colors px-2 w-full max-w-xs"
+            />
           ) : (
-            <div className="w-full mt-4 space-y-3">
-              <input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Название"
-                className="w-full bg-secondary/60 border border-border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary transition-all" />
-              <textarea value={editAbout} onChange={e => setEditAbout(e.target.value)} rows={2} placeholder="О группе"
-                className="w-full bg-secondary/60 border border-border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary transition-all resize-none" />
-              <div className="flex gap-2">
-                <button onClick={saveEdit} disabled={saving}
-                  className="flex-1 py-2.5 rounded-2xl bg-gradient-to-r from-primary to-accent text-white text-sm font-semibold disabled:opacity-50">
-                  {saving ? '...' : 'Сохранить'}
-                </button>
-                <button onClick={() => setEditing(false)} className="flex-1 py-2.5 rounded-2xl glass border border-border text-sm">Отмена</button>
+            <h2 className="font-display font-bold text-2xl mt-4">{group.name}</h2>
+          )}
+
+          {/* Описание (редактируемое) */}
+          {isAdmin ? (
+            <textarea
+              value={editAbout}
+              onChange={e => setEditAbout(e.target.value)}
+              onBlur={() => editAbout !== (group.about || '') && saveField({ about: editAbout || null })}
+              rows={2}
+              placeholder="О группе — нажми чтобы добавить"
+              className="text-sm text-muted-foreground mt-2 text-center bg-transparent outline-none border-b border-transparent focus:border-primary/50 transition-colors resize-none w-full max-w-xs placeholder:text-muted-foreground/40"
+            />
+          ) : (
+            group.about && <p className="text-sm text-muted-foreground mt-2 text-center">{group.about}</p>
+          )}
+
+          <p className="text-xs text-muted-foreground mt-2">
+            {isPublic ? '🌐 Публичная' : '🔒 Закрытая'} · {group.member_count} участников
+          </p>
+          {saving && <p className="text-xs text-primary mt-1">Сохраняю...</p>}
+        </div>
+
+        {/* ── Настройки (только для админа) ── */}
+        {isAdmin && (
+          <div className="mx-4 mb-3 glass rounded-2xl overflow-hidden">
+            {/* Публичная/закрытая */}
+            <div className="flex items-center justify-between px-4 py-3.5 border-b border-border/40">
+              <div>
+                <p className="text-sm font-medium">{isPublic ? 'Публичная группа' : 'Закрытая группа'}</p>
+                <p className="text-xs text-muted-foreground">{isPublic ? 'Любой может вступить по ссылке' : 'Только по приглашению'}</p>
+              </div>
+              <button
+                onClick={() => saveField({ is_public: !isPublic })}
+                className={`relative w-12 h-6 rounded-full transition-colors ${isPublic ? 'bg-primary' : 'bg-secondary'}`}>
+                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${isPublic ? 'translate-x-6' : 'translate-x-0.5'}`} />
+              </button>
+            </div>
+            {/* Ссылка */}
+            <div className="px-4 py-3.5">
+              <p className="text-xs text-muted-foreground mb-2">Ссылка-приглашение</p>
+              <button onClick={copyLink} className="w-full py-2.5 rounded-xl bg-gradient-to-r from-primary to-accent text-white text-sm font-semibold">
+                <Icon name={copied ? 'Check' : 'Link'} size={14} className="inline mr-1.5" />
+                {copied ? 'Скопировано!' : 'Скопировать ссылку'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Ссылка для не-админа */}
+        {!isAdmin && (
+          <div className="mx-4 mb-3">
+            <button onClick={copyLink} className="w-full py-2.5 rounded-2xl glass border border-border text-sm flex items-center justify-center gap-2">
+              <Icon name={copied ? 'Check' : 'Link'} size={14} className="text-accent" />
+              {copied ? 'Скопировано!' : 'Скопировать ссылку'}
+            </button>
+          </div>
+        )}
+
+        {/* ── Участники ── */}
+        <div className="mx-4 mb-3">
+          <div className="flex items-center justify-between mb-2 px-1">
+            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Участники · {group.member_count}</p>
+            {isAdmin && invitable.length > 0 && (
+              <button onClick={e => { e.stopPropagation(); setShowInvite(v => !v); }}
+                className="flex items-center gap-1 text-xs text-primary hover:opacity-80 transition-opacity">
+                <Icon name="UserPlus" size={14} /> Пригласить
+              </button>
+            )}
+          </div>
+
+          {/* Панель приглашения */}
+          {showInvite && (
+            <div className="glass rounded-2xl p-3 mb-3" onClick={e => e.stopPropagation()}>
+              <p className="text-xs text-muted-foreground mb-2">Выбери из подписок:</p>
+              {invitable.length > 4 && (
+                <input value={inviteQ} onChange={e => setInviteQ(e.target.value)} placeholder="Поиск..."
+                  className="w-full bg-secondary/60 border border-border rounded-xl px-3 py-2 text-sm outline-none mb-2" />
+              )}
+              <div className="max-h-48 overflow-y-auto space-y-1">
+                {filteredInvitable.map(u => (
+                  <button key={u.id} onClick={() => addMember(u.id)}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-secondary/60 transition-colors">
+                    <Avatar url={u.avatar_url} nick={u.nick} size={32} online={u.is_online} />
+                    <span className="flex-1 text-left text-sm font-medium">@{u.nick}</span>
+                    <Icon name="Plus" size={16} className="text-primary shrink-0" />
+                  </button>
+                ))}
+                {filteredInvitable.length === 0 && (
+                  <p className="text-xs text-muted-foreground text-center py-3">Все подписки уже в группе</p>
+                )}
               </div>
             </div>
           )}
-        </div>
 
-        {/* Ссылка-приглашение */}
-        <div className="mx-4 glass rounded-2xl p-4 mb-3">
-          <p className="text-xs text-muted-foreground mb-1">Пригласительная ссылка</p>
-          <p className="text-xs text-muted-foreground truncate mb-3">{window.location.origin}/?join={group.invite_token}</p>
-          <button onClick={copyLink} className="w-full py-2.5 rounded-xl bg-gradient-to-r from-primary to-accent text-white text-sm font-semibold">
-            <Icon name={copied ? 'Check' : 'Copy'} size={14} className="inline mr-1.5" />
-            {copied ? 'Скопировано!' : 'Скопировать ссылку'}
-          </button>
-        </div>
-
-        {/* Участники */}
-        <div className="mx-4 mb-3">
-          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-2 px-1">Участники · {group.member_count}</p>
           <div className="glass rounded-3xl overflow-hidden">
             {members.map((m, i) => (
               <div key={m.id} className={`flex items-center gap-3 px-4 py-3 ${i < members.length - 1 ? 'border-b border-border/40' : ''}`}>
@@ -1559,26 +1666,26 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
                 </button>
                 {isAdmin && m.id !== user.id && (
                   <div className="flex gap-1 shrink-0">
-                    {isOwner && m.role !== 'admin' && m.role !== 'owner' && (
+                    {isOwner && m.role === 'member' && (
                       <button onClick={() => setRole(m.id, 'admin')} title="Назначить админом"
-                        className="w-8 h-8 rounded-full hover:bg-accent/20 flex items-center justify-center">
+                        className="w-8 h-8 rounded-full hover:bg-accent/20 flex items-center justify-center transition-colors">
                         <Icon name="Star" size={14} className="text-accent" />
                       </button>
                     )}
                     {isOwner && m.role === 'admin' && (
                       <button onClick={() => setRole(m.id, 'member')} title="Снять права"
-                        className="w-8 h-8 rounded-full hover:bg-secondary/60 flex items-center justify-center">
+                        className="w-8 h-8 rounded-full hover:bg-secondary/60 flex items-center justify-center transition-colors">
                         <Icon name="StarOff" size={14} className="text-muted-foreground" />
                       </button>
                     )}
                     {isOwner && (
-                      <button onClick={() => setTransferTarget(m.id)} title="Передать группу"
-                        className="w-8 h-8 rounded-full hover:bg-primary/20 flex items-center justify-center">
+                      <button onClick={() => setTransferTarget(m.id)} title="Передать владение"
+                        className="w-8 h-8 rounded-full hover:bg-primary/20 flex items-center justify-center transition-colors">
                         <Icon name="Crown" size={14} className="text-primary" />
                       </button>
                     )}
-                    <button onClick={() => kick(m.id)} title="Исключить"
-                      className="w-8 h-8 rounded-full hover:bg-destructive/20 flex items-center justify-center">
+                    <button onClick={() => setKickTarget(m.id)} title="Удалить из группы"
+                      className="w-8 h-8 rounded-full hover:bg-destructive/20 flex items-center justify-center transition-colors">
                       <Icon name="UserX" size={14} className="text-destructive" />
                     </button>
                   </div>
@@ -1588,20 +1695,36 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
           </div>
         </div>
 
-        {/* Передача прав */}
+        {/* Подтверждение удаления */}
+        {kickTarget && (
+          <div className="mx-4 mb-3 glass rounded-2xl p-4">
+            <p className="text-sm mb-3">Удалить @{members.find(m => m.id === kickTarget)?.nick} из группы?</p>
+            <div className="flex gap-2">
+              <button onClick={() => kick(kickTarget)}
+                className="flex-1 py-2.5 rounded-2xl bg-destructive text-white text-sm font-semibold">Удалить</button>
+              <button onClick={() => setKickTarget(null)}
+                className="flex-1 py-2.5 rounded-2xl glass border border-border text-sm">Отмена</button>
+            </div>
+          </div>
+        )}
+
+        {/* Передача владения */}
         {transferTarget && (
           <div className="mx-4 mb-3 glass rounded-2xl p-4">
             <p className="text-sm mb-3">Передать владение @{members.find(m => m.id === transferTarget)?.nick}? Вы станете обычным участником.</p>
             <div className="flex gap-2">
-              <button onClick={transfer} className="flex-1 py-2.5 rounded-2xl bg-gradient-to-r from-primary to-accent text-white text-sm font-semibold">Передать</button>
-              <button onClick={() => setTransferTarget(null)} className="flex-1 py-2.5 rounded-2xl glass border border-border text-sm">Отмена</button>
+              <button onClick={transfer}
+                className="flex-1 py-2.5 rounded-2xl bg-gradient-to-r from-primary to-accent text-white text-sm font-semibold">Передать</button>
+              <button onClick={() => setTransferTarget(null)}
+                className="flex-1 py-2.5 rounded-2xl glass border border-border text-sm">Отмена</button>
             </div>
           </div>
         )}
 
         {/* Покинуть группу */}
         <div className="mx-4">
-          <button onClick={leave} className="w-full py-3.5 rounded-2xl text-destructive hover:bg-destructive/10 transition-colors text-sm font-medium flex items-center justify-center gap-2">
+          <button onClick={leave}
+            className="w-full py-3.5 rounded-2xl text-destructive hover:bg-destructive/10 transition-colors text-sm font-medium flex items-center justify-center gap-2">
             <Icon name="LogOut" size={16} />Покинуть группу
           </button>
         </div>
