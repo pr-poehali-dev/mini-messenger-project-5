@@ -9,12 +9,17 @@ function getDeviceId() {
   if (!id) { id = Math.random().toString(36).slice(2) + Date.now(); localStorage.setItem('orbit_device', id); }
   return id;
 }
-const api = async (action: string, method = 'GET', body?: object) => {
-  const r = await fetch(`${API}?action=${action}`, {
-    method, headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  return r.json();
+ 
+const api = async (action: string, method = 'GET', body?: object): Promise<Record<string, unknown>> => {
+  try {
+    const r = await fetch(`${API}?action=${action}`, {
+      method, headers: { 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return r.json();
+  } catch {
+    return {};
+  }
 };
 const fmtTime = (iso: string | null) => {
   if (!iso) return '';
@@ -120,11 +125,11 @@ export default function Index() {
     if (nick.length < 2) return;
     setLoginError('');
     const data = await api('login', 'POST', { nick, device_id: getDeviceId() });
-    if (data.error) { setLoginError(data.error); return; }
-    const u = data.user;
+    if (data.error) { setLoginError(data.error as string); return; }
+    if (!data.user) { setLoginError('Ошибка соединения, попробуй ещё раз'); return; }
+    const u = data.user as User & { profile_complete: boolean };
     setUser(u);
     localStorage.setItem('orbit_user', JSON.stringify(u));
-    // Новый пользователь → всегда на setup (profile_complete = false)
     push(u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' });
   };
 
@@ -361,9 +366,11 @@ function SetupScreen({ user, onDone }: { user: User; onDone: (u: User) => void }
 function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (t: Tab) => void; children: React.ReactNode; user: User }) {
   const [unread, setUnread] = useState(0);
   useEffect(() => {
-    const load = () => api(`notifications&user_id=${user.id}`).then(d => setUnread(d.unread || 0));
+    const load = () => api(`notifications&user_id=${user.id}`).then(d => {
+      setUnread(Number(d.unread) || 0);
+    });
     load();
-    const iv = setInterval(load, 10000);
+    const iv = setInterval(load, 15000);
     return () => clearInterval(iv);
   }, [user.id]);
 
@@ -671,10 +678,14 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
 
   const load = async () => {
     const d = await api(`profile&user_id=${user.id}&me=${user.id}`);
-    const p = d.user; setProfile(p);
-    setCity(p.city || ''); setBirthdate(p.birthdate ? p.birthdate.slice(0, 10) : ''); setAbout(p.about || '');
+    const p = d.user as Profile | undefined;
+    if (!p) return;
+    setProfile(p);
+    setCity((p.city as string) || '');
+    setBirthdate(p.birthdate ? (p.birthdate as string).slice(0, 10) : '');
+    setAbout((p.about as string) || '');
   };
-  useEffect(() => { load(); }, [user.id]);
+  useEffect(() => { load(); }, [user.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pickAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -699,7 +710,8 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
   const save = async () => {
     setSaving(true);
     const d = await api('profile_update', 'POST', { user_id: user.id, city: city || null, birthdate: birthdate || null, about: about || null });
-    setSaving(false); setEditing(false); setProfile(d.user);
+    setSaving(false); setEditing(false);
+    if (d.user) setProfile(d.user as Profile);
   };
 
   // проверка ника при вводе
@@ -723,8 +735,8 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
     setNickSaving(true);
     const d = await api('change_nick', 'POST', { user_id: user.id, nick: q });
     setNickSaving(false);
-    if (d.error) { setNickHint(d.error); setNickStatus('taken'); return; }
-    onUpdate({ ...user, nick: d.user.nick });
+    if (d.error) { setNickHint(d.error as string); setNickStatus('taken'); return; }
+    if (d.user) onUpdate({ ...user, nick: (d.user as User).nick });
     setEditingNick(false);
     load();
   };
@@ -1285,11 +1297,20 @@ function NotificationsTab({ user, onOpenChat, onOpenProfile }: {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api(`notifications&user_id=${user.id}`).then(d => {
-      setNotifs(d.notifications || []);
+    let cancelled = false;
+    const load = async () => {
+      const d = await api(`notifications&user_id=${user.id}`);
+      if (cancelled) return;
+      setNotifs((d.notifications as Notif[]) || []);
       setLoading(false);
-      api('notifications_read', 'POST', { user_id: user.id });
-    });
+      if ((d.notifications as Notif[] | undefined)?.length) {
+        api('notifications_read', 'POST', { user_id: user.id });
+      }
+    };
+    load();
+    // таймаут защита — если fetch завис, всё равно убираем спиннер
+    const t = setTimeout(() => { if (!cancelled) setLoading(false); }, 5000);
+    return () => { cancelled = true; clearTimeout(t); };
   }, [user.id]);
 
   return (
@@ -1372,8 +1393,12 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
 
   const load = useCallback(async () => {
     const d = await api(`group_info&group_id=${groupId}&user_id=${user.id}`);
-    setGroup(d.group); setMembers(d.members || []);
-    setEditName(d.group?.name || ''); setEditAbout(d.group?.about || '');
+    if (d.group) {
+      setGroup(d.group as GroupInfo);
+      setMembers((d.members as GroupMember[]) || []);
+      setEditName((d.group as GroupInfo).name || '');
+      setEditAbout((d.group as GroupInfo).about || '');
+    }
   }, [groupId, user.id]);
 
   useEffect(() => { load(); }, [load]);
