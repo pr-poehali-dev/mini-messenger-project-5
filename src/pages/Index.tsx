@@ -242,31 +242,50 @@ function LoginScreen({ draftNick, setDraftNick, onLogin, onLoginByNick, error, s
       <div className="absolute bottom-1/4 -right-20 w-96 h-96 rounded-full bg-accent/20 blur-[120px] animate-float" style={{ animationDelay: '2s' }} />
       <div className="relative w-full max-w-md animate-fade-up">
         {/* Логотип */}
-        <div className="flex flex-col items-center mb-10">
-          <div className="relative mb-5 animate-sway" style={{ transformOrigin: 'center 20%' }}>
-            {/* Внешнее свечение */}
-            <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-primary to-accent blur-2xl opacity-50 scale-110" />
-            {/* Кольцо */}
-            <div className="absolute -inset-2 rounded-[28px] border border-primary/30 animate-glow" />
-            {/* Основной логотип */}
-            <div className="relative w-24 h-24 rounded-3xl bg-gradient-to-br from-primary via-purple-500 to-accent flex items-center justify-center shadow-2xl shadow-primary/50">
-              {/* Пузырь чата */}
-              <svg width="52" height="48" viewBox="0 0 52 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="2" y="2" width="38" height="28" rx="10" fill="white" fillOpacity="0.95"/>
-                <rect x="12" y="18" width="28" height="22" rx="8" fill="white" fillOpacity="0.6"/>
-                <circle cx="13" cy="16" r="3" fill="hsl(265 89% 66%)"/>
-                <circle cx="21" cy="16" r="3" fill="hsl(190 95% 55%)"/>
-                <circle cx="29" cy="16" r="3" fill="hsl(320 85% 65%)"/>
-                <polygon points="8,30 2,40 18,30" fill="white" fillOpacity="0.95"/>
-              </svg>
+        <div className="flex flex-col items-center mb-8">
+          <div className="relative mb-6 animate-sway" style={{ transformOrigin: 'center 30%' }}>
+            {/* Мягкое свечение позади */}
+            <div className="absolute -inset-4 rounded-[40px] bg-gradient-to-br from-primary/40 to-accent/30 blur-3xl" />
+            {/* Основной блок */}
+            <div className="relative w-28 h-28 rounded-[32px] shadow-2xl shadow-primary/40 overflow-hidden"
+              style={{ background: 'linear-gradient(145deg, hsl(230 60% 22%), hsl(240 55% 16%))' }}>
+              {/* Верхний блик */}
+              <div className="absolute top-0 left-0 right-0 h-1/2 rounded-t-[32px]"
+                style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 100%)' }} />
+              {/* Фиолетовый акцент снизу */}
+              <div className="absolute bottom-0 left-0 right-0 h-16 rounded-b-[32px]"
+                style={{ background: 'linear-gradient(0deg, hsl(265 89% 40% / 0.5) 0%, transparent 100%)' }} />
+              {/* Иконка — стилизованная "В" */}
+              <div className="relative z-10 w-full h-full flex items-center justify-center">
+                <svg width="62" height="56" viewBox="0 0 62 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  {/* Левый пузырь */}
+                  <rect x="2" y="4" width="34" height="26" rx="9" fill="white" fillOpacity="0.92"/>
+                  {/* Хвостик левого */}
+                  <path d="M10 30 L4 42 L20 30 Z" fill="white" fillOpacity="0.92"/>
+                  {/* Правый пузырь */}
+                  <rect x="22" y="22" width="36" height="26" rx="9" fill="url(#grd)"/>
+                  {/* Хвостик правого */}
+                  <path d="M50 48 L58 58 L42 48 Z" fill="url(#grd)"/>
+                  {/* Точки в левом */}
+                  <circle cx="12" cy="17" r="2.5" fill="hsl(265 89% 66%)"/>
+                  <circle cx="19" cy="17" r="2.5" fill="hsl(190 95% 55%)"/>
+                  <circle cx="26" cy="17" r="2.5" fill="hsl(320 85% 65%)"/>
+                  <defs>
+                    <linearGradient id="grd" x1="22" y1="22" x2="58" y2="48" gradientUnits="userSpaceOnUse">
+                      <stop stopColor="hsl(265, 89%, 66%)"/>
+                      <stop offset="1" stopColor="hsl(190, 95%, 55%)"/>
+                    </linearGradient>
+                  </defs>
+                </svg>
+              </div>
             </div>
           </div>
-          {/* Название */}
-          <h1 className="font-display font-black text-3xl tracking-tight text-center leading-tight">
-            <span className="text-gradient">Вай</span>{' '}
-            <span className="text-foreground">Мессенджер</span>
-          </h1>
-          <p className="text-muted-foreground text-sm mt-1.5 tracking-wide">Общайся свободно</p>
+          {/* Название под логотипом */}
+          <p className="font-display font-black text-3xl tracking-tight text-center leading-tight select-none">
+            <span className="text-gradient">Вай</span>
+            <span className="text-foreground"> Мессенджер</span>
+          </p>
+          <p className="text-muted-foreground/70 text-xs mt-2 tracking-widest uppercase">Общайся свободно</p>
         </div>
         <div className="glass rounded-3xl p-8 shadow-2xl">
           {/* Вкладки */}
@@ -283,7 +302,6 @@ function LoginScreen({ draftNick, setDraftNick, onLogin, onLoginByNick, error, s
 
           {tab === 'login' ? (
             <>
-              <h1 className="font-display font-extrabold text-2xl leading-tight mb-2">Войди в <span className="text-gradient">Вай Мессенджер</span></h1>
               <p className="text-muted-foreground text-sm mb-6">Введи свой ник чтобы войти в аккаунт</p>
               <div className="relative mb-1">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">@</span>
@@ -307,7 +325,6 @@ function LoginScreen({ draftNick, setDraftNick, onLogin, onLoginByNick, error, s
             </>
           ) : (
             <>
-              <h1 className="font-display font-extrabold text-2xl leading-tight mb-2">Новый аккаунт в <span className="text-gradient">Вай Мессенджер</span></h1>
               <p className="text-muted-foreground text-sm mb-2">Придумай уникальный ник. Только латиница, цифры и _</p>
               <p className="text-xs text-muted-foreground mb-6">С этого устройства будешь входить автоматически</p>
               <div className="relative mb-1">
