@@ -35,52 +35,45 @@
     --radius: 0.5rem;
 
     --sidebar-background: 0 0% 98%;
-
     --sidebar-foreground: 240 5.3% 26.1%;
-
     --sidebar-primary: 240 5.9% 10%;
-
     --sidebar-primary-foreground: 0 0% 98%;
-
     --sidebar-accent: 240 4.8% 95.9%;
-
     --sidebar-accent-foreground: 240 5.9% 10%;
-
     --sidebar-border: 220 13% 91%;
-
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
 
   :root {
-    --background: 210 22% 96%;
-    --foreground: 214 32% 12%;
+    --background: 240 30% 6%;
+    --foreground: 240 20% 96%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 214 32% 12%;
+    --card: 240 25% 9%;
+    --card-foreground: 240 20% 96%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 214 32% 12%;
+    --popover: 240 25% 9%;
+    --popover-foreground: 240 20% 96%;
 
-    --primary: 214 75% 48%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 265 89% 66%;
+    --primary-foreground: 240 20% 98%;
 
-    --secondary: 210 18% 90%;
-    --secondary-foreground: 214 32% 20%;
+    --secondary: 240 20% 14%;
+    --secondary-foreground: 240 20% 96%;
 
-    --muted: 210 16% 88%;
-    --muted-foreground: 214 16% 48%;
+    --muted: 240 18% 16%;
+    --muted-foreground: 240 12% 60%;
 
-    --accent: 201 90% 44%;
-    --accent-foreground: 0 0% 100%;
+    --accent: 190 95% 55%;
+    --accent-foreground: 240 30% 8%;
 
     --destructive: 0 72% 55%;
-    --destructive-foreground: 0 0% 100%;
+    --destructive-foreground: 240 20% 98%;
 
-    --border: 210 18% 84%;
-    --input: 210 18% 84%;
-    --ring: 214 75% 48%;
+    --border: 240 18% 18%;
+    --input: 240 18% 18%;
+    --ring: 265 89% 66%;
 
-    --radius: 0.875rem;
+    --radius: 1rem;
   }
 
   .dark {
@@ -135,13 +128,18 @@
 
 @layer utilities {
   .glass {
-    background: rgba(255, 255, 255, 0.72);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    border: 1px solid rgba(214, 224, 240, 0.7);
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
   .text-gradient {
-    background: linear-gradient(120deg, hsl(214 75% 42%), hsl(201 90% 44%));
+    background: linear-gradient(
+      120deg,
+      hsl(265 89% 70%),
+      hsl(190 95% 60%),
+      hsl(320 85% 65%)
+    );
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -149,27 +147,26 @@
   .grad-mesh {
     background:
       radial-gradient(
-        65% 55% at 10% 15%,
-        hsla(214, 75%, 55%, 0.18),
+        60% 50% at 15% 20%,
+        hsla(265, 89%, 60%, 0.35),
         transparent
       ),
       radial-gradient(
-        55% 50% at 90% 25%,
-        hsla(201, 90%, 50%, 0.14),
+        50% 50% at 85% 30%,
+        hsla(190, 95%, 55%, 0.25),
         transparent
       ),
       radial-gradient(
-        60% 60% at 50% 105%,
-        hsla(214, 60%, 70%, 0.12),
+        60% 60% at 50% 100%,
+        hsla(320, 85%, 60%, 0.22),
         transparent
-      ),
-      hsl(210 22% 96%);
+      );
   }
   .scrollbar-thin::-webkit-scrollbar {
     width: 6px;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: hsla(214, 75%, 48%, 0.35);
+    background: hsla(265, 89%, 66%, 0.4);
     border-radius: 999px;
   }
 }
