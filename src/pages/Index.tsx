@@ -247,33 +247,28 @@ function LoginScreen({ draftNick, setDraftNick, onLogin, onLoginByNick, error, s
             {/* Мягкое свечение позади */}
             <div className="absolute -inset-4 rounded-[40px] bg-gradient-to-br from-primary/40 to-accent/30 blur-3xl" />
             {/* Основной блок */}
-            <div className="relative w-28 h-28 rounded-[32px] shadow-2xl shadow-primary/40 overflow-hidden"
-              style={{ background: 'linear-gradient(145deg, hsl(230 60% 22%), hsl(240 55% 16%))' }}>
+            <div className="relative w-28 h-28 rounded-[32px] shadow-2xl shadow-primary/30 overflow-hidden"
+              style={{ background: 'linear-gradient(145deg, hsl(214 75% 42%), hsl(201 90% 36%))' }}>
               {/* Верхний блик */}
               <div className="absolute top-0 left-0 right-0 h-1/2 rounded-t-[32px]"
-                style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 100%)' }} />
-              {/* Фиолетовый акцент снизу */}
-              <div className="absolute bottom-0 left-0 right-0 h-16 rounded-b-[32px]"
-                style={{ background: 'linear-gradient(0deg, hsl(265 89% 40% / 0.5) 0%, transparent 100%)' }} />
-              {/* Иконка — стилизованная "В" */}
+                style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.12) 0%, transparent 100%)' }} />
+              {/* Нижний акцент */}
+              <div className="absolute bottom-0 left-0 right-0 h-14 rounded-b-[32px]"
+                style={{ background: 'linear-gradient(0deg, hsl(201 90% 28% / 0.6) 0%, transparent 100%)' }} />
+              {/* Иконка */}
               <div className="relative z-10 w-full h-full flex items-center justify-center">
                 <svg width="62" height="56" viewBox="0 0 62 56" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  {/* Левый пузырь */}
-                  <rect x="2" y="4" width="34" height="26" rx="9" fill="white" fillOpacity="0.92"/>
-                  {/* Хвостик левого */}
-                  <path d="M10 30 L4 42 L20 30 Z" fill="white" fillOpacity="0.92"/>
-                  {/* Правый пузырь */}
-                  <rect x="22" y="22" width="36" height="26" rx="9" fill="url(#grd)"/>
-                  {/* Хвостик правого */}
-                  <path d="M50 48 L58 58 L42 48 Z" fill="url(#grd)"/>
-                  {/* Точки в левом */}
-                  <circle cx="12" cy="17" r="2.5" fill="hsl(265 89% 66%)"/>
-                  <circle cx="19" cy="17" r="2.5" fill="hsl(190 95% 55%)"/>
-                  <circle cx="26" cy="17" r="2.5" fill="hsl(320 85% 65%)"/>
+                  <rect x="2" y="4" width="34" height="26" rx="9" fill="white" fillOpacity="0.95"/>
+                  <path d="M10 30 L4 42 L20 30 Z" fill="white" fillOpacity="0.95"/>
+                  <rect x="22" y="22" width="36" height="26" rx="9" fill="url(#grdB)"/>
+                  <path d="M50 48 L58 58 L42 48 Z" fill="url(#grdB)"/>
+                  <circle cx="12" cy="17" r="2.5" fill="hsl(214 75% 52%)"/>
+                  <circle cx="19" cy="17" r="2.5" fill="hsl(201 90% 44%)"/>
+                  <circle cx="26" cy="17" r="2.5" fill="hsl(214 75% 70%)"/>
                   <defs>
-                    <linearGradient id="grd" x1="22" y1="22" x2="58" y2="48" gradientUnits="userSpaceOnUse">
-                      <stop stopColor="hsl(265, 89%, 66%)"/>
-                      <stop offset="1" stopColor="hsl(190, 95%, 55%)"/>
+                    <linearGradient id="grdB" x1="22" y1="22" x2="58" y2="48" gradientUnits="userSpaceOnUse">
+                      <stop stopColor="rgba(255,255,255,0.55)"/>
+                      <stop offset="1" stopColor="rgba(255,255,255,0.30)"/>
                     </linearGradient>
                   </defs>
                 </svg>
