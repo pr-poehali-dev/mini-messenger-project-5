@@ -552,10 +552,17 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup }: { user: User; o
 
   useEffect(() => { load(); const iv = setInterval(load, 3000); return () => clearInterval(iv); }, [load]);
 
-  const hideChat = async (chatId: number) => {
-    await api('hide_chat', 'POST', { user_id: user.id, chat_id: chatId });
+  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+
+  const hideChat = async (chatId: number, forAll = false) => {
+    if (forAll) {
+      await api('delete_chat', 'POST', { user_id: user.id, chat_id: chatId });
+    } else {
+      await api('hide_chat', 'POST', { user_id: user.id, chat_id: chatId });
+    }
     setChats(cs => cs.filter(c => c.chat_id !== chatId));
     setSwipedId(null);
+    setDeleteConfirm(null);
   };
 
   return (
@@ -592,11 +599,33 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup }: { user: User; o
           <div key={c.chat_id} className="relative overflow-hidden rounded-2xl mb-0.5">
             {/* Кнопка удаления — показывается при свайпе/нажатии */}
             {swipedId === c.chat_id && (
-              <div className="absolute right-0 top-0 bottom-0 flex items-center pr-3 animate-slide-in-right">
-                <button onClick={e => { e.stopPropagation(); hideChat(c.chat_id); }}
+              <div className="absolute right-0 top-0 bottom-0 flex items-center pr-3 gap-2 animate-slide-in-right">
+                <button onClick={e => { e.stopPropagation(); setDeleteConfirm(c.chat_id); setSwipedId(null); }}
                   className="h-12 px-5 rounded-2xl bg-destructive text-white text-sm font-semibold flex items-center gap-1.5 shadow-lg">
                   <Icon name="Trash2" size={16} /> Удалить
                 </button>
+              </div>
+            )}
+            {/* Диалог подтверждения удаления */}
+            {deleteConfirm === c.chat_id && (
+              <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4"
+                onClick={() => setDeleteConfirm(null)}>
+                <div className="glass rounded-3xl p-5 w-full max-w-sm space-y-3 animate-fade-up"
+                  onClick={e => e.stopPropagation()}>
+                  <p className="font-semibold text-center">Удалить переписку?</p>
+                  <button onClick={() => hideChat(c.chat_id, false)}
+                    className="w-full py-3 rounded-2xl bg-secondary/70 text-sm font-medium">
+                    Удалить у меня
+                  </button>
+                  <button onClick={() => hideChat(c.chat_id, true)}
+                    className="w-full py-3 rounded-2xl bg-destructive text-white text-sm font-semibold">
+                    Удалить у всех
+                  </button>
+                  <button onClick={() => setDeleteConfirm(null)}
+                    className="w-full py-3 rounded-2xl text-sm text-muted-foreground">
+                    Отмена
+                  </button>
+                </div>
               </div>
             )}
             <button
@@ -1458,6 +1487,8 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
   const [inCall, setInCall] = useState<{ kind: 'audio' | 'video'; callId: string; outgoing: boolean } | null>(null);
   const lastIdRef = useRef(0);
   const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLElement>(null);
+  const isAtBottomRef = useRef(true);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mediaRec = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
@@ -1486,7 +1517,18 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
   }, [chatId, user.id, peer]);
 
   useEffect(() => { poll(); const iv = setInterval(poll, 1500); return () => clearInterval(iv); }, [poll]);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
+  // Скроллим вниз только если пользователь уже внизу (не листает историю)
+  useEffect(() => {
+    if (isAtBottomRef.current) {
+      endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages]);
+
+  // Первый рендер — всегда прыгаем вниз мгновенно
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'instant' });
+  }, [chatId]);
 
   const handleInput = (v: string) => {
     setInput(v);
@@ -1604,7 +1646,12 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
       </header>
 
       {/* Messages */}
-      <main className="flex-1 overflow-y-auto scrollbar-thin px-3 py-4 space-y-1">
+      <main ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin px-3 py-4 space-y-1"
+        onScroll={() => {
+          const el = scrollRef.current;
+          if (!el) return;
+          isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+        }}>
         {messages.length === 0 && <p className="text-center text-muted-foreground text-sm mt-12">Напишите первое сообщение 👋</p>}
         {messages.map((m, i) => {
           const mine = m.sender_id === user.id;

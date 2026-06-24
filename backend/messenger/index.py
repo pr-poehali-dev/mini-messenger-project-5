@@ -486,13 +486,34 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return _resp(200, {'ok': True})
 
-        # ── HIDE CHAT ─────────────────────────────────────
+        # ── HIDE CHAT (только у себя) ──────────────────────
         if action == 'hide_chat' and method == 'POST':
             uid = int(body.get('user_id') or 0)
             chat_id = int(body.get('chat_id') or 0)
             cur.execute(
                 "INSERT INTO hidden_chats (user_id, chat_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
                 (uid, chat_id),
+            )
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── DELETE CHAT (у всех — удаляет все сообщения) ──
+        if action == 'delete_chat' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            chat_id = int(body.get('chat_id') or 0)
+            # Помечаем все сообщения как удалённые для всех
+            cur.execute(
+                "UPDATE messages SET is_removed=true, text=null, media_url=null WHERE chat_id=%s",
+                (chat_id,)
+            )
+            # Скрываем чат у обоих участников
+            cur.execute(
+                """INSERT INTO hidden_chats (user_id, chat_id)
+                   SELECT user_a, %s FROM chats WHERE id=%s
+                   UNION
+                   SELECT user_b, %s FROM chats WHERE id=%s
+                   ON CONFLICT DO NOTHING""",
+                (chat_id, chat_id, chat_id, chat_id)
             )
             conn.commit()
             return _resp(200, {'ok': True})
