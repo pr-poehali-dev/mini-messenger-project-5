@@ -290,7 +290,7 @@ def handler(event: dict, context) -> dict:
                 JOIN groups g ON g.id=c.group_id
                 JOIN group_members gm ON gm.group_id=g.id AND gm.user_id=%s
                 WHERE c.id NOT IN (SELECT chat_id FROM hidden_chats WHERE user_id=%s)
-                ORDER BY last_at DESC NULLS LAST
+                ORDER BY last_at DESC NULLS FIRST, c.id DESC
                 """,
                 (me, me, me, me, me, me),
             )
@@ -308,7 +308,9 @@ def handler(event: dict, context) -> dict:
             if not row:
                 cur.execute("INSERT INTO chats (user_a, user_b) VALUES (%s, %s) RETURNING id", (a, b))
                 row = cur.fetchone()
-                conn.commit()
+            # Убираем из скрытых — если раньше удалял, теперь открывает снова
+            cur.execute("DELETE FROM hidden_chats WHERE user_id=%s AND chat_id=%s", (me, row['id']))
+            conn.commit()
             cur.execute("SELECT id, nick, avatar_url, is_online, last_seen FROM users WHERE id=%s", (peer,))
             peer_user = cur.fetchone()
             return _resp(200, {'chat_id': row['id'], 'peer': peer_user})
@@ -617,9 +619,14 @@ def handler(event: dict, context) -> dict:
             from_uid = int(body.get('from_user_id') or 0)
             to_uid = int(body.get('to_user_id') or 0)
             call_type = body.get('call_type', 'audio')
+            # Находим chat_id между двумя пользователями
+            a, b = min(from_uid, to_uid), max(from_uid, to_uid)
+            cur.execute("SELECT id FROM chats WHERE user_a=%s AND user_b=%s AND group_id IS NULL", (a, b))
+            chat_row = cur.fetchone()
+            chat_id = chat_row['id'] if chat_row else None
             cur.execute(
-                "INSERT INTO notifications (user_id, type, from_user_id, payload) VALUES (%s, %s, %s, %s)",
-                (to_uid, 'missed_call', from_uid, call_type),
+                "INSERT INTO notifications (user_id, type, from_user_id, chat_id, payload) VALUES (%s, %s, %s, %s, %s)",
+                (to_uid, 'missed_call', from_uid, chat_id, call_type),
             )
             conn.commit()
             return _resp(200, {'ok': True})

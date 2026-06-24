@@ -174,7 +174,7 @@ export default function Index() {
 
   // Входящие звонки — глобальный polling
   const [incomingCall, setIncomingCall] = useState<{ callId: string; kind: string; nick: string; avatar_url?: string | null; callerId: number } | null>(null);
-  const [globalCall, setGlobalCall] = useState<{ kind: 'audio' | 'video'; callId: string; peer: User } | null>(null);
+  const [globalCall, setGlobalCall] = useState<{ kind: 'audio' | 'video'; callId: string; peer: User; outgoing?: boolean } | null>(null);
   const lastCallSigId = useRef(0);
 
   useEffect(() => {
@@ -219,7 +219,11 @@ export default function Index() {
           onOpenGroup={(gid, chatId) => push({ name: 'group_info', groupId: gid, chatId })} />}
         {tab === 'notifications' && <NotificationsTab user={user}
           onOpenChat={(chatId) => push({ name: 'chat', chatId })}
-          onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />}
+          onOpenProfile={(id) => push({ name: 'user_profile', userId: id })}
+          onCall={(peerId, peerNick, peerAvatar, kind) => {
+            const callId = `call_${Date.now()}`;
+            setGlobalCall({ kind, callId, outgoing: true, peer: { id: peerId, nick: peerNick, avatar_url: peerAvatar } });
+          }} />}
         {tab === 'profile' && <ProfileTab user={user} onLogout={logout} onUpdate={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); }} onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} lightTheme={lightTheme} onToggleTheme={() => setLightTheme(v => !v)} onDeleteAccount={deleteAccount} />}
       </TabsShell>
     );
@@ -243,14 +247,14 @@ export default function Index() {
           }}
         />
       )}
-      {/* Глобальный WebRTC звонок (принятый входящий) */}
+      {/* Глобальный WebRTC звонок (входящий принятый / исходящий перезвонить) */}
       {globalCall && (
         <WebRTCCall
           user={user}
           peer={globalCall.peer}
           callId={globalCall.callId}
           kind={globalCall.kind}
-          outgoing={false}
+          outgoing={globalCall.outgoing ?? false}
           onEnd={() => setGlobalCall(null)}
         />
       )}
@@ -606,20 +610,17 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup }: { user: User; o
                 </button>
               </div>
             )}
-            {/* Диалог подтверждения удаления */}
+            {/* Диалог подтверждения удаления — только у себя */}
             {deleteConfirm === c.chat_id && (
               <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4"
                 onClick={() => setDeleteConfirm(null)}>
                 <div className="glass rounded-3xl p-5 w-full max-w-sm space-y-3 animate-fade-up"
                   onClick={e => e.stopPropagation()}>
-                  <p className="font-semibold text-center">Удалить переписку?</p>
+                  <p className="font-semibold text-center">Удалить чат?</p>
+                  <p className="text-xs text-muted-foreground text-center">Чат исчезнет только у тебя. Собеседник его не потеряет.</p>
                   <button onClick={() => hideChat(c.chat_id, false)}
-                    className="w-full py-3 rounded-2xl bg-secondary/70 text-sm font-medium">
-                    Удалить у меня
-                  </button>
-                  <button onClick={() => hideChat(c.chat_id, true)}
                     className="w-full py-3 rounded-2xl bg-destructive text-white text-sm font-semibold">
-                    Удалить у всех
+                    Удалить у меня
                   </button>
                   <button onClick={() => setDeleteConfirm(null)}
                     className="w-full py-3 rounded-2xl text-sm text-muted-foreground">
@@ -1988,8 +1989,11 @@ const NOTIF_ICONS: Record<string, string> = {
   group_invite: 'Users',
 };
 
-function NotificationsTab({ user, onOpenChat, onOpenProfile }: {
-  user: User; onOpenChat: (chatId: number) => void; onOpenProfile: (id: number) => void;
+function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall }: {
+  user: User;
+  onOpenChat: (chatId: number) => void;
+  onOpenProfile: (id: number) => void;
+  onCall: (peerId: number, peerNick: string, peerAvatar: string | null | undefined, kind: 'audio' | 'video') => void;
 }) {
   const [notifs, setNotifs] = useState<Notif[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2042,12 +2046,10 @@ function NotificationsTab({ user, onOpenChat, onOpenProfile }: {
                       className="text-xs glass rounded-full px-3 py-1.5 hover:bg-secondary/80 flex items-center gap-1">
                       <Icon name="User" size={12} /> Профиль
                     </button>
-                    {n.chat_id && (
-                      <button onClick={() => onOpenChat(n.chat_id!)}
-                        className="text-xs bg-primary/20 text-primary rounded-full px-3 py-1.5 hover:bg-primary/30 flex items-center gap-1">
-                        <Icon name="Phone" size={12} /> Перезвонить
-                      </button>
-                    )}
+                    <button onClick={() => onCall(n.from_user_id!, n.from_nick || '?', n.from_avatar, (n.payload === 'video' ? 'video' : 'audio'))}
+                      className="text-xs bg-green-500/20 text-green-400 rounded-full px-3 py-1.5 hover:bg-green-500/30 flex items-center gap-1">
+                      <Icon name="Phone" size={12} /> Перезвонить
+                    </button>
                   </>
                 )}
                 {n.type === 'follow' && n.from_user_id && (
