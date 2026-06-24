@@ -1062,239 +1062,253 @@ const ICE_SERVERS = {
 function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
   user: User; peer: User; callId: string; kind: 'audio' | 'video'; outgoing: boolean; onEnd: () => void;
 }) {
-  const [status, setStatus] = useState<'ringing' | 'active' | 'ended'>(outgoing ? 'ringing' : 'ringing');
-  const [micOn, setMicOn] = useState(true);
-  const [camOn, setCamOn] = useState(kind === 'video');
+  const [status, setStatus]   = useState<'ringing' | 'active'>('ringing');
+  const [micOn,  setMicOn]    = useState(true);
+  const [camOn,  setCamOn]    = useState(kind === 'video');
   const [duration, setDuration] = useState(0);
 
-  const pcRef        = useRef<RTCPeerConnection | null>(null);
-  const localRef     = useRef<HTMLVideoElement>(null);
-  const remoteRef    = useRef<HTMLVideoElement>(null);
-  const remoteAudio  = useRef<HTMLAudioElement>(null);
-  const localStream  = useRef<MediaStream | null>(null);
-  const lastSigId    = useRef(0);
-  const pollTimer    = useRef<ReturnType<typeof setInterval> | null>(null);
-  const durTimer     = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pendingIce   = useRef<RTCIceCandidate[]>([]);
-  const endedRef     = useRef(false);
+  // Все рабочие данные — только в refs, никаких closure-багов
+  const localRef    = useRef<HTMLVideoElement>(null);
+  const remoteRef   = useRef<HTMLVideoElement>(null);
+  const remoteAudio = useRef<HTMLAudioElement>(null);
+  const stateRef = useRef({
+    pc:          null as RTCPeerConnection | null,
+    stream:      null as MediaStream | null,
+    ended:       false,
+    lastSigId:   0,
+    pendingIce:  [] as RTCIceCandidateInit[],
+    pollTimer:   null as ReturnType<typeof setInterval> | null,
+    durTimer:    null as ReturnType<typeof setInterval> | null,
+  });
 
-  const sendSignal = (type: string, payload: object) =>
+  // helpers — читают из stateRef, никогда не захватывают stale данные
+  const sig = (type: string, payload: object) =>
     api('call_signal', 'POST', {
       call_id: callId, from_user_id: user.id, to_user_id: peer.id,
       type, payload: JSON.stringify(payload), kind,
     });
 
-  const cleanup = () => {
-    endedRef.current = true;
-    if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null; }
-    if (durTimer.current)  { clearInterval(durTimer.current);  durTimer.current  = null; }
-    localStream.current?.getTracks().forEach(t => t.stop());
-    if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
-  };
-
-  const hangup = () => {
-    sendSignal('end', {});
-    cleanup();
+  const doEnd = () => {
+    const s = stateRef.current;
+    if (s.ended) return;
+    s.ended = true;
+    if (s.pollTimer) clearInterval(s.pollTimer);
+    if (s.durTimer)  clearInterval(s.durTimer);
+    s.stream?.getTracks().forEach(t => t.stop());
+    s.pc?.close();
+    s.pc = null;
     onEnd();
   };
 
-  // Применить накопленные ICE после setRemoteDescription
-  const flushIce = async (pc: RTCPeerConnection) => {
-    for (const c of pendingIce.current) {
-      try { await pc.addIceCandidate(c); } catch { /* ignore */ }
-    }
-    pendingIce.current = [];
-  };
+  const processSignal = async (type: string, payload: string) => {
+    const s   = stateRef.current;
+    const pc  = s.pc;
+    if (!pc || s.ended) return;
+    const data = JSON.parse(payload || '{}');
 
-  const handleSignal = async (sig: { type: string; payload: string }) => {
-    if (endedRef.current) return;
-    const pc = pcRef.current;
-    if (!pc) return;
-    const data = JSON.parse(sig.payload || '{}');
-
-    if (sig.type === 'offer') {
+    if (type === 'offer') {
+      // Входящий — принимаем offer, отвечаем answer
+      if (pc.signalingState !== 'stable') return;
       await pc.setRemoteDescription(new RTCSessionDescription(data));
-      await flushIce(pc);
+      // сбрасываем накопленные ICE
+      for (const c of s.pendingIce) { try { await pc.addIceCandidate(c); } catch {/**/} }
+      s.pendingIce = [];
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      await sendSignal('answer', answer);
-    } else if (sig.type === 'answer') {
-      if (pc.signalingState === 'have-local-offer') {
-        await pc.setRemoteDescription(new RTCSessionDescription(data));
-        await flushIce(pc);
-      }
-    } else if (sig.type === 'ice') {
-      const candidate = new RTCIceCandidate(data);
+      await sig('answer', answer);
+
+    } else if (type === 'answer') {
+      // Исходящий — принимаем answer
+      if (pc.signalingState !== 'have-local-offer') return;
+      await pc.setRemoteDescription(new RTCSessionDescription(data));
+      for (const c of s.pendingIce) { try { await pc.addIceCandidate(c); } catch {/**/} }
+      s.pendingIce = [];
+
+    } else if (type === 'ice') {
       if (pc.remoteDescription) {
-        try { await pc.addIceCandidate(candidate); } catch { /* ignore */ }
+        try { await pc.addIceCandidate(new RTCIceCandidate(data)); } catch {/**/}
       } else {
-        pendingIce.current.push(candidate);
+        s.pendingIce.push(data);
       }
-    } else if (sig.type === 'end' || sig.type === 'reject') {
-      cleanup();
-      onEnd();
+    } else if (type === 'end' || type === 'reject') {
+      doEnd();
     }
   };
 
   useEffect(() => {
-    // Блокируем скролл страницы во время звонка
-    document.body.style.overflow = 'hidden';
-    document.body.style.position = 'fixed';
-    document.body.style.width = '100%';
+    document.body.style.overflow  = 'hidden';
+    document.body.style.position  = 'fixed';
+    document.body.style.width     = '100%';
 
-    const start = async () => {
-      const constraints = kind === 'video'
-        ? { audio: true, video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } }
-        : { audio: true, video: false };
+    const s = stateRef.current;
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      if (endedRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
+    const boot = async () => {
+      // 1. Запрашиваем медиа
+      const stream = await navigator.mediaDevices.getUserMedia(
+        kind === 'video'
+          ? { audio: true, video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } }
+          : { audio: true, video: false }
+      );
+      if (s.ended) { stream.getTracks().forEach(t => t.stop()); return; }
+      s.stream = stream;
 
-      localStream.current = stream;
-
-      // Своё видео — с muted чтобы не было эха
+      // Своё видео — muted, без эха
       if (localRef.current) {
-        localRef.current.srcObject = stream;
-        localRef.current.muted = true;
+        localRef.current.srcObject  = stream;
+        localRef.current.muted      = true;
       }
 
+      // 2. Создаём PeerConnection
       const pc = new RTCPeerConnection(ICE_SERVERS);
-      pcRef.current = pc;
+      s.pc = pc;
 
-      // Добавляем свои треки
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
 
-      // Получаем треки собеседника
+      // Треки собеседника
       pc.ontrack = (e) => {
-        const remoteStream = e.streams[0];
+        const rs = e.streams[0];
+        if (!rs) return;
         if (kind === 'video' && remoteRef.current) {
-          remoteRef.current.srcObject = remoteStream;
-        } else if (kind === 'audio' && remoteAudio.current) {
-          remoteAudio.current.srcObject = remoteStream;
+          remoteRef.current.srcObject = rs;
+        }
+        // Для аудио-трека при видеозвонке — тоже воспроизводим через remoteRef
+        // Для чистого аудиозвонка — через скрытый <audio>
+        if (kind === 'audio' && remoteAudio.current) {
+          remoteAudio.current.srcObject = rs;
           remoteAudio.current.play().catch(() => {});
         }
       };
 
       pc.onicecandidate = (e) => {
-        if (e.candidate && !endedRef.current) sendSignal('ice', e.candidate.toJSON());
+        if (e.candidate && !s.ended) sig('ice', e.candidate.toJSON());
       };
 
       pc.onconnectionstatechange = () => {
-        if (endedRef.current) return;
+        if (s.ended) return;
+        console.log('[WebRTC] connectionState:', pc.connectionState);
         if (pc.connectionState === 'connected') {
           setStatus('active');
-          durTimer.current = setInterval(() => setDuration(d => d + 1), 1000);
+          s.durTimer = setInterval(() => setDuration(d => d + 1), 1000);
         }
-        if (pc.connectionState === 'failed') {
-          cleanup(); onEnd();
+        if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+          doEnd();
         }
       };
 
+      // 3. Если исходящий — сразу шлём offer
       if (outgoing) {
-        // Инициатор: создаём offer
-        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: kind === 'video' });
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: kind === 'video',
+        });
         await pc.setLocalDescription(offer);
-        await sendSignal('offer', offer);
+        await sig('offer', offer);
       }
 
-      // Polling сигналов — начинаем с after=0 чтобы поймать offer для входящего
-      pollTimer.current = setInterval(async () => {
-        if (endedRef.current) return;
+      // 4. Polling — каждые 1.2с забираем новые сигналы
+      s.pollTimer = setInterval(async () => {
+        if (s.ended) return;
         try {
-          const d = await api(`call_poll&user_id=${user.id}&call_id=${callId}&after=${lastSigId.current}`);
+          const d = await api(`call_poll&user_id=${user.id}&call_id=${callId}&after=${s.lastSigId}`);
           const sigs: { id: number; type: string; payload: string }[] = d.signals || [];
-          for (const sig of sigs) {
-            if (sig.id > lastSigId.current) {
-              lastSigId.current = sig.id;
-              await handleSignal(sig);
-            }
+          for (const item of sigs) {
+            s.lastSigId = item.id;
+            await processSignal(item.type, item.payload);
           }
-        } catch { /* сетевая ошибка — продолжаем */ }
+        } catch { /* сеть */ }
       }, 1200);
     };
 
-    start().catch(() => { cleanup(); onEnd(); });
+    boot().catch((err) => {
+      console.error('[WebRTC] boot error:', err);
+      doEnd();
+    });
 
     return () => {
       document.body.style.overflow = '';
       document.body.style.position = '';
-      document.body.style.width = '';
-      cleanup();
+      document.body.style.width    = '';
+      doEnd();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  const fmt = (s: number) =>
+    `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
   const toggleMic = () => {
-    localStream.current?.getAudioTracks().forEach(t => { t.enabled = !micOn; });
+    stateRef.current.stream?.getAudioTracks().forEach(t => { t.enabled = !micOn; });
     setMicOn(v => !v);
   };
   const toggleCam = () => {
-    localStream.current?.getVideoTracks().forEach(t => { t.enabled = !camOn; });
+    stateRef.current.stream?.getVideoTracks().forEach(t => { t.enabled = !camOn; });
     setCamOn(v => !v);
   };
+  const hangup = () => { sig('end', {}); doEnd(); };
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col" style={{ touchAction: 'none' }}>
-      {/* Скрытый audio для аудиозвонка — воспроизводит голос собеседника */}
-      <audio ref={remoteAudio} autoPlay playsInline style={{ display: 'none' }} />
+      {/* Скрытый audio — голос собеседника при аудиозвонке */}
+      <audio ref={remoteAudio} autoPlay playsInline style={{ position: 'absolute', width: 0, height: 0 }} />
 
       {kind === 'video' ? (
-        <div className="relative flex-1 bg-black overflow-hidden">
-          {/* Видео собеседника — на весь экран */}
+        <div className="relative flex-1 overflow-hidden bg-black">
+          {/* Видео собеседника */}
           <video ref={remoteRef} autoPlay playsInline
-            className="w-full h-full object-cover"
-            style={{ background: '#000' }}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
           />
-          {/* Своё видео — в углу */}
+          {/* Своё видео */}
           <video ref={localRef} autoPlay playsInline muted
-            className="absolute bottom-4 right-4 w-28 h-36 rounded-2xl object-cover border-2 border-white/20 shadow-xl z-10"
+            style={{ position: 'absolute', bottom: 16, right: 16, width: 110, height: 150,
+              objectFit: 'cover', borderRadius: 16, border: '2px solid rgba(255,255,255,0.25)', zIndex: 10 }}
           />
-          {/* Оверлей пока не соединились */}
           {status !== 'active' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 z-20">
-              <div className="relative mb-6">
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.75)', zIndex: 20 }}>
+              <div className="relative mb-5">
                 <span className="absolute inset-0 rounded-full bg-primary/40 animate-pulse-ring" />
-                <Avatar url={peer.avatar_url} nick={peer.nick} size={100} />
+                <Avatar url={peer.avatar_url} nick={peer.nick} size={96} />
               </div>
               <p className="text-white font-bold text-xl mb-1">@{peer.nick}</p>
-              <p className="text-white/60 text-sm">{outgoing ? 'Вызов...' : 'Соединяемся...'}</p>
+              <p className="text-white/50 text-sm">{outgoing ? 'Вызов...' : 'Соединяемся...'}</p>
             </div>
           )}
-          {/* Таймер */}
           {status === 'active' && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 rounded-full px-4 py-1 z-10">
+            <div style={{ position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
+              background: 'rgba(0,0,0,0.5)', borderRadius: 999, padding: '4px 16px', zIndex: 10 }}>
               <p className="text-white text-xs">{fmt(duration)}</p>
             </div>
           )}
         </div>
       ) : (
-        <div className="flex-1 flex flex-col items-center justify-center grad-mesh">
+        <div className="flex-1 flex flex-col items-center justify-center" style={{ background: 'linear-gradient(160deg,#0d0d1a,#1a0d2e)' }}>
           <div className="relative mb-6">
-            <span className="absolute inset-0 rounded-full bg-primary/40 animate-pulse-ring" />
-            <Avatar url={peer.avatar_url} nick={peer.nick} size={110} />
+            <span className="absolute inset-0 rounded-full bg-primary/30 animate-pulse-ring" />
+            <Avatar url={peer.avatar_url} nick={peer.nick} size={112} />
           </div>
-          <p className="font-bold text-2xl mb-2">@{peer.nick}</p>
-          <p className={`text-sm ${status === 'active' ? 'text-green-400' : 'text-muted-foreground'}`}>
-            {status === 'active' ? `${fmt(duration)} • Соединено` : outgoing ? 'Вызов...' : 'Соединяемся...'}
+          <p className="text-white font-bold text-2xl mb-2">@{peer.nick}</p>
+          <p className={`text-sm ${status === 'active' ? 'text-green-400' : 'text-white/50'}`}>
+            {status === 'active' ? `● Соединено · ${fmt(duration)}` : outgoing ? 'Вызов...' : 'Соединяемся...'}
           </p>
         </div>
       )}
 
-      {/* Панель управления */}
-      <div className="flex items-center justify-center gap-5 p-8 bg-black/90 shrink-0">
+      <div className="flex items-center justify-center gap-6 shrink-0"
+        style={{ padding: '28px 0 36px', background: 'rgba(0,0,0,0.88)' }}>
         <button onClick={toggleMic}
-          className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${micOn ? 'bg-white/15' : 'bg-destructive'}`}>
+          style={{ width: 56, height: 56, borderRadius: '50%', display: 'flex', alignItems: 'center',
+            justifyContent: 'center', background: micOn ? 'rgba(255,255,255,0.18)' : 'hsl(var(--destructive))' }}>
           <Icon name={micOn ? 'Mic' : 'MicOff'} size={22} className="text-white" />
         </button>
         {kind === 'video' && (
           <button onClick={toggleCam}
-            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${camOn ? 'bg-white/15' : 'bg-destructive'}`}>
+            style={{ width: 56, height: 56, borderRadius: '50%', display: 'flex', alignItems: 'center',
+              justifyContent: 'center', background: camOn ? 'rgba(255,255,255,0.18)' : 'hsl(var(--destructive))' }}>
             <Icon name={camOn ? 'Video' : 'VideoOff'} size={22} className="text-white" />
           </button>
         )}
         <button onClick={hangup}
-          className="w-16 h-16 rounded-full bg-destructive flex items-center justify-center shadow-lg shadow-destructive/50">
+          style={{ width: 64, height: 64, borderRadius: '50%', display: 'flex', alignItems: 'center',
+            justifyContent: 'center', background: 'hsl(var(--destructive))', boxShadow: '0 4px 20px rgba(220,38,38,0.5)' }}>
           <Icon name="PhoneOff" size={26} className="text-white" />
         </button>
       </div>
