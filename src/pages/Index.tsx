@@ -980,6 +980,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
   const [emojiTarget, setEmojiTarget] = useState<number | null>(null);
   const [showAttach, setShowAttach] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [recordSecs, setRecordSecs] = useState(0);
   const [inCall, setInCall] = useState<'audio' | 'video' | null>(null);
   const lastIdRef = useRef(0);
   const endRef = useRef<HTMLDivElement>(null);
@@ -987,7 +988,10 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
   const mediaRec = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+  const fileRef2 = useRef<HTMLInputElement>(null);
   const fileType = useRef<'image' | 'video' | 'audio'>('image');
+  const recordTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const cancelFlag = useRef(false);
 
   const poll = useCallback(async () => {
     const d = await api(`messages&chat_id=${chatId}&after=${lastIdRef.current}&user_id=${user.id}`);
@@ -1040,21 +1044,42 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
   };
 
   const startVoice = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const rec = new MediaRecorder(stream);
-    audioChunks.current = [];
-    rec.ondataavailable = e => audioChunks.current.push(e.data);
-    rec.onstop = async () => {
-      stream.getTracks().forEach(t => t.stop());
-      const blob = new Blob(audioChunks.current, { type: 'audio/ogg' });
-      await uploadFile(new File([blob], 'voice.ogg'), 'voice');
-    };
-    rec.start();
-    mediaRec.current = rec;
-    setRecording(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      audioChunks.current = [];
+      cancelFlag.current = false;
+      rec.ondataavailable = e => audioChunks.current.push(e.data);
+      rec.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (cancelFlag.current) return;
+        const blob = new Blob(audioChunks.current, { type: 'audio/ogg' });
+        await uploadFile(new File([blob], 'voice.ogg'), 'voice');
+      };
+      rec.start();
+      mediaRec.current = rec;
+      setRecording(true);
+      setRecordSecs(0);
+      setCancelVoiceFlag(false);
+      recordTimer.current = setInterval(() => setRecordSecs(s => s + 1), 1000);
+    } catch { /* нет микрофона */ }
   };
 
-  const stopVoice = () => { mediaRec.current?.stop(); setRecording(false); };
+  const stopVoice = () => {
+    if (!mediaRec.current || !recording) return;
+    if (recordTimer.current) { clearInterval(recordTimer.current); recordTimer.current = null; }
+    mediaRec.current.stop();
+    setRecording(false);
+    setRecordSecs(0);
+  };
+
+  const cancelVoice = () => {
+    cancelFlag.current = true;
+    if (recordTimer.current) { clearInterval(recordTimer.current); recordTimer.current = null; }
+    mediaRec.current?.stop();
+    setRecording(false);
+    setRecordSecs(0);
+  };
 
   const react = async (msgId: number, emoji: string) => {
     setEmojiTarget(null);
@@ -1124,7 +1149,13 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
                           ? <video src={m.media_url || ''} controls className="rounded-2xl max-h-48 max-w-full" />
                           : (m.media_type === 'audio' || m.media_type === 'voice')
                             ? <audio src={m.media_url || ''} controls className="max-w-[200px]" />
-                            : <p className="leading-relaxed break-words text-sm">{m.text}</p>
+                            : m.media_type === 'file'
+                              ? <a href={m.media_url || ''} target="_blank" rel="noopener noreferrer"
+                                  className={`flex items-center gap-2 py-0.5 ${mine ? 'text-white' : 'text-foreground'}`}>
+                                  <Icon name="FileText" size={20} className={mine ? 'text-white/80' : 'text-accent'} />
+                                  <span className="text-sm underline underline-offset-2 break-all">{m.text || 'Файл'}</span>
+                                </a>
+                              : <p className="leading-relaxed break-words text-sm">{m.text}</p>
                     }
                     <span className={`block text-[10px] mt-0.5 ${mine ? 'text-white/60' : 'text-muted-foreground'}`}>{fmtTime(m.created_at)}</span>
                   </div>
@@ -1183,7 +1214,21 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
       {/* Composer */}
       <div className="p-3 glass" onClick={e => e.stopPropagation()}>
         <input ref={fileRef} type="file" hidden onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(f, fileType.current); e.target.value = ''; }} />
-        {showAttach && (
+        <input ref={fileRef2} type="file" hidden accept="*/*" onChange={e => {
+          const f = e.target.files?.[0]; if (!f) return;
+          const reader = new FileReader();
+          reader.onload = async () => {
+            const [, b64] = (reader.result as string).split(',');
+            const ext = f.name.split('.').pop() || 'bin';
+            const d = await api('upload_media', 'POST', { user_id: user.id, data: b64, ext, media_type: 'file' });
+            if (d.url) await send(f.name, d.url, 'file');
+          };
+          reader.readAsDataURL(f);
+          e.target.value = '';
+        }} />
+
+        {/* Attach menu */}
+        {showAttach && !recording && (
           <div className="flex gap-2 mb-3 animate-fade-up">
             {[
               { icon: 'Image', label: 'Фото', type: 'image' as const },
@@ -1196,27 +1241,54 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
                 <span className="text-[10px] text-muted-foreground">{a.label}</span>
               </button>
             ))}
+            <button onClick={() => { setShowAttach(false); fileRef2.current?.click(); }}
+              className="flex-1 glass rounded-2xl py-3 flex flex-col items-center gap-1 hover:bg-secondary/60 transition-colors">
+              <Icon name="FileText" size={20} className="text-accent" />
+              <span className="text-[10px] text-muted-foreground">Файл</span>
+            </button>
           </div>
         )}
-        <div className="flex items-center gap-2">
-          <button onClick={() => setShowAttach(v => !v)}
-            className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-colors ${showAttach ? 'bg-primary/30 text-primary' : 'hover:bg-secondary/60'}`}>
-            <Icon name="Paperclip" size={20} />
-          </button>
-          <input value={input} onChange={e => handleInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
-            placeholder="Сообщение…"
-            className="flex-1 bg-secondary/60 border border-border rounded-full px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary transition-all text-sm" />
-          {input.trim()
-            ? <button onClick={() => send()} className="w-10 h-10 shrink-0 rounded-full bg-gradient-to-br from-primary to-accent hover:opacity-90 flex items-center justify-center shadow-lg shadow-primary/30">
-                <Icon name="Send" size={18} className="text-white" />
-              </button>
-            : <button onPointerDown={startVoice} onPointerUp={stopVoice} onPointerLeave={stopVoice}
-                className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-all ${recording ? 'bg-destructive scale-110 shadow-lg shadow-destructive/40' : 'bg-gradient-to-br from-primary to-accent shadow-lg shadow-primary/30'}`}>
-                <Icon name="Mic" size={18} className="text-white" />
-              </button>
-          }
-        </div>
+
+        {/* Recording UI */}
+        {recording ? (
+          <div className="flex items-center gap-3">
+            <button onClick={cancelVoice}
+              className="w-10 h-10 shrink-0 rounded-full flex items-center justify-center hover:bg-secondary/60 transition-colors text-destructive">
+              <Icon name="Trash2" size={20} />
+            </button>
+            <div className="flex-1 flex items-center gap-2 bg-secondary/60 border border-destructive/40 rounded-full px-4 py-2.5">
+              <span className="w-2 h-2 rounded-full bg-destructive animate-pulse shrink-0" />
+              <span className="text-sm font-medium text-destructive">Запись…</span>
+              <span className="text-sm text-muted-foreground ml-auto">
+                {String(Math.floor(recordSecs / 60)).padStart(2, '0')}:{String(recordSecs % 60).padStart(2, '0')}
+              </span>
+            </div>
+            <button onPointerUp={stopVoice}
+              className="w-10 h-10 shrink-0 rounded-full bg-destructive flex items-center justify-center shadow-lg shadow-destructive/40 animate-pulse">
+              <Icon name="Send" size={18} className="text-white" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowAttach(v => !v)}
+              className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-colors ${showAttach ? 'bg-primary/30 text-primary' : 'hover:bg-secondary/60'}`}>
+              <Icon name="Paperclip" size={20} />
+            </button>
+            <input value={input} onChange={e => handleInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
+              placeholder="Сообщение…"
+              className="flex-1 bg-secondary/60 border border-border rounded-full px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary transition-all text-sm" />
+            {input.trim()
+              ? <button onClick={() => send()} className="w-10 h-10 shrink-0 rounded-full bg-gradient-to-br from-primary to-accent hover:opacity-90 flex items-center justify-center shadow-lg shadow-primary/30">
+                  <Icon name="Send" size={18} className="text-white" />
+                </button>
+              : <button onPointerDown={startVoice}
+                  className="w-10 h-10 shrink-0 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
+                  <Icon name="Mic" size={18} className="text-white" />
+                </button>
+            }
+          </div>
+        )}
       </div>
 
       {/* Звонок overlay */}
