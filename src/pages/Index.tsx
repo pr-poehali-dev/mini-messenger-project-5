@@ -1090,12 +1090,17 @@ const ICE_FALLBACK = {
 function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
   user: User; peer: User; callId: string; kind: 'audio' | 'video'; outgoing: boolean; onEnd: () => void;
 }) {
-  const [status, setStatus]   = useState<'ringing' | 'active'>('ringing');
-  const [micOn,  setMicOn]    = useState(true);
-  const [camOn,  setCamOn]    = useState(kind === 'video');
+  const [status, setStatus]     = useState<'ringing' | 'active'>('ringing');
+  const [micOn,  setMicOn]      = useState(true);
+  const [camOn,  setCamOn]      = useState(kind === 'video');
   const [duration, setDuration] = useState(0);
+  // Аудио: громкий (динамик) / тихий (ухо)
+  const [speakerOn, setSpeakerOn] = useState(true);
+  // Видео: фронт/тыл камера
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  // Видео: своё видео большое или маленькое
+  const [selfBig, setSelfBig] = useState(false);
 
-  // Все рабочие данные — только в refs, никаких closure-багов
   const localRef    = useRef<HTMLVideoElement>(null);
   const remoteRef   = useRef<HTMLVideoElement>(null);
   const remoteAudio = useRef<HTMLAudioElement>(null);
@@ -1109,7 +1114,6 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
     durTimer:    null as ReturnType<typeof setInterval> | null,
   });
 
-  // helpers — читают из stateRef, никогда не захватывают stale данные
   const sig = (type: string, payload: object) =>
     api('call_signal', 'POST', {
       call_id: callId, from_user_id: user.id, to_user_id: peer.id,
@@ -1129,80 +1133,58 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
   };
 
   const processSignal = async (type: string, payload: string) => {
-    const s   = stateRef.current;
-    const pc  = s.pc;
+    const s  = stateRef.current;
+    const pc = s.pc;
     if (!pc || s.ended) return;
     const data = JSON.parse(payload || '{}');
-
     if (type === 'offer') {
-      // Входящий — принимаем offer, отвечаем answer
       if (pc.signalingState !== 'stable') return;
       await pc.setRemoteDescription(new RTCSessionDescription(data));
-      // сбрасываем накопленные ICE
       for (const c of s.pendingIce) { try { await pc.addIceCandidate(c); } catch {/**/} }
       s.pendingIce = [];
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       await sig('answer', answer);
-
     } else if (type === 'answer') {
-      // Исходящий — принимаем answer
       if (pc.signalingState !== 'have-local-offer') return;
       await pc.setRemoteDescription(new RTCSessionDescription(data));
       for (const c of s.pendingIce) { try { await pc.addIceCandidate(c); } catch {/**/} }
       s.pendingIce = [];
-
     } else if (type === 'ice') {
       if (pc.remoteDescription) {
         try { await pc.addIceCandidate(new RTCIceCandidate(data)); } catch {/**/}
-      } else {
-        s.pendingIce.push(data);
-      }
-    } else if (type === 'end' || type === 'reject') {
-      doEnd();
-    }
+      } else { s.pendingIce.push(data); }
+    } else if (type === 'end' || type === 'reject') { doEnd(); }
   };
 
   useEffect(() => {
-    document.body.style.overflow  = 'hidden';
-    document.body.style.position  = 'fixed';
-    document.body.style.width     = '100%';
-
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.width    = '100%';
     const s = stateRef.current;
 
     const boot = async () => {
-      // 1. Загружаем ICE конфиг с бэкенда (TURN credentials)
       let iceConfig: RTCConfiguration = ICE_FALLBACK;
       try {
         const iceData = await api('get_ice_servers');
-        if (iceData?.iceServers?.length) {
+        if (iceData?.iceServers?.length)
           iceConfig = { iceServers: iceData.iceServers, iceCandidatePoolSize: 10 };
-          console.log('[WebRTC] ICE servers loaded:', iceData.iceServers.length);
-        }
-      } catch { console.warn('[WebRTC] failed to load ICE, using fallback'); }
+      } catch {/**/}
 
-      // 2. Запрашиваем медиа
       const stream = await navigator.mediaDevices.getUserMedia(
         kind === 'video'
-          ? { audio: true, video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } }
+          ? { audio: true, video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } }
           : { audio: true, video: false }
       );
       if (s.ended) { stream.getTracks().forEach(t => t.stop()); return; }
       s.stream = stream;
 
-      // Своё видео — muted, без эха
-      if (localRef.current) {
-        localRef.current.srcObject  = stream;
-        localRef.current.muted      = true;
-      }
+      if (localRef.current) { localRef.current.srcObject = stream; localRef.current.muted = true; }
 
-      // 2. Создаём PeerConnection
       const pc = new RTCPeerConnection(iceConfig);
       s.pc = pc;
-
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
 
-      // Треки собеседника
       pc.ontrack = (e) => {
         const rs = e.streams[0];
         if (!rs) return;
@@ -1210,76 +1192,44 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
           remoteRef.current.srcObject = rs;
           remoteRef.current.play().catch(() => {});
         }
-        // Аудиозвонок — через скрытый <audio>
         if (kind === 'audio' && remoteAudio.current) {
           remoteAudio.current.srcObject = rs;
           remoteAudio.current.play().catch(() => {});
         }
       };
 
-      pc.onicecandidate = (e) => {
-        if (e.candidate && !s.ended) {
-          console.log('[WebRTC] ICE candidate:', e.candidate.type, e.candidate.protocol);
-          sig('ice', e.candidate.toJSON());
-        }
-      };
-
-      pc.onicegatheringstatechange = () => {
-        console.log('[WebRTC] gatheringState:', pc.iceGatheringState);
-      };
-
-      pc.oniceconnectionstatechange = () => {
-        console.log('[WebRTC] iceConnectionState:', pc.iceConnectionState);
-      };
-
+      pc.onicecandidate = (e) => { if (e.candidate && !s.ended) sig('ice', e.candidate.toJSON()); };
       pc.onconnectionstatechange = () => {
         if (s.ended) return;
-        console.log('[WebRTC] connectionState:', pc.connectionState);
+        console.log('[WebRTC] state:', pc.connectionState);
         if (pc.connectionState === 'connected') {
           setStatus('active');
           s.durTimer = setInterval(() => setDuration(d => d + 1), 1000);
         }
-        if (pc.connectionState === 'failed') {
-          console.log('[WebRTC] FAILED — retrying via TURN only');
-          doEnd();
-        }
-        if (pc.connectionState === 'disconnected') {
-          // Ждём 5 сек — может само восстановится
-          setTimeout(() => {
-            if (stateRef.current.pc?.connectionState === 'disconnected') doEnd();
-          }, 5000);
-        }
+        if (pc.connectionState === 'failed') doEnd();
+        if (pc.connectionState === 'disconnected')
+          setTimeout(() => { if (stateRef.current.pc?.connectionState === 'disconnected') doEnd(); }, 5000);
       };
 
-      // 3. Если исходящий — сразу шлём offer
       if (outgoing) {
-        const offer = await pc.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: kind === 'video',
-        });
+        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: kind === 'video' });
         await pc.setLocalDescription(offer);
         await sig('offer', offer);
       }
 
-      // 4. Polling — каждые 1.2с забираем новые сигналы
       s.pollTimer = setInterval(async () => {
         if (s.ended) return;
         try {
           const d = await api(`call_poll&user_id=${user.id}&call_id=${callId}&after=${s.lastSigId}`);
-          const sigs: { id: number; type: string; payload: string }[] = d.signals || [];
-          for (const item of sigs) {
+          for (const item of (d.signals || [])) {
             s.lastSigId = item.id;
             await processSignal(item.type, item.payload);
           }
-        } catch { /* сеть */ }
+        } catch {/**/}
       }, 1200);
     };
 
-    boot().catch((err) => {
-      console.error('[WebRTC] boot error:', err);
-      doEnd();
-    });
-
+    boot().catch(() => doEnd());
     return () => {
       document.body.style.overflow = '';
       document.body.style.position = '';
@@ -1295,28 +1245,95 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
     stateRef.current.stream?.getAudioTracks().forEach(t => { t.enabled = !micOn; });
     setMicOn(v => !v);
   };
+
+  // Громкий/тихий — переключение через setSinkId (earpiece vs speaker)
+  const toggleSpeaker = async () => {
+    const audio = remoteAudio.current as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
+    if (audio?.setSinkId) {
+      try {
+        await audio.setSinkId(speakerOn ? 'default' : '');
+      } catch {/**/}
+    }
+    setSpeakerOn(v => !v);
+  };
+
+  // Переключение камеры фронт/тыл
+  const flipCamera = async () => {
+    const s = stateRef.current;
+    const pc = s.pc;
+    const newFacing = facingMode === 'user' ? 'environment' : 'user';
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: newFacing, width: { ideal: 1280 }, height: { ideal: 720 } },
+      });
+      const newVideoTrack = newStream.getVideoTracks()[0];
+      // Заменяем трек в PeerConnection
+      if (pc) {
+        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) await sender.replaceTrack(newVideoTrack);
+      }
+      // Останавливаем старый видеотрек
+      s.stream?.getVideoTracks().forEach(t => t.stop());
+      // Обновляем stream для localRef
+      const audioTrack = s.stream?.getAudioTracks()[0];
+      const combined = new MediaStream([newVideoTrack, ...(audioTrack ? [audioTrack] : [])]);
+      s.stream = combined;
+      if (localRef.current) { localRef.current.srcObject = combined; localRef.current.muted = true; }
+      setFacingMode(newFacing);
+    } catch (e) { console.error('[WebRTC] flip camera error:', e); }
+  };
+
   const toggleCam = () => {
     stateRef.current.stream?.getVideoTracks().forEach(t => { t.enabled = !camOn; });
     setCamOn(v => !v);
   };
   const hangup = () => { sig('end', {}); doEnd(); };
 
+  // Своё видео: зеркало только для фронталки
+  const localMirror = facingMode === 'user' ? 'scaleX(-1)' : 'none';
+
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col" style={{ touchAction: 'none' }}>
-      {/* Скрытый audio — голос собеседника при аудиозвонке */}
       <audio ref={remoteAudio} autoPlay playsInline style={{ position: 'absolute', width: 0, height: 0 }} />
 
       {kind === 'video' ? (
         <div className="relative flex-1 overflow-hidden bg-black">
-          {/* Видео собеседника */}
-          <video ref={remoteRef} autoPlay playsInline
-            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-          />
-          {/* Своё видео */}
-          <video ref={localRef} autoPlay playsInline muted
+          {/* Основное видео (большое) */}
+          {selfBig ? (
+            <video ref={localRef} autoPlay playsInline muted
+              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', transform: localMirror }} />
+          ) : (
+            <video ref={remoteRef} autoPlay playsInline
+              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+          )}
+
+          {/* Маленькое видео (в углу) — тап меняет местами */}
+          <div onClick={() => setSelfBig(v => !v)}
             style={{ position: 'absolute', bottom: 16, right: 16, width: 110, height: 150,
-              objectFit: 'cover', borderRadius: 16, border: '2px solid rgba(255,255,255,0.25)', zIndex: 10 }}
-          />
+              borderRadius: 16, overflow: 'hidden', border: '2px solid rgba(255,255,255,0.3)',
+              zIndex: 10, cursor: 'pointer', boxShadow: '0 4px 16px rgba(0,0,0,0.5)' }}>
+            {selfBig ? (
+              <video ref={remoteRef} autoPlay playsInline
+                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+            ) : (
+              <video ref={localRef} autoPlay playsInline muted
+                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', transform: localMirror }} />
+            )}
+            <div style={{ position: 'absolute', bottom: 4, left: 0, right: 0, textAlign: 'center' }}>
+              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.6)', background: 'rgba(0,0,0,0.4)',
+                padding: '1px 6px', borderRadius: 99 }}>{selfBig ? 'собеседник' : 'я'}</span>
+            </div>
+          </div>
+
+          {/* Кнопка переключения камеры */}
+          <button onClick={flipCamera}
+            style={{ position: 'absolute', top: 16, right: 16, zIndex: 15,
+              width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,0.2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none' }}>
+            <Icon name="RefreshCw" size={18} className="text-white" />
+          </button>
+
           {status !== 'active' && (
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
               alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.75)', zIndex: 20 }}>
@@ -1348,25 +1365,53 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
         </div>
       )}
 
-      <div className="flex items-center justify-center gap-6 shrink-0"
-        style={{ padding: '28px 0 36px', background: 'rgba(0,0,0,0.88)' }}>
-        <button onClick={toggleMic}
-          style={{ width: 56, height: 56, borderRadius: '50%', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', background: micOn ? 'rgba(255,255,255,0.18)' : 'hsl(var(--destructive))' }}>
-          <Icon name={micOn ? 'Mic' : 'MicOff'} size={22} className="text-white" />
-        </button>
-        {kind === 'video' && (
-          <button onClick={toggleCam}
-            style={{ width: 56, height: 56, borderRadius: '50%', display: 'flex', alignItems: 'center',
-              justifyContent: 'center', background: camOn ? 'rgba(255,255,255,0.18)' : 'hsl(var(--destructive))' }}>
-            <Icon name={camOn ? 'Video' : 'VideoOff'} size={22} className="text-white" />
+      {/* Панель кнопок */}
+      <div className="flex items-center justify-center gap-5 shrink-0"
+        style={{ padding: '24px 0 36px', background: 'rgba(0,0,0,0.88)' }}>
+
+        {/* Микрофон */}
+        <div className="flex flex-col items-center gap-1">
+          <button onClick={toggleMic}
+            style={{ width: 54, height: 54, borderRadius: '50%', display: 'flex', alignItems: 'center',
+              justifyContent: 'center', background: micOn ? 'rgba(255,255,255,0.18)' : 'hsl(var(--destructive))' }}>
+            <Icon name={micOn ? 'Mic' : 'MicOff'} size={22} className="text-white" />
           </button>
+          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)' }}>{micOn ? 'Микрофон' : 'Без звука'}</span>
+        </div>
+
+        {/* Громкий/тихий — только для аудиозвонка */}
+        {kind === 'audio' && (
+          <div className="flex flex-col items-center gap-1">
+            <button onClick={toggleSpeaker}
+              style={{ width: 54, height: 54, borderRadius: '50%', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', background: speakerOn ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.08)' }}>
+              <Icon name={speakerOn ? 'Volume2' : 'VolumeX'} size={22} className="text-white" />
+            </button>
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)' }}>{speakerOn ? 'Громкий' : 'К уху'}</span>
+          </div>
         )}
-        <button onClick={hangup}
-          style={{ width: 64, height: 64, borderRadius: '50%', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', background: 'hsl(var(--destructive))', boxShadow: '0 4px 20px rgba(220,38,38,0.5)' }}>
-          <Icon name="PhoneOff" size={26} className="text-white" />
-        </button>
+
+        {/* Камера вкл/выкл — только для видео */}
+        {kind === 'video' && (
+          <div className="flex flex-col items-center gap-1">
+            <button onClick={toggleCam}
+              style={{ width: 54, height: 54, borderRadius: '50%', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', background: camOn ? 'rgba(255,255,255,0.18)' : 'hsl(var(--destructive))' }}>
+              <Icon name={camOn ? 'Video' : 'VideoOff'} size={22} className="text-white" />
+            </button>
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)' }}>{camOn ? 'Камера' : 'Без камеры'}</span>
+          </div>
+        )}
+
+        {/* Завершить */}
+        <div className="flex flex-col items-center gap-1">
+          <button onClick={hangup}
+            style={{ width: 62, height: 62, borderRadius: '50%', display: 'flex', alignItems: 'center',
+              justifyContent: 'center', background: 'hsl(var(--destructive))', boxShadow: '0 4px 20px rgba(220,38,38,0.5)' }}>
+            <Icon name="PhoneOff" size={26} className="text-white" />
+          </button>
+          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)' }}>Завершить</span>
+        </div>
       </div>
     </div>
   );
@@ -1518,17 +1563,19 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
 
   useEffect(() => { poll(); const iv = setInterval(poll, 1500); return () => clearInterval(iv); }, [poll]);
 
-  // Скроллим вниз только если пользователь уже внизу (не листает историю)
+  // При первом открытии чата — прыгаем вниз мгновенно и помечаем "внизу"
   useEffect(() => {
-    if (isAtBottomRef.current) {
-      endRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages]);
-
-  // Первый рендер — всегда прыгаем вниз мгновенно
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'instant' });
+    isAtBottomRef.current = true;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [chatId]);
+
+  // При новых сообщениях — скроллим ТОЛЬКО если пользователь и так внизу
+  useEffect(() => {
+    if (!isAtBottomRef.current) return;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages]);
 
   const handleInput = (v: string) => {
     setInput(v);
@@ -1743,7 +1790,6 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
             </div>
           );
         })}
-        <div ref={endRef} />
       </main>
 
       {/* Composer */}
