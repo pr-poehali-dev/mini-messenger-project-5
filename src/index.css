@@ -4,114 +4,76 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 214 100% 97%;
+    --foreground: 214 60% 10%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 214 60% 10%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 214 60% 10%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 217 91% 50%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 214 40% 92%;
+    --secondary-foreground: 214 60% 20%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 214 30% 90%;
+    --muted-foreground: 214 20% 50%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 217 91% 50%;
+    --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --border: 214 30% 86%;
+    --input: 214 30% 86%;
+    --ring: 217 91% 50%;
 
-    --radius: 0.5rem;
+    --radius: 0.875rem;
 
     --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
-  }
-
-  :root {
-    --background: 240 30% 6%;
-    --foreground: 240 20% 96%;
-
-    --card: 240 25% 9%;
-    --card-foreground: 240 20% 96%;
-
-    --popover: 240 25% 9%;
-    --popover-foreground: 240 20% 96%;
-
-    --primary: 265 89% 66%;
-    --primary-foreground: 240 20% 98%;
-
-    --secondary: 240 20% 14%;
-    --secondary-foreground: 240 20% 96%;
-
-    --muted: 240 18% 16%;
-    --muted-foreground: 240 12% 60%;
-
-    --accent: 190 95% 55%;
-    --accent-foreground: 240 30% 8%;
-
-    --destructive: 0 72% 55%;
-    --destructive-foreground: 240 20% 98%;
-
-    --border: 240 18% 18%;
-    --input: 240 18% 18%;
-    --ring: 265 89% 66%;
-
-    --radius: 1rem;
+    --sidebar-foreground: 214 60% 10%;
+    --sidebar-primary: 217 91% 50%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 214 40% 92%;
+    --sidebar-accent-foreground: 214 60% 20%;
+    --sidebar-border: 214 30% 86%;
+    --sidebar-ring: 217 91% 50%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --background: 222 47% 7%;
+    --foreground: 210 40% 96%;
 
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
+    --card: 222 40% 10%;
+    --card-foreground: 210 40% 96%;
 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 222 40% 10%;
+    --popover-foreground: 210 40% 96%;
 
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 217 91% 55%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 222 35% 15%;
+    --secondary-foreground: 210 40% 90%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --muted: 222 30% 18%;
+    --muted-foreground: 214 20% 55%;
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 199 89% 55%;
+    --accent-foreground: 222 47% 7%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --border: 222 30% 18%;
+    --input: 222 30% 18%;
+    --ring: 217 91% 55%;
+
+    --radius: 0.875rem;
   }
 }
 
@@ -128,45 +90,66 @@
 
 @layer utilities {
   .glass {
-    background: rgba(255, 255, 255, 0.04);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(59, 130, 246, 0.1);
   }
+
+  .dark .glass {
+    background: rgba(15, 23, 42, 0.8);
+    border-bottom: 1px solid rgba(59, 130, 246, 0.12);
+  }
+
+  .glass-card {
+    background: #ffffff;
+    border: 1px solid hsl(var(--border));
+    box-shadow: 0 1px 3px rgba(30, 64, 175, 0.06);
+  }
+
+  .dark .glass-card {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+  }
+
   .text-gradient {
-    background: linear-gradient(
-      120deg,
-      hsl(265 89% 70%),
-      hsl(190 95% 60%),
-      hsl(320 85% 65%)
-    );
+    background: linear-gradient(135deg, hsl(217 91% 50%), hsl(199 89% 55%));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
   }
+
   .grad-mesh {
+    background: hsl(var(--background));
+  }
+
+  .dark .grad-mesh {
     background:
       radial-gradient(
-        60% 50% at 15% 20%,
-        hsla(265, 89%, 60%, 0.35),
+        ellipse 80% 50% at 50% -10%,
+        hsla(217, 91%, 30%, 0.3),
         transparent
       ),
-      radial-gradient(
-        50% 50% at 85% 30%,
-        hsla(190, 95%, 55%, 0.25),
-        transparent
-      ),
-      radial-gradient(
-        60% 60% at 50% 100%,
-        hsla(320, 85%, 60%, 0.22),
-        transparent
-      );
+      hsl(var(--background));
   }
+
   .scrollbar-thin::-webkit-scrollbar {
-    width: 6px;
+    width: 4px;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: hsla(265, 89%, 66%, 0.4);
+    background: hsl(217 91% 50% / 0.25);
     border-radius: 999px;
+  }
+
+  .msg-bubble-mine {
+    background: linear-gradient(135deg, hsl(217 91% 50%), hsl(217 91% 42%));
+    color: white;
+    border-radius: 18px 18px 4px 18px;
+  }
+
+  .msg-bubble-peer {
+    background: hsl(var(--secondary));
+    color: hsl(var(--foreground));
+    border-radius: 18px 18px 18px 4px;
   }
 }
