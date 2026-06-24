@@ -172,36 +172,90 @@ export default function Index() {
     return () => { clearInterval(iv); window.removeEventListener('beforeunload', off); };
   }, [user]);
 
+  // Входящие звонки — глобальный polling
+  const [incomingCall, setIncomingCall] = useState<{ callId: string; kind: string; nick: string; avatar_url?: string | null; callerId: number } | null>(null);
+  const [globalCall, setGlobalCall] = useState<{ kind: 'audio' | 'video'; callId: string; peer: User } | null>(null);
+  const lastCallSigId = useRef(0);
+
+  useEffect(() => {
+    if (!user) return;
+    const iv = setInterval(async () => {
+      const d = await api(`call_poll&user_id=${user.id}&after=${lastCallSigId.current}`);
+      const sigs: { id: number }[] = d.signals || [];
+      if (sigs.length) lastCallSigId.current = sigs[sigs.length - 1].id;
+      const inc = d.incoming as { call_id: string; kind: string; nick: string; avatar_url?: string | null; caller_id: number } | null;
+      if (inc && !globalCall && !incomingCall) {
+        setIncomingCall({ callId: inc.call_id, kind: inc.kind, nick: inc.nick, avatar_url: inc.avatar_url, callerId: inc.caller_id });
+      }
+    }, 2000);
+    return () => clearInterval(iv);
+  }, [user, globalCall, incomingCall]);  
+
   if (!user || screen.name === 'login') return <LoginScreen draftNick={draftNick} setDraftNick={setDraftNick} onLogin={login} onLoginByNick={loginByNick} error={loginError} setError={setLoginError} />;
   if (screen.name === 'setup') return <SetupScreen user={user} onDone={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); push({ name: 'tabs', tab: 'chats' }); }} />;
-  if (screen.name === 'chat') return <ChatScreen user={user} chatId={screen.chatId} peer={screen.peer} groupName={screen.groupName} groupId={screen.groupId}
-    onBack={() => push({ name: 'tabs', tab: 'chats' })}
-    onOpenProfile={(id) => push({ name: 'user_profile', userId: id })}
-    onOpenGroup={(gid, chatId) => push({ name: 'group_info', groupId: gid, chatId })} />;
-  if (screen.name === 'user_profile') return <UserProfileScreen me={user} userId={screen.userId} onBack={back}
-    onOpenChat={async (peerId) => { const d = await api('open_chat', 'POST', { user_id: user.id, peer_id: peerId }); push({ name: 'chat', chatId: d.chat_id, peer: d.peer }); }}
-    onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} />;
-  if (screen.name === 'followers') return <FollowersScreen userId={screen.userId} mode={screen.mode} me={user} onBack={back} onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />;
-  if (screen.name === 'new_group') return <NewGroupScreen user={user} onBack={() => push({ name: 'tabs', tab: 'chats' })}
-    onCreated={(chatId, groupName, groupId) => push({ name: 'group_info', groupId, chatId })} />;
-  if (screen.name === 'group_info') return <GroupInfoScreen user={user} groupId={screen.groupId} chatId={screen.chatId}
-    onBack={() => push({ name: 'tabs', tab: 'chats' })}
-    onOpenChat={() => push({ name: 'chat', chatId: screen.chatId, groupId: screen.groupId, groupName: '' })}
-    onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />;
 
-  const tab = (screen as { name: 'tabs'; tab: Tab }).tab;
+  const renderScreen = () => {
+    if (screen.name === 'chat') return <ChatScreen user={user} chatId={screen.chatId} peer={screen.peer} groupName={screen.groupName} groupId={screen.groupId}
+      onBack={() => push({ name: 'tabs', tab: 'chats' })}
+      onOpenProfile={(id) => push({ name: 'user_profile', userId: id })}
+      onOpenGroup={(gid, chatId) => push({ name: 'group_info', groupId: gid, chatId })} />;
+    if (screen.name === 'user_profile') return <UserProfileScreen me={user} userId={screen.userId} onBack={back}
+      onOpenChat={async (peerId) => { const d = await api('open_chat', 'POST', { user_id: user.id, peer_id: peerId }); push({ name: 'chat', chatId: d.chat_id, peer: d.peer }); }}
+      onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} />;
+    if (screen.name === 'followers') return <FollowersScreen userId={screen.userId} mode={screen.mode} me={user} onBack={back} onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />;
+    if (screen.name === 'new_group') return <NewGroupScreen user={user} onBack={() => push({ name: 'tabs', tab: 'chats' })}
+      onCreated={(chatId, groupName, groupId) => push({ name: 'group_info', groupId, chatId })} />;
+    if (screen.name === 'group_info') return <GroupInfoScreen user={user} groupId={screen.groupId} chatId={screen.chatId}
+      onBack={() => push({ name: 'tabs', tab: 'chats' })}
+      onOpenChat={() => push({ name: 'chat', chatId: screen.chatId, groupId: screen.groupId, groupName: '' })}
+      onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />;
+    const tab = (screen as { name: 'tabs'; tab: Tab }).tab;
+    return (
+      <TabsShell tab={tab} onTab={(t) => push({ name: 'tabs', tab: t })} user={user}>
+        {tab === 'search' && <SearchTab user={user} onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />}
+        {tab === 'chats' && <ChatsTab user={user}
+          onOpenChat={(c) => push({ name: 'chat', chatId: c.chat_id, peer: c.peer_id ? { id: c.peer_id, nick: c.peer_nick!, avatar_url: c.peer_avatar } : undefined, groupName: c.group_name, groupId: c.group_id })}
+          onNewGroup={() => push({ name: 'new_group' })}
+          onOpenGroup={(gid, chatId) => push({ name: 'group_info', groupId: gid, chatId })} />}
+        {tab === 'notifications' && <NotificationsTab user={user}
+          onOpenChat={(chatId) => push({ name: 'chat', chatId })}
+          onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />}
+        {tab === 'profile' && <ProfileTab user={user} onLogout={logout} onUpdate={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); }} onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} lightTheme={lightTheme} onToggleTheme={() => setLightTheme(v => !v)} onDeleteAccount={deleteAccount} />}
+      </TabsShell>
+    );
+  };
+
   return (
-    <TabsShell tab={tab} onTab={(t) => push({ name: 'tabs', tab: t })} user={user}>
-      {tab === 'search' && <SearchTab user={user} onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />}
-      {tab === 'chats' && <ChatsTab user={user}
-        onOpenChat={(c) => push({ name: 'chat', chatId: c.chat_id, peer: c.peer_id ? { id: c.peer_id, nick: c.peer_nick!, avatar_url: c.peer_avatar } : undefined, groupName: c.group_name, groupId: c.group_id })}
-        onNewGroup={() => push({ name: 'new_group' })}
-        onOpenGroup={(gid, chatId) => push({ name: 'group_info', groupId: gid, chatId })} />}
-      {tab === 'notifications' && <NotificationsTab user={user}
-        onOpenChat={(chatId) => push({ name: 'chat', chatId })}
-        onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />}
-      {tab === 'profile' && <ProfileTab user={user} onLogout={logout} onUpdate={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); }} onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} lightTheme={lightTheme} onToggleTheme={() => setLightTheme(v => !v)} onDeleteAccount={deleteAccount} />}
-    </TabsShell>
+    <>
+      {renderScreen()}
+      {/* Баннер входящего звонка */}
+      {incomingCall && !globalCall && (
+        <IncomingCallBanner
+          caller={{ nick: incomingCall.nick, avatar_url: incomingCall.avatar_url }}
+          kind={incomingCall.kind}
+          callId={incomingCall.callId}
+          onAccept={() => {
+            setGlobalCall({ kind: incomingCall.kind as 'audio' | 'video', callId: incomingCall.callId, peer: { id: incomingCall.callerId, nick: incomingCall.nick, avatar_url: incomingCall.avatar_url } });
+            setIncomingCall(null);
+          }}
+          onReject={() => {
+            api('call_signal', 'POST', { call_id: incomingCall.callId, from_user_id: user.id, to_user_id: incomingCall.callerId, type: 'reject', payload: '{}' });
+            setIncomingCall(null);
+          }}
+        />
+      )}
+      {/* Глобальный WebRTC звонок (принятый входящий) */}
+      {globalCall && (
+        <WebRTCCall
+          user={user}
+          peer={globalCall.peer}
+          callId={globalCall.callId}
+          kind={globalCall.kind}
+          outgoing={false}
+          onEnd={() => setGlobalCall(null)}
+        />
+      )}
+    </>
   );
 }
 
@@ -995,6 +1049,223 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
 
 // ══════════════════════════════════════════════════════════════════════════════
 // CHAT SCREEN
+// ── WEBRTC CALL ──────────────────────────────────────────────────────────────
+const ICE_SERVERS = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'turn:openrelay.metered.ca:80',   username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443',  username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+  ]
+};
+
+function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
+  user: User; peer: User; callId: string; kind: 'audio' | 'video'; outgoing: boolean; onEnd: () => void;
+}) {
+  const [status, setStatus] = useState<'connecting' | 'ringing' | 'active' | 'ended'>(outgoing ? 'ringing' : 'connecting');
+  const [micOn, setMicOn] = useState(true);
+  const [camOn, setCamOn] = useState(kind === 'video');
+  const [duration, setDuration] = useState(0);
+
+  const pcRef       = useRef<RTCPeerConnection | null>(null);
+  const localRef    = useRef<HTMLVideoElement>(null);
+  const remoteRef   = useRef<HTMLVideoElement>(null);
+  const localStream = useRef<MediaStream | null>(null);
+  const lastSigId   = useRef(0);
+  const pollTimer   = useRef<ReturnType<typeof setInterval> | null>(null);
+  const durTimer    = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const sendSignal = async (type: string, payload: object) => {
+    await api('call_signal', 'POST', {
+      call_id: callId, from_user_id: user.id, to_user_id: peer.id,
+      type, payload: JSON.stringify(payload), kind,
+    });
+  };
+
+  const cleanup = () => {
+    if (pollTimer.current) clearInterval(pollTimer.current);
+    if (durTimer.current) clearInterval(durTimer.current);
+    localStream.current?.getTracks().forEach(t => t.stop());
+    pcRef.current?.close();
+  };
+
+  const hangup = async () => {
+    await sendSignal('end', {});
+    cleanup();
+    onEnd();
+  };
+
+  const handleSignal = async (sig: { type: string; payload: string }) => {
+    const pc = pcRef.current;
+    if (!pc) return;
+    const data = JSON.parse(sig.payload || '{}');
+    if (sig.type === 'offer') {
+      await pc.setRemoteDescription(new RTCSessionDescription(data));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await sendSignal('answer', answer);
+      setStatus('active');
+    } else if (sig.type === 'answer') {
+      await pc.setRemoteDescription(new RTCSessionDescription(data));
+      setStatus('active');
+    } else if (sig.type === 'ice') {
+      try { await pc.addIceCandidate(new RTCIceCandidate(data)); } catch { /* ignore */ }
+    } else if (sig.type === 'end' || sig.type === 'reject') {
+      cleanup();
+      onEnd();
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const start = async () => {
+      const stream = await navigator.mediaDevices.getUserMedia(
+        kind === 'video' ? { audio: true, video: { facingMode: 'user', width: 640, height: 480 } } : { audio: true }
+      );
+      localStream.current = stream;
+      if (localRef.current) { localRef.current.srcObject = stream; }
+
+      const pc = new RTCPeerConnection(ICE_SERVERS);
+      pcRef.current = pc;
+
+      stream.getTracks().forEach(t => pc.addTrack(t, stream));
+
+      pc.ontrack = e => {
+        if (remoteRef.current) remoteRef.current.srcObject = e.streams[0];
+      };
+
+      pc.onicecandidate = e => {
+        if (e.candidate) sendSignal('ice', e.candidate.toJSON());
+      };
+
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'connected') {
+          setStatus('active');
+          durTimer.current = setInterval(() => setDuration(d => d + 1), 1000);
+        }
+        if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+          cleanup(); onEnd();
+        }
+      };
+
+      if (outgoing) {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await sendSignal('offer', offer);
+      }
+
+      // Polling сигналов
+      pollTimer.current = setInterval(async () => {
+        if (cancelled) return;
+        const d = await api(`call_poll&user_id=${user.id}&call_id=${callId}&after=${lastSigId.current}`);
+        const sigs: { id: number; type: string; payload: string }[] = d.signals || [];
+        for (const sig of sigs) {
+          lastSigId.current = sig.id;
+          await handleSignal(sig);
+        }
+      }, 1500);
+    };
+
+    start().catch(() => { onEnd(); });
+    return () => { cancelled = true; cleanup(); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const fmt = (s: number) => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+
+  const toggleMic = () => {
+    localStream.current?.getAudioTracks().forEach(t => { t.enabled = !micOn; });
+    setMicOn(v => !v);
+  };
+  const toggleCam = () => {
+    localStream.current?.getVideoTracks().forEach(t => { t.enabled = !camOn; });
+    setCamOn(v => !v);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black flex flex-col animate-fade-up">
+      {/* Видео */}
+      {kind === 'video' ? (
+        <div className="relative flex-1 bg-black">
+          <video ref={remoteRef} autoPlay playsInline className="w-full h-full object-cover" />
+          <video ref={localRef} autoPlay playsInline muted
+            className="absolute bottom-4 right-4 w-28 h-36 rounded-2xl object-cover border-2 border-white/20 shadow-xl" />
+          {status !== 'active' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60">
+              <div className="relative mb-6"><span className="absolute inset-0 rounded-full bg-primary/40 animate-pulse-ring" /><Avatar url={peer.avatar_url} nick={peer.nick} size={100} /></div>
+              <p className="text-white font-display font-bold text-xl mb-1">@{peer.nick}</p>
+              <p className="text-white/60 text-sm">{outgoing ? 'Вызов...' : 'Входящий видеозвонок'}</p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center grad-mesh">
+          <div className="relative mb-6"><span className="absolute inset-0 rounded-full bg-primary/40 animate-pulse-ring" /><Avatar url={peer.avatar_url} nick={peer.nick} size={110} /></div>
+          <p className="font-display font-bold text-2xl mb-1">@{peer.nick}</p>
+          <p className="text-muted-foreground text-sm">
+            {status === 'active' ? fmt(duration) : outgoing ? 'Вызов...' : 'Входящий звонок'}
+          </p>
+          {status === 'active' && <p className="text-green-400 text-xs mt-1">Соединено</p>}
+        </div>
+      )}
+
+      {/* Статус при видео */}
+      {kind === 'video' && status === 'active' && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/40 rounded-full px-4 py-1">
+          <p className="text-white text-xs">{fmt(duration)}</p>
+        </div>
+      )}
+
+      {/* Кнопки управления */}
+      <div className="flex items-center justify-center gap-5 p-8 bg-black/80">
+        <button onClick={toggleMic}
+          className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${micOn ? 'bg-white/15 hover:bg-white/25' : 'bg-destructive'}`}>
+          <Icon name={micOn ? 'Mic' : 'MicOff'} size={22} className="text-white" />
+        </button>
+        {kind === 'video' && (
+          <button onClick={toggleCam}
+            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${camOn ? 'bg-white/15 hover:bg-white/25' : 'bg-destructive'}`}>
+            <Icon name={camOn ? 'Video' : 'VideoOff'} size={22} className="text-white" />
+          </button>
+        )}
+        <button onClick={hangup}
+          className="w-16 h-16 rounded-full bg-destructive flex items-center justify-center shadow-lg shadow-destructive/50">
+          <Icon name="PhoneOff" size={26} className="text-white" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── INCOMING CALL BANNER ──────────────────────────────────────────────────────
+function IncomingCallBanner({ caller, kind, callId, onAccept, onReject }: {
+  caller: { nick: string; avatar_url?: string | null }; kind: string; callId: string;
+  onAccept: () => void; onReject: () => void;
+}) {
+  return (
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-sm glass rounded-3xl p-4 shadow-2xl animate-fade-up border border-primary/30">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="relative"><span className="absolute inset-0 rounded-full bg-green-400/30 animate-pulse-ring" /><Avatar url={caller.avatar_url} nick={caller.nick} size={48} /></div>
+        <div>
+          <p className="font-semibold text-sm">@{caller.nick}</p>
+          <p className="text-muted-foreground text-xs">{kind === 'video' ? 'Входящий видеозвонок' : 'Входящий звонок'}</p>
+        </div>
+      </div>
+      <div className="flex gap-3">
+        <button onClick={onReject}
+          className="flex-1 py-3 rounded-2xl bg-destructive text-white text-sm font-semibold flex items-center justify-center gap-2">
+          <Icon name="PhoneOff" size={16} className="text-white" /> Отклонить
+        </button>
+        <button onClick={onAccept}
+          className="flex-1 py-3 rounded-2xl bg-green-500 text-white text-sm font-semibold flex items-center justify-center gap-2">
+          <Icon name="Phone" size={16} className="text-white" /> Принять
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── VOICE PLAYER ─────────────────────────────────────────────────────────────
 function VoicePlayer({ src, mine }: { src: string; mine: boolean }) {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -1073,7 +1344,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
   const [showAttach, setShowAttach] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordSecs, setRecordSecs] = useState(0);
-  const [inCall, setInCall] = useState<'audio' | 'video' | null>(null);
+  const [inCall, setInCall] = useState<{ kind: 'audio' | 'video'; callId: string; outgoing: boolean } | null>(null);
   const lastIdRef = useRef(0);
   const endRef = useRef<HTMLDivElement>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1158,7 +1429,6 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
       mediaRec.current = rec;
       setRecording(true);
       setRecordSecs(0);
-      setCancelVoiceFlag(false);
       recordTimer.current = setInterval(() => setRecordSecs(s => s + 1), 1000);
     } catch { /* нет микрофона */ }
   };
@@ -1212,12 +1482,14 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
             {subtitle && <div className={`text-xs ${subtitleColor}`}>{subtitle}</div>}
           </div>
         </button>
-        <button onClick={() => setInCall('audio')} className="w-10 h-10 rounded-full hover:bg-secondary/60 flex items-center justify-center transition-colors">
-          <Icon name="Phone" size={18} />
-        </button>
-        <button onClick={() => setInCall('video')} className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
-          <Icon name="Video" size={18} className="text-white" />
-        </button>
+        {peer && <>
+          <button onClick={() => { const cid = `${user.id}_${peer.id}_${Date.now()}`; setInCall({ kind: 'audio', callId: cid, outgoing: true }); }} className="w-10 h-10 rounded-full hover:bg-secondary/60 flex items-center justify-center transition-colors">
+            <Icon name="Phone" size={18} />
+          </button>
+          <button onClick={() => { const cid = `${user.id}_${peer.id}_${Date.now()}`; setInCall({ kind: 'video', callId: cid, outgoing: true }); }} className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
+            <Icon name="Video" size={18} className="text-white" />
+          </button>
+        </>}
       </header>
 
       {/* Messages */}
@@ -1396,35 +1668,16 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
         )}
       </div>
 
-      {/* Звонок overlay */}
-      {inCall && (
-        <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 animate-fade-up">
-          <div className="relative mb-8">
-            <span className="absolute inset-0 rounded-full bg-primary/40 animate-pulse-ring" />
-            <Avatar url={peer?.avatar_url} nick={peer?.nick || '?'} size={120} />
-          </div>
-          <h2 className="font-display font-bold text-2xl mb-1">{title}</h2>
-          <p className="text-muted-foreground mb-12">
-            {inCall === 'video' ? 'Видеозвонок...' : 'Аудиозвонок...'}
-          </p>
-          <div className="flex items-center gap-5">
-            <button className="w-14 h-14 rounded-full bg-secondary/70 flex items-center justify-center">
-              <Icon name="Mic" size={22} />
-            </button>
-            {inCall === 'video' && (
-              <button className="w-14 h-14 rounded-full bg-secondary/70 flex items-center justify-center">
-                <Icon name="Video" size={22} />
-              </button>
-            )}
-            <button onClick={() => {
-              // Фиксируем пропущенный звонок у собеседника
-              if (peer) api('notify_call', 'POST', { from_user_id: user.id, to_user_id: peer.id, call_type: inCall, chat_id: chatId });
-              setInCall(null);
-            }} className="w-16 h-16 rounded-full bg-destructive flex items-center justify-center shadow-lg shadow-destructive/40">
-              <Icon name="PhoneOff" size={26} className="text-white" />
-            </button>
-          </div>
-        </div>
+      {/* WebRTC звонок */}
+      {inCall && peer && (
+        <WebRTCCall
+          user={user}
+          peer={peer}
+          callId={inCall.callId}
+          kind={inCall.kind}
+          outgoing={inCall.outgoing}
+          onEnd={() => setInCall(null)}
+        />
       )}
     </div>
   );

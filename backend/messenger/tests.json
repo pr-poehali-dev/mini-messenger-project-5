@@ -36,6 +36,23 @@
       "bodyMatcher": "partial"
     },
     {
+      "name": "Call signal send",
+      "method": "POST",
+      "path": "/?action=call_signal",
+      "body": {"call_id": "test-call-1", "from_user_id": 1, "to_user_id": 2, "type": "offer", "payload": "{}", "kind": "video"},
+      "expectedStatus": 200,
+      "expectedBody": {"ok": true},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Call status check",
+      "method": "GET",
+      "path": "/?action=call_status&call_id=nonexistent-call",
+      "expectedStatus": 200,
+      "expectedBody": {"status": "ended"},
+      "bodyMatcher": "partial"
+    },
+    {
       "name": "Mark read",
       "method": "POST",
       "path": "/?action=mark_read",

@@ -770,6 +770,67 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return _resp(200, {'url': url})
 
+        # ── CALL: начать звонок / отправить сигнал ────────
+        if action == 'call_signal' and method == 'POST':
+            """Отправка WebRTC сигнала (offer/answer/ice/ringing/reject/end)"""
+            call_id   = body.get('call_id', '')
+            from_uid  = int(body.get('from_user_id') or 0)
+            to_uid    = int(body.get('to_user_id') or 0)
+            sig_type  = body.get('type', '')
+            payload   = body.get('payload', '')
+            kind      = body.get('kind', 'audio')
+            if not call_id or not from_uid or not to_uid or not sig_type:
+                return _resp(400, {'error': 'Неверные параметры'})
+            cur.execute(
+                "INSERT INTO call_signals (call_id, from_user_id, to_user_id, type, payload) VALUES (%s,%s,%s,%s,%s)",
+                (call_id, from_uid, to_uid, sig_type, payload)
+            )
+            if sig_type == 'offer':
+                cur.execute(
+                    """INSERT INTO active_calls (call_id, caller_id, callee_id, kind, status, updated_at)
+                       VALUES (%s,%s,%s,%s,'ringing',NOW())
+                       ON CONFLICT (call_id) DO UPDATE SET status='ringing', updated_at=NOW()""",
+                    (call_id, from_uid, to_uid, kind)
+                )
+            elif sig_type in ('answer',):
+                cur.execute("UPDATE active_calls SET status='active', updated_at=NOW() WHERE call_id=%s", (call_id,))
+            elif sig_type in ('end', 'reject'):
+                cur.execute("UPDATE active_calls SET status='ended', updated_at=NOW() WHERE call_id=%s", (call_id,))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── CALL: опрос входящих сигналов ─────────────────
+        if action == 'call_poll' and method == 'GET':
+            """Получение новых WebRTC сигналов для пользователя"""
+            me      = int(params.get('user_id') or 0)
+            call_id = params.get('call_id', '')
+            after   = int(params.get('after') or 0)
+            if call_id:
+                cur.execute(
+                    "SELECT id, call_id, from_user_id, to_user_id, type, payload, created_at FROM call_signals WHERE call_id=%s AND to_user_id=%s AND id>%s ORDER BY id ASC",
+                    (call_id, me, after)
+                )
+            else:
+                cur.execute(
+                    "SELECT id, call_id, from_user_id, to_user_id, type, payload, created_at FROM call_signals WHERE to_user_id=%s AND id>%s ORDER BY id ASC LIMIT 20",
+                    (me, after)
+                )
+            signals = cur.fetchall()
+            # Активный входящий звонок
+            cur.execute(
+                "SELECT ac.call_id, ac.caller_id, ac.kind, u.nick, u.avatar_url FROM active_calls ac JOIN users u ON u.id=ac.caller_id WHERE ac.callee_id=%s AND ac.status='ringing' ORDER BY ac.created_at DESC LIMIT 1",
+                (me,)
+            )
+            incoming = cur.fetchone()
+            return _resp(200, {'signals': signals, 'incoming': incoming})
+
+        # ── CALL: статус звонка ────────────────────────────
+        if action == 'call_status' and method == 'GET':
+            call_id = params.get('call_id', '')
+            cur.execute("SELECT status FROM active_calls WHERE call_id=%s", (call_id,))
+            row = cur.fetchone()
+            return _resp(200, {'status': row['status'] if row else 'ended'})
+
         return _resp(404, {'error': 'Неизвестное действие'})
     finally:
         conn.close()
