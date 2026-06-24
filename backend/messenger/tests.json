@@ -1,10 +1,10 @@
 {
   "tests": [
     {
-      "name": "Login creates user",
+      "name": "Login by existing device",
       "method": "POST",
       "path": "/?action=login",
-      "body": {"nick": "tester99", "device_id": "test-device-99"},
+      "body": {"nick": "__device_auto__", "device_id": "test-device-99b"},
       "expectedStatus": 200,
       "expectedBody": {"user": {"nick": "tester99"}},
       "bodyMatcher": "partial"
@@ -33,6 +33,15 @@
       "path": "/?action=search&q=zzzznotexist&user_id=0",
       "expectedStatus": 200,
       "expectedBody": {"users": []},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Mark read",
+      "method": "POST",
+      "path": "/?action=mark_read",
+      "body": {"chat_id": 1, "user_id": 1},
+      "expectedStatus": 200,
+      "expectedBody": {"ok": true},
       "bodyMatcher": "partial"
     },
     {

@@ -364,7 +364,7 @@ def handler(event: dict, context) -> dict:
                 """
                 SELECT m.id, m.sender_id, u.nick AS sender_nick, u.avatar_url AS sender_avatar,
                        m.text, m.image_url, m.media_type, m.media_url, m.created_at,
-                       m.is_removed, m.removed_by_sender,
+                       m.is_removed, m.removed_by_sender, m.is_read,
                        COALESCE(
                            json_agg(json_build_object('emoji', r.emoji, 'user_id', r.user_id))
                            FILTER (WHERE r.message_id IS NOT NULL), '[]'
@@ -379,7 +379,35 @@ def handler(event: dict, context) -> dict:
                 """,
                 (chat_id, after, me),
             )
-            return _resp(200, {'messages': cur.fetchall()})
+            msgs = cur.fetchall()
+            cur.execute(
+                "UPDATE messages SET is_read=TRUE, read_at=NOW() WHERE chat_id=%s AND sender_id!=%s AND is_read=FALSE",
+                (chat_id, me),
+            )
+            conn.commit()
+            return _resp(200, {'messages': msgs})
+
+        # ── READ STATUS (последнее прочитанное сообщение от меня) ─
+        if action == 'read_status' and method == 'GET':
+            chat_id = int(params.get('chat_id') or 0)
+            me = int(params.get('user_id') or 0)
+            cur.execute(
+                "SELECT MAX(id) AS read_until FROM messages WHERE chat_id=%s AND sender_id=%s AND is_read=TRUE",
+                (chat_id, me),
+            )
+            row = cur.fetchone()
+            return _resp(200, {'read_until': row['read_until'] if row else None})
+
+        # ── MARK READ ─────────────────────────────────────
+        if action == 'mark_read' and method == 'POST':
+            chat_id = int(body.get('chat_id') or 0)
+            me = int(body.get('user_id') or 0)
+            cur.execute(
+                "UPDATE messages SET is_read=TRUE, read_at=NOW() WHERE chat_id=%s AND sender_id!=%s AND is_read=FALSE",
+                (chat_id, me),
+            )
+            conn.commit()
+            return _resp(200, {'ok': True})
 
         # ── SEND MESSAGE ──────────────────────────────────
         if action == 'send' and method == 'POST':

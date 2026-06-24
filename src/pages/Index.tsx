@@ -47,7 +47,7 @@ const Avatar = ({ url, nick, size = 40, online }: { url?: string | null; nick: s
 type User = { id: number; nick: string; avatar_url?: string | null; profile_complete?: boolean; is_online?: boolean };
 type Profile = User & { city?: string; birthdate?: string; about?: string; is_online?: boolean; last_seen?: string; followers: number; following: number; i_follow?: boolean; i_blocked?: boolean };
 type ChatItem = { chat_id: number; kind: 'dm' | 'group'; peer_id?: number; peer_nick?: string; peer_avatar?: string | null; peer_online?: boolean; group_id?: number; group_name?: string; group_avatar?: string | null; last_text?: string | null; last_at?: string | null };
-type Message = { id: number; sender_id: number; sender_nick: string; sender_avatar?: string | null; text?: string | null; image_url?: string | null; media_type?: string | null; media_url?: string | null; created_at: string; is_removed?: boolean; reactions?: { emoji: string; user_id: number }[] };
+type Message = { id: number; sender_id: number; sender_nick: string; sender_avatar?: string | null; text?: string | null; image_url?: string | null; media_type?: string | null; media_url?: string | null; created_at: string; is_removed?: boolean; is_read?: boolean; reactions?: { emoji: string; user_id: number }[] };
 type Tab = 'search' | 'chats' | 'notifications' | 'profile';
 type Notif = { id: number; type: string; from_user_id?: number; from_nick?: string; from_avatar?: string | null; chat_id?: number; group_id?: number; payload?: string; is_read: boolean; created_at: string };
 type GroupInfo = { id: number; name: string; about?: string; photo_url?: string | null; invite_token: string; owner_id: number; my_role?: string; member_count: number; is_public?: boolean };
@@ -995,6 +995,65 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
 
 // ══════════════════════════════════════════════════════════════════════════════
 // CHAT SCREEN
+// ── VOICE PLAYER ─────────────────────────────────────────────────────────────
+function VoicePlayer({ src, mine }: { src: string; mine: boolean }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [speed, setSpeed] = useState(1);
+
+  const speeds = [1, 1.5, 2];
+
+  const toggle = () => {
+    const a = audioRef.current; if (!a) return;
+    if (playing) { a.pause(); setPlaying(false); }
+    else { a.play(); setPlaying(true); }
+  };
+
+  const cycleSpeed = () => {
+    const a = audioRef.current; if (!a) return;
+    const next = speeds[(speeds.indexOf(speed) + 1) % speeds.length];
+    setSpeed(next);
+    a.playbackRate = next;
+  };
+
+  const seek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const a = audioRef.current; if (!a) return;
+    a.currentTime = Number(e.target.value);
+    setProgress(Number(e.target.value));
+  };
+
+  const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2,'0')}:${String(Math.floor(s % 60)).padStart(2,'0')}`;
+
+  return (
+    <div className={`flex items-center gap-2 py-0.5 min-w-[200px] max-w-[240px]`}>
+      <audio ref={audioRef} src={src} preload="metadata"
+        onTimeUpdate={e => setProgress((e.target as HTMLAudioElement).currentTime)}
+        onLoadedMetadata={e => setDuration((e.target as HTMLAudioElement).duration)}
+        onEnded={() => { setPlaying(false); setProgress(0); if (audioRef.current) audioRef.current.currentTime = 0; }}
+      />
+      <button onClick={toggle}
+        className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center transition-all ${mine ? 'bg-white/20 hover:bg-white/30' : 'bg-primary/20 hover:bg-primary/30'}`}>
+        <Icon name={playing ? 'Pause' : 'Play'} size={16} className={mine ? 'text-white' : 'text-primary'} />
+      </button>
+      <div className="flex-1 flex flex-col gap-1">
+        <input type="range" min={0} max={duration || 1} step={0.1} value={progress} onChange={seek}
+          className="w-full h-1 rounded-full accent-current cursor-pointer"
+          style={{ accentColor: mine ? 'rgba(255,255,255,0.8)' : 'hsl(var(--primary))' }}
+        />
+        <span className={`text-[10px] ${mine ? 'text-white/50' : 'text-muted-foreground'}`}>
+          {fmt(progress)} / {fmt(duration)}
+        </span>
+      </div>
+      <button onClick={cycleSpeed}
+        className={`text-[10px] font-bold w-8 h-6 rounded-full flex items-center justify-center shrink-0 transition-all ${mine ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-secondary hover:bg-secondary/80 text-foreground'}`}>
+        {speed}x
+      </button>
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 const EMOJIS = ['❤️','😂','😮','😢','👍','👎','🔥','🎉','😍','🤔'];
 
@@ -1030,6 +1089,12 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
     const d = await api(`messages&chat_id=${chatId}&after=${lastIdRef.current}&user_id=${user.id}`);
     const fresh: MsgExt[] = d.messages || [];
     if (fresh.length) { lastIdRef.current = fresh[fresh.length - 1].id; setMessages(m => [...m, ...fresh]); }
+    // Обновляем is_read у своих отправленных — если собеседник их прочитал
+    const readData = await api(`read_status&chat_id=${chatId}&user_id=${user.id}`);
+    if (readData.read_until) {
+      const ru = readData.read_until as number;
+      setMessages(m => m.map(msg => msg.sender_id === user.id && msg.id <= ru ? { ...msg, is_read: true } : msg));
+    }
     const s = await api(`chat_status&chat_id=${chatId}&user_id=${user.id}`);
     setTyping(s.typing || []);
     if (peer) {
@@ -1181,7 +1246,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
                         : m.media_type === 'video'
                           ? <video src={m.media_url || ''} controls className="rounded-2xl max-h-48 max-w-full" />
                           : (m.media_type === 'audio' || m.media_type === 'voice')
-                            ? <audio src={m.media_url || ''} controls className="max-w-[200px]" />
+                            ? <VoicePlayer src={m.media_url || ''} mine={mine} />
                             : m.media_type === 'file'
                               ? <a href={m.media_url || ''} target="_blank" rel="noopener noreferrer"
                                   className={`flex items-center gap-2 py-0.5 ${mine ? 'text-white' : 'text-foreground'}`}>
@@ -1190,7 +1255,14 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
                                 </a>
                               : <p className="leading-relaxed break-words text-sm">{m.text}</p>
                     }
-                    <span className={`block text-[10px] mt-0.5 ${mine ? 'text-white/60' : 'text-muted-foreground'}`}>{fmtTime(m.created_at)}</span>
+                    <span className={`flex items-center justify-end gap-0.5 text-[10px] mt-0.5 ${mine ? 'text-white/60' : 'text-muted-foreground'}`}>
+                      {fmtTime(m.created_at)}
+                      {mine && (
+                        m.is_read
+                          ? <span className="text-green-400 leading-none ml-0.5">✓✓</span>
+                          : <span className="leading-none ml-0.5 opacity-70">✓</span>
+                      )}
+                    </span>
                   </div>
 
                   {/* Реакции */}
@@ -1296,8 +1368,8 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
                 {String(Math.floor(recordSecs / 60)).padStart(2, '0')}:{String(recordSecs % 60).padStart(2, '0')}
               </span>
             </div>
-            <button onPointerUp={stopVoice}
-              className="w-10 h-10 shrink-0 rounded-full bg-destructive flex items-center justify-center shadow-lg shadow-destructive/40 animate-pulse">
+            <button onClick={stopVoice}
+              className="w-10 h-10 shrink-0 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
               <Icon name="Send" size={18} className="text-white" />
             </button>
           </div>
@@ -1315,7 +1387,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
               ? <button onClick={() => send()} className="w-10 h-10 shrink-0 rounded-full bg-gradient-to-br from-primary to-accent hover:opacity-90 flex items-center justify-center shadow-lg shadow-primary/30">
                   <Icon name="Send" size={18} className="text-white" />
                 </button>
-              : <button onPointerDown={startVoice}
+              : <button onClick={startVoice}
                   className="w-10 h-10 shrink-0 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
                   <Icon name="Mic" size={18} className="text-white" />
                 </button>
