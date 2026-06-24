@@ -100,6 +100,10 @@ export default {
 				'pulse-ring': {
 					'0%': { transform: 'scale(0.9)', opacity: '0.7' },
 					'100%': { transform: 'scale(1.6)', opacity: '0' }
+				},
+				'sway': {
+					'0%, 100%': { transform: 'rotate(-6deg) scale(1)' },
+					'50%': { transform: 'rotate(6deg) scale(1.04)' }
 				}
 			},
 			animation: {
@@ -109,7 +113,8 @@ export default {
 				'fade-up': 'fade-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) both',
 				'float': 'float 6s ease-in-out infinite',
 				'glow': 'glow 3s ease-in-out infinite',
-				'pulse-ring': 'pulse-ring 1.5s cubic-bezier(0.22, 1, 0.36, 1) infinite'
+				'pulse-ring': 'pulse-ring 1.5s cubic-bezier(0.22, 1, 0.36, 1) infinite',
+				'sway': 'sway 3.5s ease-in-out infinite'
 			}
 		}
 	},

@@ -241,11 +241,32 @@ function LoginScreen({ draftNick, setDraftNick, onLogin, onLoginByNick, error, s
       <div className="absolute top-1/4 -left-20 w-96 h-96 rounded-full bg-primary/30 blur-[120px] animate-float" />
       <div className="absolute bottom-1/4 -right-20 w-96 h-96 rounded-full bg-accent/20 blur-[120px] animate-float" style={{ animationDelay: '2s' }} />
       <div className="relative w-full max-w-md animate-fade-up">
-        <div className="flex items-center justify-center gap-3 mb-10">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
-            <span className="text-white font-display font-black text-lg leading-none">ВМ</span>
+        {/* Логотип */}
+        <div className="flex flex-col items-center mb-10">
+          <div className="relative mb-5 animate-sway" style={{ transformOrigin: 'center 20%' }}>
+            {/* Внешнее свечение */}
+            <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-primary to-accent blur-2xl opacity-50 scale-110" />
+            {/* Кольцо */}
+            <div className="absolute -inset-2 rounded-[28px] border border-primary/30 animate-glow" />
+            {/* Основной логотип */}
+            <div className="relative w-24 h-24 rounded-3xl bg-gradient-to-br from-primary via-purple-500 to-accent flex items-center justify-center shadow-2xl shadow-primary/50">
+              {/* Пузырь чата */}
+              <svg width="52" height="48" viewBox="0 0 52 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="2" y="2" width="38" height="28" rx="10" fill="white" fillOpacity="0.95"/>
+                <rect x="12" y="18" width="28" height="22" rx="8" fill="white" fillOpacity="0.6"/>
+                <circle cx="13" cy="16" r="3" fill="hsl(265 89% 66%)"/>
+                <circle cx="21" cy="16" r="3" fill="hsl(190 95% 55%)"/>
+                <circle cx="29" cy="16" r="3" fill="hsl(320 85% 65%)"/>
+                <polygon points="8,30 2,40 18,30" fill="white" fillOpacity="0.95"/>
+              </svg>
+            </div>
           </div>
-          <span className="font-display font-bold text-2xl tracking-tight">Вай Мессенджер</span>
+          {/* Название */}
+          <h1 className="font-display font-black text-3xl tracking-tight text-center leading-tight">
+            <span className="text-gradient">Вай</span>{' '}
+            <span className="text-foreground">Мессенджер</span>
+          </h1>
+          <p className="text-muted-foreground text-sm mt-1.5 tracking-wide">Общайся свободно</p>
         </div>
         <div className="glass rounded-3xl p-8 shadow-2xl">
           {/* Вкладки */}
