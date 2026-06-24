@@ -150,18 +150,7 @@ export default function Index() {
     if (user) api('offline', 'POST', { user_id: user.id });
     localStorage.removeItem('orbit_user');
     setUser(null);
-    // Сразу пробуем автовход (устройство привязано)
-    const device_id = getDeviceId();
-    api('login', 'POST', { nick: '__device_auto__', device_id }).then(data => {
-      if (data.user) {
-        const u = data.user;
-        setUser(u);
-        localStorage.setItem('orbit_user', JSON.stringify(u));
-        push({ name: 'tabs', tab: 'chats' });
-      } else {
-        push({ name: 'login' });
-      }
-    });
+    push({ name: 'login' });
   };
 
   // Удаление аккаунта — чистит device_id в БД → можно регистрироваться заново
@@ -211,7 +200,7 @@ export default function Index() {
       {tab === 'notifications' && <NotificationsTab user={user}
         onOpenChat={(chatId) => push({ name: 'chat', chatId })}
         onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />}
-      {tab === 'profile' && <ProfileTab user={user} onLogout={logout} onUpdate={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); }} onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} lightTheme={lightTheme} onToggleTheme={() => setLightTheme(v => !v)} onDeleteAccount={deleteAccount} onSwitchAccount={logout} />}
+      {tab === 'profile' && <ProfileTab user={user} onLogout={logout} onUpdate={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); }} onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} lightTheme={lightTheme} onToggleTheme={() => setLightTheme(v => !v)} onDeleteAccount={deleteAccount} />}
     </TabsShell>
   );
 }
@@ -711,11 +700,11 @@ function FollowersScreen({ userId, mode, me, onBack, onOpenProfile }: { userId: 
 // ══════════════════════════════════════════════════════════════════════════════
 // MY PROFILE TAB
 // ══════════════════════════════════════════════════════════════════════════════
-function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggleTheme, onDeleteAccount, onSwitchAccount }: {
+function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggleTheme, onDeleteAccount }: {
   user: User; onLogout: () => void; onUpdate: (u: User) => void;
   onFollowers: (uid: number, mode: 'followers' | 'following') => void;
   lightTheme: boolean; onToggleTheme: () => void;
-  onDeleteAccount: () => void; onSwitchAccount: () => void;
+  onDeleteAccount: () => void;
 }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [editing, setEditing] = useState(false);
@@ -946,10 +935,6 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
           {/* Аккаунт */}
           <div className="glass rounded-3xl p-5 space-y-1">
             <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-3 px-1">Аккаунт</p>
-            <button onClick={onSwitchAccount} className="w-full flex items-center gap-3 py-3 px-1 rounded-2xl hover:bg-secondary/60 transition-colors">
-              <Icon name="RefreshCw" size={18} className="text-accent" />
-              <span className="text-sm font-medium">Сменить аккаунт</span>
-            </button>
             <button onClick={onLogout} className="w-full flex items-center gap-3 py-3 px-1 rounded-2xl hover:bg-secondary/60 transition-colors">
               <Icon name="LogOut" size={18} className="text-muted-foreground" />
               <span className="text-sm font-medium">Выйти</span>
