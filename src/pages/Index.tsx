@@ -1049,14 +1049,13 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
 // ══════════════════════════════════════════════════════════════════════════════
 // CHAT SCREEN
 // ── WEBRTC CALL ──────────────────────────────────────────────────────────────
-const ICE_SERVERS = {
+// Fallback ICE пока не загрузились с бэкенда (только STUN, без пароля в коде)
+const ICE_FALLBACK = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'turn:openrelay.metered.ca:80',   username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443',  username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
-  ]
+    { urls: 'stun:stun.cloudflare.com:3478' },
+  ],
+  iceCandidatePoolSize: 10,
 };
 
 function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
@@ -1143,7 +1142,17 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
     const s = stateRef.current;
 
     const boot = async () => {
-      // 1. Запрашиваем медиа
+      // 1. Загружаем ICE конфиг с бэкенда (TURN credentials)
+      let iceConfig: RTCConfiguration = ICE_FALLBACK;
+      try {
+        const iceData = await api('get_ice_servers');
+        if (iceData?.iceServers?.length) {
+          iceConfig = { iceServers: iceData.iceServers, iceCandidatePoolSize: 10 };
+          console.log('[WebRTC] ICE servers loaded:', iceData.iceServers.length);
+        }
+      } catch { console.warn('[WebRTC] failed to load ICE, using fallback'); }
+
+      // 2. Запрашиваем медиа
       const stream = await navigator.mediaDevices.getUserMedia(
         kind === 'video'
           ? { audio: true, video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } }
@@ -1159,7 +1168,7 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
       }
 
       // 2. Создаём PeerConnection
-      const pc = new RTCPeerConnection(ICE_SERVERS);
+      const pc = new RTCPeerConnection(iceConfig);
       s.pc = pc;
 
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
@@ -1170,9 +1179,9 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
         if (!rs) return;
         if (kind === 'video' && remoteRef.current) {
           remoteRef.current.srcObject = rs;
+          remoteRef.current.play().catch(() => {});
         }
-        // Для аудио-трека при видеозвонке — тоже воспроизводим через remoteRef
-        // Для чистого аудиозвонка — через скрытый <audio>
+        // Аудиозвонок — через скрытый <audio>
         if (kind === 'audio' && remoteAudio.current) {
           remoteAudio.current.srcObject = rs;
           remoteAudio.current.play().catch(() => {});
@@ -1180,7 +1189,18 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
       };
 
       pc.onicecandidate = (e) => {
-        if (e.candidate && !s.ended) sig('ice', e.candidate.toJSON());
+        if (e.candidate && !s.ended) {
+          console.log('[WebRTC] ICE candidate:', e.candidate.type, e.candidate.protocol);
+          sig('ice', e.candidate.toJSON());
+        }
+      };
+
+      pc.onicegatheringstatechange = () => {
+        console.log('[WebRTC] gatheringState:', pc.iceGatheringState);
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        console.log('[WebRTC] iceConnectionState:', pc.iceConnectionState);
       };
 
       pc.onconnectionstatechange = () => {
@@ -1190,8 +1210,15 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
           setStatus('active');
           s.durTimer = setInterval(() => setDuration(d => d + 1), 1000);
         }
-        if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+        if (pc.connectionState === 'failed') {
+          console.log('[WebRTC] FAILED — retrying via TURN only');
           doEnd();
+        }
+        if (pc.connectionState === 'disconnected') {
+          // Ждём 5 сек — может само восстановится
+          setTimeout(() => {
+            if (stateRef.current.pc?.connectionState === 'disconnected') doEnd();
+          }, 5000);
         }
       };
 

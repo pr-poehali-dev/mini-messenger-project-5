@@ -799,6 +799,22 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return _resp(200, {'ok': True})
 
+        # ── CALL: ICE серверы для WebRTC ──────────────────
+        if action == 'get_ice_servers' and method == 'GET':
+            """Выдаёт TURN/STUN конфигурацию для WebRTC звонков"""
+            turn_host = os.environ.get('TURN_HOST', '161.104.17.156')
+            turn_user = os.environ.get('TURN_USER', 'vai')
+            turn_pass = os.environ.get('TURN_PASS', '')
+            return _resp(200, {
+                'iceServers': [
+                    {'urls': 'stun:stun.l.google.com:19302'},
+                    {'urls': 'stun:stun.cloudflare.com:3478'},
+                    {'urls': f'turn:{turn_host}:3478?transport=udp', 'username': turn_user, 'credential': turn_pass},
+                    {'urls': f'turn:{turn_host}:3478?transport=tcp', 'username': turn_user, 'credential': turn_pass},
+                ],
+                'iceCandidatePoolSize': 10,
+            })
+
         # ── CALL: опрос входящих сигналов ─────────────────
         if action == 'call_poll' and method == 'GET':
             """Получение новых WebRTC сигналов для пользователя"""
