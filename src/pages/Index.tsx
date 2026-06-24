@@ -133,6 +133,17 @@ export default function Index() {
     push(u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' });
   };
 
+  const loginByNick = async (nick: string) => {
+    setLoginError('');
+    const data = await api('login_by_nick', 'POST', { nick: nick.trim().toLowerCase(), device_id: getDeviceId() });
+    if (data.error) { setLoginError(data.error as string); return; }
+    if (!data.user) { setLoginError('Ошибка соединения, попробуй ещё раз'); return; }
+    const u = data.user as User & { profile_complete: boolean };
+    setUser(u);
+    localStorage.setItem('orbit_user', JSON.stringify(u));
+    push(u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' });
+  };
+
   // Выход — НЕ удаляем device_id из localStorage, только user из памяти
   // При следующем открытии автовход сработает по device_id
   const logout = () => {
@@ -172,7 +183,7 @@ export default function Index() {
     return () => { clearInterval(iv); window.removeEventListener('beforeunload', off); };
   }, [user]);
 
-  if (!user || screen.name === 'login') return <LoginScreen draftNick={draftNick} setDraftNick={setDraftNick} onLogin={login} error={loginError} />;
+  if (!user || screen.name === 'login') return <LoginScreen draftNick={draftNick} setDraftNick={setDraftNick} onLogin={login} onLoginByNick={loginByNick} error={loginError} setError={setLoginError} />;
   if (screen.name === 'setup') return <SetupScreen user={user} onDone={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); push({ name: 'tabs', tab: 'chats' }); }} />;
   if (screen.name === 'chat') return <ChatScreen user={user} chatId={screen.chatId} peer={screen.peer} groupName={screen.groupName} groupId={screen.groupId}
     onBack={() => push({ name: 'tabs', tab: 'chats' })}
@@ -208,11 +219,20 @@ export default function Index() {
 // ══════════════════════════════════════════════════════════════════════════════
 // LOGIN
 // ══════════════════════════════════════════════════════════════════════════════
-function LoginScreen({ draftNick, setDraftNick, onLogin, error }: { draftNick: string; setDraftNick: (v: string) => void; onLogin: () => void; error: string }) {
+function LoginScreen({ draftNick, setDraftNick, onLogin, onLoginByNick, error, setError }: {
+  draftNick: string; setDraftNick: (v: string) => void;
+  onLogin: () => void; onLoginByNick: (nick: string) => void;
+  error: string; setError: (e: string) => void;
+}) {
+  const [tab, setTab] = useState<'login' | 'register'>('login');
+  const [loginNick, setLoginNick] = useState('');
   const [nickStatus, setNickStatus] = useState<'idle' | 'checking' | 'ok' | 'taken'>('idle');
   const [nickHint, setNickHint] = useState('');
 
+  useEffect(() => { setError(''); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
+    if (tab !== 'register') return;
     const q = draftNick.trim().toLowerCase();
     if (q.length < 2) { setNickStatus('idle'); setNickHint(''); return; }
     setNickStatus('checking');
@@ -222,7 +242,7 @@ function LoginScreen({ draftNick, setDraftNick, onLogin, error }: { draftNick: s
       else { setNickStatus('taken'); setNickHint(d.error || 'Ник занят'); }
     }, 500);
     return () => clearTimeout(t);
-  }, [draftNick]);
+  }, [draftNick, tab]);
 
   const nickColor = nickStatus === 'ok' ? 'text-green-400' : nickStatus === 'taken' ? 'text-destructive' : 'text-muted-foreground';
   const borderColor = nickStatus === 'ok' ? 'border-green-400/60' : nickStatus === 'taken' ? 'border-destructive/60' : 'border-border';
@@ -239,34 +259,72 @@ function LoginScreen({ draftNick, setDraftNick, onLogin, error }: { draftNick: s
           <span className="font-display font-bold text-2xl tracking-tight">Вай Мессенджер</span>
         </div>
         <div className="glass rounded-3xl p-8 shadow-2xl">
-          <h1 className="font-display font-extrabold text-3xl leading-tight mb-2">Войди в <span className="text-gradient">Вай Мессенджер</span></h1>
-          <p className="text-muted-foreground mb-2">Придумай уникальный ник. Только латиница, цифры и _</p>
-          <p className="text-xs text-muted-foreground mb-6">С этого устройства будешь входить автоматически</p>
-          <div className="relative mb-1">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">@</span>
-            <input
-              value={draftNick}
-              onChange={(e) => setDraftNick(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
-              onKeyDown={(e) => e.key === 'Enter' && nickStatus === 'ok' && onLogin()}
-              placeholder="my_nickname"
-              maxLength={30}
-              className={`w-full bg-secondary/60 border rounded-2xl pl-9 pr-10 py-3.5 outline-none focus:ring-2 focus:ring-primary transition-all ${borderColor}`}
-            />
-            <span className="absolute right-4 top-1/2 -translate-y-1/2">
-              {nickStatus === 'checking' && <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin block" />}
-              {nickStatus === 'ok' && <Icon name="Check" size={16} className="text-green-400" />}
-              {nickStatus === 'taken' && <Icon name="X" size={16} className="text-destructive" />}
-            </span>
+          {/* Вкладки */}
+          <div className="flex bg-secondary/40 rounded-2xl p-1 mb-6">
+            <button
+              onClick={() => { setTab('login'); setLoginNick(''); }}
+              className={`flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all ${tab === 'login' ? 'bg-gradient-to-r from-primary to-accent text-white shadow' : 'text-muted-foreground'}`}
+            >Войти</button>
+            <button
+              onClick={() => { setTab('register'); }}
+              className={`flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all ${tab === 'register' ? 'bg-gradient-to-r from-primary to-accent text-white shadow' : 'text-muted-foreground'}`}
+            >Зарегистрироваться</button>
           </div>
-          <p className={`text-xs mb-5 h-4 ${nickColor}`}>{nickHint}</p>
-          {error && <p className="text-destructive text-sm mb-4">{error}</p>}
-          <button
-            disabled={draftNick.trim().length < 2 || nickStatus !== 'ok'}
-            onClick={onLogin}
-            className="w-full py-4 rounded-2xl font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-40 transition-all shadow-lg shadow-primary/30 text-white"
-          >
-            Зарегистрироваться →
-          </button>
+
+          {tab === 'login' ? (
+            <>
+              <h1 className="font-display font-extrabold text-2xl leading-tight mb-2">Войди в <span className="text-gradient">Вай Мессенджер</span></h1>
+              <p className="text-muted-foreground text-sm mb-6">Введи свой ник чтобы войти в аккаунт</p>
+              <div className="relative mb-1">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">@</span>
+                <input
+                  value={loginNick}
+                  onChange={(e) => setLoginNick(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
+                  onKeyDown={(e) => e.key === 'Enter' && loginNick.trim().length >= 2 && onLoginByNick(loginNick)}
+                  placeholder="my_nickname"
+                  maxLength={30}
+                  autoFocus
+                  className="w-full bg-secondary/60 border border-border rounded-2xl pl-9 pr-4 py-3.5 outline-none focus:ring-2 focus:ring-primary transition-all"
+                />
+              </div>
+              <p className="text-xs mb-5 h-4 text-muted-foreground">Только латиница, цифры и _</p>
+              {error && <p className="text-destructive text-sm mb-4">{error}</p>}
+              <button
+                disabled={loginNick.trim().length < 2}
+                onClick={() => onLoginByNick(loginNick)}
+                className="w-full py-4 rounded-2xl font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-40 transition-all shadow-lg shadow-primary/30 text-white"
+              >Войти →</button>
+            </>
+          ) : (
+            <>
+              <h1 className="font-display font-extrabold text-2xl leading-tight mb-2">Новый аккаунт в <span className="text-gradient">Вай Мессенджер</span></h1>
+              <p className="text-muted-foreground text-sm mb-2">Придумай уникальный ник. Только латиница, цифры и _</p>
+              <p className="text-xs text-muted-foreground mb-6">С этого устройства будешь входить автоматически</p>
+              <div className="relative mb-1">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">@</span>
+                <input
+                  value={draftNick}
+                  onChange={(e) => setDraftNick(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
+                  onKeyDown={(e) => e.key === 'Enter' && nickStatus === 'ok' && onLogin()}
+                  placeholder="my_nickname"
+                  maxLength={30}
+                  className={`w-full bg-secondary/60 border rounded-2xl pl-9 pr-10 py-3.5 outline-none focus:ring-2 focus:ring-primary transition-all ${borderColor}`}
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2">
+                  {nickStatus === 'checking' && <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin block" />}
+                  {nickStatus === 'ok' && <Icon name="Check" size={16} className="text-green-400" />}
+                  {nickStatus === 'taken' && <Icon name="X" size={16} className="text-destructive" />}
+                </span>
+              </div>
+              <p className={`text-xs mb-5 h-4 ${nickColor}`}>{nickHint}</p>
+              {error && <p className="text-destructive text-sm mb-4">{error}</p>}
+              <button
+                disabled={draftNick.trim().length < 2 || nickStatus !== 'ok'}
+                onClick={onLogin}
+                className="w-full py-4 rounded-2xl font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-40 transition-all shadow-lg shadow-primary/30 text-white"
+              >Зарегистрироваться →</button>
+            </>
+          )}
         </div>
       </div>
     </div>

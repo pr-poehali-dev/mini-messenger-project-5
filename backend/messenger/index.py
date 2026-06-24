@@ -79,6 +79,23 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return _resp(200, {'user': user})
 
+        # ── LOGIN BY NICK (вход по существующему нику) ─────
+        if action == 'login_by_nick' and method == 'POST':
+            nick = (body.get('nick') or '').strip().lower()
+            device_id = (body.get('device_id') or '').strip()
+            if not nick or len(nick) < 2:
+                return _resp(400, {'error': 'Введи ник'})
+            cur.execute("SELECT id, nick, profile_complete, avatar_url FROM users WHERE nick = %s", (nick,))
+            found = cur.fetchone()
+            if not found:
+                return _resp(404, {'error': 'Аккаунт с таким ником не найден'})
+            if device_id:
+                cur.execute("UPDATE users SET device_id=%s, is_online=TRUE, last_seen=NOW() WHERE id=%s", (device_id, found['id']))
+            else:
+                cur.execute("UPDATE users SET is_online=TRUE, last_seen=NOW() WHERE id=%s", (found['id'],))
+            conn.commit()
+            return _resp(200, {'user': found})
+
         # ── CHECK NICK ─────────────────────────────────────
         if action == 'check_nick' and method == 'GET':
             nick = (params.get('nick') or '').strip().lower()
