@@ -290,7 +290,7 @@ def handler(event: dict, context) -> dict:
                 JOIN groups g ON g.id=c.group_id
                 JOIN group_members gm ON gm.group_id=g.id AND gm.user_id=%s
                 WHERE c.id NOT IN (SELECT chat_id FROM hidden_chats WHERE user_id=%s)
-                ORDER BY last_at DESC NULLS FIRST, c.id DESC
+                ORDER BY last_at DESC NULLS FIRST, chat_id DESC
                 """,
                 (me, me, me, me, me, me),
             )
