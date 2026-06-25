@@ -1,9 +1,13 @@
 import json
 import os
 import secrets
+import hashlib
 import psycopg2
 from psycopg2.extras import RealDictCursor
-# force redeploy
+
+
+def _hash_pw(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
 
 
 def _conn():
@@ -45,10 +49,11 @@ def handler(event: dict, context) -> dict:
         # ── AUTH ──────────────────────────────────────────
         if action == 'login' and method == 'POST':
             nick = (body.get('nick') or '').strip().lower()
+            password = (body.get('password') or '').strip()
             device_id = (body.get('device_id') or '').strip()
 
-            # Автовход по device_id (без ввода ника — выход/открытие приложения)
-            if device_id:
+            # Автовход по device_id (без ввода ника)
+            if device_id and not nick:
                 cur.execute(
                     "SELECT id, nick, profile_complete, avatar_url FROM users WHERE device_id = %s",
                     (device_id,)
@@ -59,42 +64,54 @@ def handler(event: dict, context) -> dict:
                     conn.commit()
                     return _resp(200, {'user': by_device})
 
-            # Обычная регистрация с ником
-            if not nick or nick == '__device_auto__' or len(nick) < 2:
-                return _resp(400, {'error': 'Ник не найден. Зарегистрируйся.'})
+            # Регистрация с ником + паролем
+            if not nick or len(nick) < 2:
+                return _resp(400, {'error': 'Введи ник'})
             if len(nick) > 30:
                 return _resp(400, {'error': 'Ник максимум 30 символов'})
+            if not password or len(password) < 4:
+                return _resp(400, {'error': 'Пароль минимум 4 символа'})
 
             # Ник занят?
             cur.execute("SELECT id FROM users WHERE nick = %s", (nick,))
             if cur.fetchone():
                 return _resp(409, {'error': 'Этот ник уже занят. Придумай другой.'})
 
-            # Новый пользователь — profile_complete = FALSE, setup обязателен
+            pw_hash = _hash_pw(password)
             cur.execute(
-                "INSERT INTO users (nick, device_id, is_online, last_seen, profile_complete) VALUES (%s, %s, TRUE, NOW(), FALSE) RETURNING id, nick, profile_complete, avatar_url",
-                (nick, device_id or None),
+                "INSERT INTO users (nick, device_id, password_hash, is_online, last_seen, profile_complete) VALUES (%s, %s, %s, TRUE, NOW(), FALSE) RETURNING id, nick, profile_complete, avatar_url",
+                (nick, device_id or None, pw_hash),
             )
             user = cur.fetchone()
             conn.commit()
             return _resp(200, {'user': user})
 
-        # ── LOGIN BY NICK (вход по существующему нику) ─────
+        # ── LOGIN BY NICK + PASSWORD ────────────────────────
         if action == 'login_by_nick' and method == 'POST':
             nick = (body.get('nick') or '').strip().lower()
+            password = (body.get('password') or '').strip()
             device_id = (body.get('device_id') or '').strip()
             if not nick or len(nick) < 2:
                 return _resp(400, {'error': 'Введи ник'})
-            cur.execute("SELECT id, nick, profile_complete, avatar_url FROM users WHERE nick = %s", (nick,))
+            if not password:
+                return _resp(400, {'error': 'Введи пароль'})
+            cur.execute("SELECT id, nick, profile_complete, avatar_url, password_hash FROM users WHERE nick = %s", (nick,))
             found = cur.fetchone()
             if not found:
                 return _resp(404, {'error': 'Аккаунт с таким ником не найден'})
+            # Если пароль уже установлен — проверяем
+            if found['password_hash'] and found['password_hash'] != _hash_pw(password):
+                return _resp(401, {'error': 'Неверный пароль'})
+            # Если пароль не был установлен — устанавливаем
+            if not found['password_hash']:
+                cur.execute("UPDATE users SET password_hash=%s WHERE id=%s", (_hash_pw(password), found['id']))
             if device_id:
                 cur.execute("UPDATE users SET device_id=%s, is_online=TRUE, last_seen=NOW() WHERE id=%s", (device_id, found['id']))
             else:
                 cur.execute("UPDATE users SET is_online=TRUE, last_seen=NOW() WHERE id=%s", (found['id'],))
             conn.commit()
-            return _resp(200, {'user': found})
+            result = {'id': found['id'], 'nick': found['nick'], 'profile_complete': found['profile_complete'], 'avatar_url': found['avatar_url']}
+            return _resp(200, {'user': result})
 
         # ── CHECK NICK ─────────────────────────────────────
         if action == 'check_nick' and method == 'GET':
@@ -274,7 +291,8 @@ def handler(event: dict, context) -> dict:
                        u.id AS peer_id, u.nick AS peer_nick, u.avatar_url AS peer_avatar, u.is_online AS peer_online,
                        (SELECT text FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE ORDER BY m.id DESC LIMIT 1) AS last_text,
                        (SELECT created_at FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE ORDER BY m.id DESC LIMIT 1) AS last_at,
-                       'dm' AS kind
+                       'dm' AS kind,
+                       (SELECT COUNT(*) FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE AND m.sender_id != %s AND m.id > COALESCE((SELECT last_read_id FROM chat_reads WHERE chat_id=c.id AND user_id=%s), 0)) AS unread_count
                 FROM chats c
                 JOIN users u ON u.id = CASE WHEN c.user_a=%s THEN c.user_b ELSE c.user_a END
                 WHERE (c.user_a=%s OR c.user_b=%s) AND c.group_id IS NULL
@@ -285,14 +303,15 @@ def handler(event: dict, context) -> dict:
                        NULL, NULL, NULL, NULL,
                        (SELECT text FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE ORDER BY m.id DESC LIMIT 1) AS last_text,
                        (SELECT created_at FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE ORDER BY m.id DESC LIMIT 1) AS last_at,
-                       'group' AS kind
+                       'group' AS kind,
+                       (SELECT COUNT(*) FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE AND m.sender_id != %s AND m.id > COALESCE((SELECT last_read_id FROM chat_reads WHERE chat_id=c.id AND user_id=%s), 0)) AS unread_count
                 FROM chats c
                 JOIN groups g ON g.id=c.group_id
                 JOIN group_members gm ON gm.group_id=g.id AND gm.user_id=%s
                 WHERE c.id NOT IN (SELECT chat_id FROM hidden_chats WHERE user_id=%s)
                 ORDER BY last_at DESC NULLS FIRST, chat_id DESC
                 """,
-                (me, me, me, me, me, me),
+                (me, me, me, me, me, me, me, me, me, me),
             )
             return _resp(200, {'chats': cur.fetchall()})
 
@@ -386,6 +405,12 @@ def handler(event: dict, context) -> dict:
                 "UPDATE messages SET is_read=TRUE, read_at=NOW() WHERE chat_id=%s AND sender_id!=%s AND is_read=FALSE",
                 (chat_id, me),
             )
+            if msgs:
+                max_id = max(m['id'] for m in msgs)
+                cur.execute(
+                    "INSERT INTO chat_reads (chat_id, user_id, last_read_id, updated_at) VALUES (%s, %s, %s, NOW()) ON CONFLICT (chat_id, user_id) DO UPDATE SET last_read_id=GREATEST(chat_reads.last_read_id, EXCLUDED.last_read_id), updated_at=NOW()",
+                    (chat_id, me, max_id),
+                )
             conn.commit()
             return _resp(200, {'messages': msgs})
 
@@ -407,6 +432,13 @@ def handler(event: dict, context) -> dict:
             cur.execute(
                 "UPDATE messages SET is_read=TRUE, read_at=NOW() WHERE chat_id=%s AND sender_id!=%s AND is_read=FALSE",
                 (chat_id, me),
+            )
+            cur.execute("SELECT MAX(id) AS max_id FROM messages WHERE chat_id=%s", (chat_id,))
+            max_row = cur.fetchone()
+            max_id = max_row['max_id'] or 0
+            cur.execute(
+                "INSERT INTO chat_reads (chat_id, user_id, last_read_id, updated_at) VALUES (%s, %s, %s, NOW()) ON CONFLICT (chat_id, user_id) DO UPDATE SET last_read_id=EXCLUDED.last_read_id, updated_at=NOW()",
+                (chat_id, me, max_id),
             )
             conn.commit()
             return _resp(200, {'ok': True})

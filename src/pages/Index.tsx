@@ -46,7 +46,7 @@ const Avatar = ({ url, nick, size = 40, online }: { url?: string | null; nick: s
 // ── types ─────────────────────────────────────────────────────────────────────
 type User = { id: number; nick: string; avatar_url?: string | null; profile_complete?: boolean; is_online?: boolean };
 type Profile = User & { city?: string; birthdate?: string; about?: string; is_online?: boolean; last_seen?: string; followers: number; following: number; i_follow?: boolean; i_blocked?: boolean };
-type ChatItem = { chat_id: number; kind: 'dm' | 'group'; peer_id?: number; peer_nick?: string; peer_avatar?: string | null; peer_online?: boolean; group_id?: number; group_name?: string; group_avatar?: string | null; last_text?: string | null; last_at?: string | null };
+type ChatItem = { chat_id: number; kind: 'dm' | 'group'; peer_id?: number; peer_nick?: string; peer_avatar?: string | null; peer_online?: boolean; group_id?: number; group_name?: string; group_avatar?: string | null; last_text?: string | null; last_at?: string | null; unread_count?: number };
 type Message = { id: number; sender_id: number; sender_nick: string; sender_avatar?: string | null; text?: string | null; image_url?: string | null; media_type?: string | null; media_url?: string | null; created_at: string; is_removed?: boolean; is_read?: boolean; reactions?: { emoji: string; user_id: number }[] };
 type Tab = 'search' | 'chats' | 'notifications' | 'profile';
 type Notif = { id: number; type: string; from_user_id?: number; from_nick?: string; from_avatar?: string | null; chat_id?: number; group_id?: number; payload?: string; is_read: boolean; created_at: string };
@@ -69,35 +69,23 @@ export default function Index() {
     const r = localStorage.getItem('orbit_user'); return r ? JSON.parse(r) : null;
   });
   const [screen, setScreen] = useState<Screen>(user ? { name: 'tabs', tab: 'chats' } : { name: 'login' });
-  const [draftNick, setDraftNick] = useState('');
   const [loginError, setLoginError] = useState('');
-  const [lightTheme, setLightTheme] = useState(() => localStorage.getItem('orbit_theme') === 'light');
+  // Системная тема — следим за prefers-color-scheme
+  const getSystemDark = () => window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const [lightTheme, setLightTheme] = useState(() => !getSystemDark());
 
   useEffect(() => {
-    if (lightTheme) {
-      document.documentElement.style.setProperty('--background', '0 0% 97%');
-      document.documentElement.style.setProperty('--foreground', '240 20% 10%');
-      document.documentElement.style.setProperty('--card', '0 0% 100%');
-      document.documentElement.style.setProperty('--card-foreground', '240 20% 10%');
-      document.documentElement.style.setProperty('--secondary', '240 10% 90%');
-      document.documentElement.style.setProperty('--secondary-foreground', '240 20% 10%');
-      document.documentElement.style.setProperty('--muted', '240 10% 88%');
-      document.documentElement.style.setProperty('--muted-foreground', '240 10% 40%');
-      document.documentElement.style.setProperty('--border', '240 10% 82%');
-      document.documentElement.style.setProperty('--input', '240 10% 82%');
-      localStorage.setItem('orbit_theme', 'light');
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (e: MediaQueryListEvent) => setLightTheme(!e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  useEffect(() => {
+    if (!lightTheme) {
+      document.documentElement.classList.add('dark');
     } else {
-      document.documentElement.style.setProperty('--background', '240 30% 6%');
-      document.documentElement.style.setProperty('--foreground', '240 20% 96%');
-      document.documentElement.style.setProperty('--card', '240 25% 9%');
-      document.documentElement.style.setProperty('--card-foreground', '240 20% 96%');
-      document.documentElement.style.setProperty('--secondary', '240 20% 14%');
-      document.documentElement.style.setProperty('--secondary-foreground', '240 20% 96%');
-      document.documentElement.style.setProperty('--muted', '240 18% 16%');
-      document.documentElement.style.setProperty('--muted-foreground', '240 12% 60%');
-      document.documentElement.style.setProperty('--border', '240 18% 18%');
-      document.documentElement.style.setProperty('--input', '240 18% 18%');
-      localStorage.setItem('orbit_theme', 'dark');
+      document.documentElement.classList.remove('dark');
     }
   }, [lightTheme]);
 
@@ -120,11 +108,9 @@ export default function Index() {
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const login = async () => {
-    const nick = draftNick.trim().toLowerCase();
-    if (nick.length < 2) return;
+  const login = async (nick: string, password: string) => {
     setLoginError('');
-    const data = await api('login', 'POST', { nick, device_id: getDeviceId() });
+    const data = await api('login', 'POST', { nick: nick.trim().toLowerCase(), password, device_id: getDeviceId() });
     if (data.error) { setLoginError(data.error as string); return; }
     if (!data.user) { setLoginError('Ошибка соединения, попробуй ещё раз'); return; }
     const u = data.user as User & { profile_complete: boolean };
@@ -133,9 +119,9 @@ export default function Index() {
     push(u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' });
   };
 
-  const loginByNick = async (nick: string) => {
+  const loginByNick = async (nick: string, password: string) => {
     setLoginError('');
-    const data = await api('login_by_nick', 'POST', { nick: nick.trim().toLowerCase(), device_id: getDeviceId() });
+    const data = await api('login_by_nick', 'POST', { nick: nick.trim().toLowerCase(), password, device_id: getDeviceId() });
     if (data.error) { setLoginError(data.error as string); return; }
     if (!data.user) { setLoginError('Ошибка соединения, попробуй ещё раз'); return; }
     const u = data.user as User & { profile_complete: boolean };
@@ -191,7 +177,7 @@ export default function Index() {
     return () => clearInterval(iv);
   }, [user, globalCall, incomingCall]);  
 
-  if (!user || screen.name === 'login') return <LoginScreen draftNick={draftNick} setDraftNick={setDraftNick} onLogin={login} onLoginByNick={loginByNick} error={loginError} setError={setLoginError} />;
+  if (!user || screen.name === 'login') return <LoginScreen onRegister={login} onLogin={loginByNick} error={loginError} setError={setLoginError} />;
   if (screen.name === 'setup') return <SetupScreen user={user} onDone={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); push({ name: 'tabs', tab: 'chats' }); }} />;
 
   const renderScreen = () => {
@@ -224,7 +210,7 @@ export default function Index() {
             const callId = `call_${Date.now()}`;
             setGlobalCall({ kind, callId, outgoing: true, peer: { id: peerId, nick: peerNick, avatar_url: peerAvatar } });
           }} />}
-        {tab === 'profile' && <ProfileTab user={user} onLogout={logout} onUpdate={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); }} onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} lightTheme={lightTheme} onToggleTheme={() => setLightTheme(v => !v)} onDeleteAccount={deleteAccount} />}
+        {tab === 'profile' && <ProfileTab user={user} onLogout={logout} onUpdate={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); }} onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} lightTheme={lightTheme} onDeleteAccount={deleteAccount} />}
       </TabsShell>
     );
   };
@@ -265,145 +251,187 @@ export default function Index() {
 // ══════════════════════════════════════════════════════════════════════════════
 // LOGIN
 // ══════════════════════════════════════════════════════════════════════════════
-function LoginScreen({ draftNick, setDraftNick, onLogin, onLoginByNick, error, setError }: {
-  draftNick: string; setDraftNick: (v: string) => void;
-  onLogin: () => void; onLoginByNick: (nick: string) => void;
+function LoginScreen({ onRegister, onLogin, error, setError }: {
+  onRegister: (nick: string, password: string) => void;
+  onLogin: (nick: string, password: string) => void;
   error: string; setError: (e: string) => void;
 }) {
-  const [tab, setTab] = useState<'login' | 'register' | 'start'>('start');
-  const [loginNick, setLoginNick] = useState('');
+  const [tab, setTab] = useState<'start' | 'login' | 'register'>('start');
+  const [nick, setNick] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
   const [nickStatus, setNickStatus] = useState<'idle' | 'checking' | 'ok' | 'taken'>('idle');
   const [nickHint, setNickHint] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => { setError(''); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setError(''); setNick(''); setPassword(''); setNickStatus('idle'); setNickHint(''); }, [tab]); // eslint-disable-line
 
   useEffect(() => {
     if (tab !== 'register') return;
-    const q = draftNick.trim().toLowerCase();
+    const q = nick.trim().toLowerCase();
     if (q.length < 2) { setNickStatus('idle'); setNickHint(''); return; }
     setNickStatus('checking');
     const t = setTimeout(async () => {
       const d = await api(`check_nick&nick=${encodeURIComponent(q)}&user_id=0`);
       if (d.available) { setNickStatus('ok'); setNickHint('Ник свободен!'); }
-      else { setNickStatus('taken'); setNickHint(d.error || 'Ник занят'); }
+      else { setNickStatus('taken'); setNickHint(d.error || 'Ник уже занят'); }
     }, 500);
     return () => clearTimeout(t);
-  }, [draftNick, tab]);
+  }, [nick, tab]);
 
-  const nickColor = nickStatus === 'ok' ? 'text-green-400' : nickStatus === 'taken' ? 'text-destructive' : 'text-muted-foreground';
-  const borderColor = nickStatus === 'ok' ? 'border-green-400/60' : nickStatus === 'taken' ? 'border-destructive/60' : 'border-border';
+  const inputCls = (extra = '') =>
+    `w-full bg-slate-50 border-2 rounded-2xl px-4 py-3.5 outline-none focus:border-blue-500 transition-all text-slate-800 text-base ${extra}`;
+
+  const btnPrimary = 'w-full py-4 rounded-2xl font-bold text-white text-base mb-3 transition-all active:scale-[0.98] disabled:opacity-40';
+  const btnSecondary = 'w-full py-3.5 rounded-2xl font-semibold text-slate-600 text-sm bg-slate-100 active:bg-slate-200 transition-all';
+
+  const handleRegister = async () => {
+    if (loading || nick.trim().length < 2 || nickStatus !== 'ok' || password.length < 4) return;
+    setLoading(true);
+    await onRegister(nick, password);
+    setLoading(false);
+  };
+
+  const handleLogin = async () => {
+    if (loading || nick.trim().length < 2 || !password) return;
+    setLoading(true);
+    await onLogin(nick, password);
+    setLoading(false);
+  };
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(160deg, #1a56db 0%, #1e3a8a 55%, #0f172a 100%)' }}>
-      {/* Декоративные круги */}
-      <div className="absolute top-[-80px] right-[-60px] w-72 h-72 rounded-full opacity-20" style={{ background: 'radial-gradient(circle, #60a5fa, transparent)' }} />
-      <div className="absolute top-[200px] left-[-80px] w-56 h-56 rounded-full opacity-10" style={{ background: 'radial-gradient(circle, #93c5fd, transparent)' }} />
+    <div className="min-h-screen flex flex-col overflow-hidden relative"
+      style={{ background: 'linear-gradient(160deg, #1a56db 0%, #1e3a8a 55%, #0f172a 100%)' }}>
+      <div className="absolute top-[-60px] right-[-60px] w-72 h-72 rounded-full opacity-20 pointer-events-none"
+        style={{ background: 'radial-gradient(circle, #60a5fa, transparent)' }} />
+      <div className="absolute bottom-[35%] left-[-80px] w-56 h-56 rounded-full opacity-10 pointer-events-none"
+        style={{ background: 'radial-gradient(circle, #93c5fd, transparent)' }} />
 
-      {/* Верхняя часть — логотип и название */}
-      <div className="flex-1 flex flex-col items-center justify-center pt-16 pb-8 px-6">
-        {/* Иконка */}
-        <div className="w-24 h-24 rounded-[28px] mb-6 flex items-center justify-center shadow-2xl"
-          style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.25)' }}>
-          <svg width="52" height="48" viewBox="0 0 62 56" fill="none">
+      {/* Лого */}
+      <div className="flex-1 flex flex-col items-center justify-center px-6 pb-6 pt-16">
+        <div className="w-20 h-20 rounded-[24px] mb-5 flex items-center justify-center shadow-2xl"
+          style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.22)' }}>
+          <svg width="46" height="42" viewBox="0 0 62 56" fill="none">
             <rect x="2" y="4" width="34" height="26" rx="9" fill="white" fillOpacity="0.95"/>
             <path d="M10 30 L4 42 L20 30 Z" fill="white" fillOpacity="0.95"/>
             <rect x="22" y="22" width="36" height="26" rx="9" fill="white" fillOpacity="0.4"/>
             <path d="M50 48 L58 58 L42 48 Z" fill="white" fillOpacity="0.4"/>
           </svg>
         </div>
-        <h1 className="text-white font-bold text-3xl tracking-tight mb-2">Вай Мессенджер</h1>
-        <p className="text-blue-200 text-sm opacity-80">Быстро. Просто. Надёжно.</p>
+        <h1 className="text-white font-bold text-2xl tracking-tight mb-1">Вай Мессенджер</h1>
+        <p className="text-blue-200 text-sm">Быстро. Просто. Надёжно.</p>
       </div>
 
-      {/* Нижняя карточка */}
-      <div className="rounded-t-[32px] px-6 pt-8 pb-10" style={{ background: '#fff' }}>
-        {tab === 'welcome' || (tab !== 'login' && tab !== 'register') ? null : null}
+      {/* Карточка */}
+      <div className="rounded-t-[32px] px-6 pt-7 pb-10 bg-white dark:bg-slate-900">
 
-        {tab === 'register' ? (
-          /* ── РЕГИСТРАЦИЯ ── */
+        {/* START */}
+        {tab === 'start' && (
           <>
-            <h2 className="text-slate-800 font-bold text-xl mb-1">Создать аккаунт</h2>
-            <p className="text-slate-400 text-sm mb-6">Придумай уникальный ник — только латиница, цифры и _</p>
-            <div className="relative mb-1">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">@</span>
-              <input
-                value={draftNick}
-                onChange={(e) => setDraftNick(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
-                onKeyDown={(e) => e.key === 'Enter' && nickStatus === 'ok' && onLogin()}
-                placeholder="my_nickname"
-                maxLength={30}
-                autoFocus
-                className={`w-full bg-slate-50 border-2 rounded-2xl pl-9 pr-10 py-4 outline-none focus:border-blue-500 transition-all text-slate-800 text-base font-medium ${nickStatus === 'ok' ? 'border-green-400' : nickStatus === 'taken' ? 'border-red-400' : 'border-slate-200'}`}
-              />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2">
-                {nickStatus === 'checking' && <span className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin block" />}
-                {nickStatus === 'ok' && <Icon name="CheckCircle" size={18} className="text-green-500" />}
-                {nickStatus === 'taken' && <Icon name="XCircle" size={18} className="text-red-500" />}
-              </span>
-            </div>
-            <p className={`text-xs mb-5 h-4 px-1 ${nickColor}`}>{nickHint || 'Минимум 2 символа'}</p>
-            {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
-            <button
-              disabled={draftNick.trim().length < 2 || nickStatus !== 'ok'}
-              onClick={onLogin}
-              className="w-full py-4 rounded-2xl font-bold text-white text-base mb-3 transition-all active:scale-[0.98] disabled:opacity-40"
-              style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}
-            >Зарегистрироваться</button>
-            <button
-              onClick={() => { setTab('login'); setDraftNick(''); }}
-              className="w-full py-3.5 rounded-2xl font-semibold text-slate-600 text-sm bg-slate-100 hover:bg-slate-200 transition-all"
-            >Уже есть аккаунт? Войти</button>
-          </>
-        ) : (
-          /* ── ПРИВЕТСТВИЕ / ВХОД ── */
-          <>
-            {tab === 'login' ? (
-              <>
-                <h2 className="text-slate-800 font-bold text-xl mb-1">С возвращением!</h2>
-                <p className="text-slate-400 text-sm mb-6">Введи свой ник чтобы войти</p>
-                <div className="relative mb-1">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">@</span>
-                  <input
-                    value={loginNick}
-                    onChange={(e) => setLoginNick(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
-                    onKeyDown={(e) => e.key === 'Enter' && loginNick.trim().length >= 2 && onLoginByNick(loginNick)}
-                    placeholder="my_nickname"
-                    maxLength={30}
-                    autoFocus
-                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl pl-9 pr-4 py-4 outline-none focus:border-blue-500 transition-all text-slate-800 text-base font-medium"
-                  />
-                </div>
-                <p className="text-xs mb-5 h-4 text-slate-400 px-1">Только латиница, цифры и _</p>
-                {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
-                <button
-                  disabled={loginNick.trim().length < 2}
-                  onClick={() => onLoginByNick(loginNick)}
-                  className="w-full py-4 rounded-2xl font-bold text-white text-base mb-3 transition-all active:scale-[0.98] disabled:opacity-40"
-                  style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}
-                >Войти</button>
-                <button
-                  onClick={() => { setTab('register'); setLoginNick(''); }}
-                  className="w-full py-3.5 rounded-2xl font-semibold text-slate-600 text-sm bg-slate-100 hover:bg-slate-200 transition-all"
-                >Нет аккаунта? Зарегистрироваться</button>
-              </>
-            ) : (
-              /* Стартовый экран — первое что видит пользователь */
-              <>
-                <h2 className="text-slate-800 font-bold text-xl mb-1">Добро пожаловать</h2>
-                <p className="text-slate-400 text-sm mb-8">Войди или создай новый аккаунт</p>
-                <button
-                  onClick={() => setTab('register')}
-                  className="w-full py-4 rounded-2xl font-bold text-white text-base mb-3 transition-all active:scale-[0.98]"
-                  style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}
-                >Создать аккаунт</button>
-                <button
-                  onClick={() => setTab('login')}
-                  className="w-full py-4 rounded-2xl font-bold text-slate-700 text-base bg-slate-100 hover:bg-slate-200 transition-all active:scale-[0.98]"
-                >Войти</button>
-              </>
-            )}
+            <h2 className="text-slate-800 dark:text-white font-bold text-xl mb-1">Добро пожаловать</h2>
+            <p className="text-slate-400 text-sm mb-7">Войди или создай новый аккаунт</p>
+            <button onClick={() => setTab('register')} className={btnPrimary}
+              style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}>
+              Создать аккаунт
+            </button>
+            <button onClick={() => setTab('login')} className={btnSecondary}>
+              Уже есть аккаунт? Войти
+            </button>
           </>
         )}
+
+        {/* REGISTER */}
+        {tab === 'register' && (
+          <>
+            <button onClick={() => setTab('start')} className="flex items-center gap-1.5 text-slate-400 text-sm mb-5 -ml-1">
+              <Icon name="ArrowLeft" size={16} /> Назад
+            </button>
+            <h2 className="text-slate-800 dark:text-white font-bold text-xl mb-1">Создать аккаунт</h2>
+            <p className="text-slate-400 text-sm mb-5">Придумай ник и пароль</p>
+
+            {/* Ник */}
+            <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Ник</label>
+            <div className="relative mb-4">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium select-none">@</span>
+              <input value={nick} autoFocus placeholder="my_nickname" maxLength={30}
+                onChange={e => setNick(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
+                className={inputCls(`pl-9 pr-10 ${nickStatus === 'ok' ? 'border-green-400' : nickStatus === 'taken' ? 'border-red-400' : 'border-slate-200'}`)} />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2">
+                {nickStatus === 'checking' && <span className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin block" />}
+                {nickStatus === 'ok' && <Icon name="CheckCircle" size={17} className="text-green-500" />}
+                {nickStatus === 'taken' && <Icon name="XCircle" size={17} className="text-red-400" />}
+              </span>
+            </div>
+            <p className={`text-xs mb-4 -mt-3 px-1 h-4 ${nickStatus === 'ok' ? 'text-green-500' : nickStatus === 'taken' ? 'text-red-400' : 'text-slate-400'}`}>
+              {nickHint || 'Только латиница, цифры и _'}
+            </p>
+
+            {/* Пароль */}
+            <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Пароль</label>
+            <div className="relative mb-5">
+              <input value={password} type={showPw ? 'text' : 'password'} placeholder="Минимум 4 символа"
+                onChange={e => setPassword(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleRegister()}
+                className={inputCls('pr-12 border-slate-200')} />
+              <button type="button" onClick={() => setShowPw(v => !v)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
+                <Icon name={showPw ? 'EyeOff' : 'Eye'} size={18} />
+              </button>
+            </div>
+
+            {error && <p className="text-red-500 text-sm mb-4 px-1">{error}</p>}
+            <button onClick={handleRegister}
+              disabled={loading || nick.trim().length < 2 || nickStatus !== 'ok' || password.length < 4}
+              className={btnPrimary} style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}>
+              {loading ? 'Создаю...' : 'Зарегистрироваться'}
+            </button>
+            <button onClick={() => setTab('login')} className={btnSecondary}>
+              Уже есть аккаунт? Войти
+            </button>
+          </>
+        )}
+
+        {/* LOGIN */}
+        {tab === 'login' && (
+          <>
+            <button onClick={() => setTab('start')} className="flex items-center gap-1.5 text-slate-400 text-sm mb-5 -ml-1">
+              <Icon name="ArrowLeft" size={16} /> Назад
+            </button>
+            <h2 className="text-slate-800 dark:text-white font-bold text-xl mb-1">С возвращением!</h2>
+            <p className="text-slate-400 text-sm mb-5">Введи ник и пароль</p>
+
+            <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Ник</label>
+            <div className="relative mb-4">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium select-none">@</span>
+              <input value={nick} autoFocus placeholder="my_nickname" maxLength={30}
+                onChange={e => setNick(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
+                className={inputCls('pl-9 border-slate-200')} />
+            </div>
+
+            <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Пароль</label>
+            <div className="relative mb-5">
+              <input value={password} type={showPw ? 'text' : 'password'} placeholder="Твой пароль"
+                onChange={e => setPassword(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                className={inputCls('pr-12 border-slate-200')} />
+              <button type="button" onClick={() => setShowPw(v => !v)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
+                <Icon name={showPw ? 'EyeOff' : 'Eye'} size={18} />
+              </button>
+            </div>
+
+            {error && <p className="text-red-500 text-sm mb-4 px-1">{error}</p>}
+            <button onClick={handleLogin}
+              disabled={loading || nick.trim().length < 2 || !password}
+              className={btnPrimary} style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}>
+              {loading ? 'Вхожу...' : 'Войти'}
+            </button>
+            <button onClick={() => setTab('register')} className={btnSecondary}>
+              Нет аккаунта? Зарегистрироваться
+            </button>
+          </>
+        )}
+
       </div>
     </div>
   );
@@ -443,52 +471,82 @@ function SetupScreen({ user, onDone }: { user: User; onDone: (u: User) => void }
 
   const canSave = city.trim() && birthdate;
 
+  const field = 'w-full bg-slate-50 border-2 border-slate-200 rounded-2xl px-4 py-3.5 outline-none focus:border-blue-500 transition-all text-slate-800 text-sm';
+  const label = 'text-xs font-semibold text-slate-500 mb-1.5 block';
+
   return (
-    <div className="min-h-screen grad-mesh flex flex-col items-center justify-center p-4 overflow-y-auto">
-      <div className="w-full max-w-md animate-fade-up py-8">
-        <div className="flex items-center justify-center gap-2 mb-6">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-            <span className="text-white font-display font-black text-sm">ВМ</span>
-          </div>
-          <span className="font-display font-bold text-xl">Вай Мессенджер</span>
+    <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(160deg, #1a56db 0%, #1e3a8a 45%, #0f172a 100%)' }}>
+      {/* Шапка */}
+      <div className="flex flex-col items-center pt-12 pb-6 px-6">
+        <div className="w-16 h-16 rounded-[20px] mb-4 flex items-center justify-center"
+          style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.22)' }}>
+          <svg width="36" height="32" viewBox="0 0 62 56" fill="none">
+            <rect x="2" y="4" width="34" height="26" rx="9" fill="white" fillOpacity="0.95"/>
+            <path d="M10 30 L4 42 L20 30 Z" fill="white" fillOpacity="0.95"/>
+            <rect x="22" y="22" width="36" height="26" rx="9" fill="white" fillOpacity="0.4"/>
+            <path d="M50 48 L58 58 L42 48 Z" fill="white" fillOpacity="0.4"/>
+          </svg>
         </div>
-        <h1 className="font-display font-bold text-2xl mb-1 text-center">Заполни профиль</h1>
-        <p className="text-muted-foreground text-sm text-center mb-6">Это видят все пользователи. Заполни чтобы продолжить.</p>
-        <div className="glass rounded-3xl p-6 space-y-5">
-          {/* Аватар */}
-          <div className="flex flex-col items-center gap-2">
-            <button onClick={() => fileRef.current?.click()} className="relative">
-              {avatar
-                ? <img src={avatar} className="w-24 h-24 rounded-full object-cover" />
-                : <div className="w-24 h-24 rounded-full bg-secondary/60 border-2 border-dashed border-border flex items-center justify-center"><Icon name="Camera" size={28} className="text-muted-foreground" /></div>
-              }
-              <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center"><Icon name="Plus" size={14} className="text-white" /></div>
-            </button>
-            <input ref={fileRef} type="file" accept="image/*" hidden onChange={pickAvatar} />
-            <span className="text-xs text-muted-foreground">Фото профиля (необязательно)</span>
+        <h1 className="text-white font-bold text-xl mb-1">Расскажи о себе</h1>
+        <p className="text-blue-200 text-sm text-center">Заполни профиль чтобы продолжить</p>
+      </div>
+
+      {/* Карточка */}
+      <div className="flex-1 rounded-t-[32px] px-6 pt-6 pb-10 overflow-y-auto bg-white dark:bg-slate-900">
+        {/* Аватар */}
+        <div className="flex flex-col items-center mb-6">
+          <button onClick={() => fileRef.current?.click()} className="relative group">
+            {avatar
+              ? <img src={avatar} className="w-20 h-20 rounded-full object-cover ring-4 ring-blue-100" />
+              : <div className="w-20 h-20 rounded-full bg-blue-50 border-2 border-dashed border-blue-200 flex items-center justify-center">
+                  <Icon name="Camera" size={26} className="text-blue-400" />
+                </div>
+            }
+            <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center shadow-md">
+              <Icon name="Plus" size={13} className="text-white" />
+            </div>
+          </button>
+          <input ref={fileRef} type="file" accept="image/*" hidden onChange={pickAvatar} />
+          <span className="text-xs text-slate-400 mt-2">Фото (необязательно)</span>
+        </div>
+
+        <div className="space-y-4">
+          {/* Ник */}
+          <div>
+            <label className={label}>Ник</label>
+            <div className="w-full bg-blue-50 border-2 border-blue-100 rounded-2xl px-4 py-3.5 text-blue-700 text-sm font-medium">
+              @{user.nick}
+            </div>
           </div>
 
-          {/* Ник — только читаем */}
           <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Ник</label>
-            <div className="w-full bg-secondary/30 border border-border rounded-2xl px-4 py-3 text-muted-foreground text-sm">@{user.nick}</div>
+            <label className={label}>Город <span className="text-red-400">*</span></label>
+            <input value={city} onChange={e => setCity(e.target.value)} placeholder="Москва" className={field} />
           </div>
 
           <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Город <span className="text-destructive">*</span></label>
-            <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Москва" className="w-full bg-secondary/60 border border-border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary transition-all" />
+            <label className={label}>Дата рождения <span className="text-red-400">*</span></label>
+            <input type="date" value={birthdate} onChange={e => setBirthdate(e.target.value)} className={field} />
           </div>
+
           <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Дата рождения <span className="text-destructive">*</span></label>
-            <input type="date" value={birthdate} onChange={(e) => setBirthdate(e.target.value)} className="w-full bg-secondary/60 border border-border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary transition-all" />
+            <label className={label}>О себе</label>
+            <textarea value={about} onChange={e => setAbout(e.target.value)} rows={3}
+              placeholder="Расскажи немного о себе..."
+              className={`${field} resize-none`} />
           </div>
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">О себе</label>
-            <textarea value={about} onChange={(e) => setAbout(e.target.value)} rows={3} placeholder="Расскажи о себе..." className="w-full bg-secondary/60 border border-border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary transition-all resize-none" />
-          </div>
-          {!canSave && <p className="text-xs text-muted-foreground text-center">Заполни город и дату рождения чтобы продолжить</p>}
-          <button onClick={save} disabled={saving || !canSave} className="w-full py-4 rounded-2xl font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-40 transition-all shadow-lg shadow-primary/30 text-white">
-            {saving ? 'Сохраняю...' : 'Готово →'}
+
+          {!canSave && (
+            <p className="text-xs text-slate-400 text-center flex items-center justify-center gap-1">
+              <Icon name="Info" size={13} className="text-blue-400" />
+              Заполни город и дату рождения
+            </p>
+          )}
+
+          <button onClick={save} disabled={saving || !canSave}
+            className="w-full py-4 rounded-2xl font-bold text-white text-base disabled:opacity-40 transition-all active:scale-[0.98]"
+            style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}>
+            {saving ? 'Сохраняю...' : 'Продолжить'}
           </button>
         </div>
       </div>
@@ -658,14 +716,21 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup }: { user: User; o
                 <div className="font-semibold text-slate-800 truncate text-[15px]">{c.kind === 'group' ? c.group_name : `@${c.peer_nick}`}</div>
                 <div className="text-sm text-slate-400 truncate mt-0.5">{c.last_text || 'Нет сообщений'}</div>
               </div>
-              <div className="flex flex-col items-end gap-1 shrink-0 ml-1">
+              <div className="flex flex-col items-end gap-1.5 shrink-0 ml-1">
                 <span className="text-[11px] text-slate-400">{fmtTime(c.last_at || null)}</span>
-                {c.kind === 'group' && c.group_id && (
-                  <button onClick={e => { e.stopPropagation(); onOpenGroup(c.group_id!, c.chat_id); }}
-                    className="w-6 h-6 rounded-full hover:bg-slate-100 flex items-center justify-center transition-colors">
-                    <Icon name="Info" size={13} className="text-blue-500" />
-                  </button>
-                )}
+                <div className="flex items-center gap-1">
+                  {(c.unread_count || 0) > 0 && (
+                    <span className="min-w-[20px] h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center px-1.5">
+                      {(c.unread_count || 0) > 99 ? '99+' : c.unread_count}
+                    </span>
+                  )}
+                  {c.kind === 'group' && c.group_id && (
+                    <button onClick={e => { e.stopPropagation(); onOpenGroup(c.group_id!, c.chat_id); }}
+                      className="w-5 h-5 rounded-full hover:bg-slate-100 flex items-center justify-center transition-colors">
+                      <Icon name="Info" size={12} className="text-blue-400" />
+                    </button>
+                  )}
+                </div>
               </div>
             </button>
           </div>
@@ -853,52 +918,60 @@ function UserProfileScreen({ me, userId, onBack, onOpenChat, onFollowers }: { me
   const unblock = async () => { await api('unblock', 'POST', { user_id: me.id, target_id: userId }); load(); };
 
   return (
-    <div className="min-h-screen grad-mesh flex flex-col">
-      <header className="flex items-center gap-3 px-4 py-3 glass">
-        <button onClick={onBack} className="w-10 h-10 rounded-full hover:bg-secondary/60 flex items-center justify-center transition-colors"><Icon name="ArrowLeft" size={20} /></button>
-        <span className="font-semibold flex-1">{profile ? `@${profile.nick}` : '...'}</span>
+    <div className="min-h-screen flex flex-col" style={{ background: '#f0f4fa' }}>
+      <header className="flex items-center gap-3 px-4 py-3 bg-blue-600 shadow-sm">
+        <button onClick={onBack} className="w-9 h-9 rounded-xl hover:bg-blue-500 flex items-center justify-center transition-colors">
+          <Icon name="ArrowLeft" size={20} className="text-white" />
+        </button>
+        <span className="font-bold text-white flex-1">{profile ? `@${profile.nick}` : '...'}</span>
       </header>
-      {loading && <div className="flex-1 flex items-center justify-center"><div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>}
+      {loading && <div className="flex-1 flex items-center justify-center"><div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>}
       {profile && (
         <div className="flex-1 overflow-y-auto scrollbar-thin">
           <div className="flex flex-col items-center pt-8 pb-4 px-6">
             <Avatar url={profile.avatar_url} nick={profile.nick} size={96} online={profile.is_online} />
-            <h2 className="font-display font-bold text-2xl mt-4">@{profile.nick}</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              {profile.is_online ? <span className="text-green-400">в сети</span> : fmtLastSeen(profile.last_seen || null)}
+            <h2 className="font-bold text-2xl mt-4 text-slate-800">@{profile.nick}</h2>
+            <p className="text-sm text-slate-400 mt-1">
+              {profile.is_online ? <span className="text-green-500 font-medium">в сети</span> : fmtLastSeen(profile.last_seen || null)}
             </p>
             <div className="flex gap-8 mt-5">
-              <button onClick={() => onFollowers(userId, 'followers')} className="flex flex-col items-center hover:text-primary transition-colors">
-                <span className="font-display font-bold text-xl">{profile.followers}</span>
-                <span className="text-xs text-muted-foreground">подписчиков</span>
+              <button onClick={() => onFollowers(userId, 'followers')} className="flex flex-col items-center hover:text-blue-600 transition-colors">
+                <span className="font-bold text-xl text-slate-800">{profile.followers}</span>
+                <span className="text-xs text-slate-400">подписчиков</span>
               </button>
-              <button onClick={() => onFollowers(userId, 'following')} className="flex flex-col items-center hover:text-primary transition-colors">
-                <span className="font-display font-bold text-xl">{profile.following}</span>
-                <span className="text-xs text-muted-foreground">подписок</span>
+              <button onClick={() => onFollowers(userId, 'following')} className="flex flex-col items-center hover:text-blue-600 transition-colors">
+                <span className="font-bold text-xl text-slate-800">{profile.following}</span>
+                <span className="text-xs text-slate-400">подписок</span>
               </button>
             </div>
           </div>
-          <div className="px-4 space-y-2 mb-4">
-            {profile.city && <div className="flex items-center gap-2 text-sm"><Icon name="MapPin" size={16} className="text-accent" />{profile.city}</div>}
-            {profile.birthdate && <div className="flex items-center gap-2 text-sm"><Icon name="Cake" size={16} className="text-accent" />{new Date(profile.birthdate).toLocaleDateString('ru-RU')}</div>}
-            {profile.about && <p className="text-sm mt-3 leading-relaxed text-muted-foreground">{profile.about}</p>}
+          <div className="px-4 space-y-2 mb-4 bg-white rounded-2xl mx-4 p-4 border border-slate-100">
+            {profile.city && <div className="flex items-center gap-2 text-sm text-slate-700"><Icon name="MapPin" size={16} className="text-blue-500" />{profile.city}</div>}
+            {profile.birthdate && <div className="flex items-center gap-2 text-sm text-slate-700"><Icon name="Cake" size={16} className="text-blue-500" />{new Date(profile.birthdate).toLocaleDateString('ru-RU')}</div>}
+            {profile.about && <p className="text-sm mt-2 leading-relaxed text-slate-500">{profile.about}</p>}
           </div>
-          <div className="px-4 space-y-3 pb-8">
+          <div className="px-4 space-y-3 pb-8 mt-2">
             {!profile.i_blocked ? (
               <>
-                <button onClick={() => onOpenChat(userId)} className="w-full py-3.5 rounded-2xl font-semibold bg-gradient-to-r from-primary to-accent text-white hover:opacity-90 transition-all shadow-lg shadow-primary/30">
-                  <Icon name="MessageCircle" size={18} className="inline mr-2" />Написать
+                <button onClick={() => onOpenChat(userId)}
+                  className="w-full py-3.5 rounded-2xl font-bold text-white text-sm transition-all active:scale-[0.98]"
+                  style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}>
+                  <Icon name="MessageCircle" size={17} className="inline mr-2" />Написать
                 </button>
                 {profile.i_follow
-                  ? <button onClick={unfollow} className="w-full py-3.5 rounded-2xl font-semibold glass border border-border hover:bg-secondary/60 transition-colors"><Icon name="UserCheck" size={18} className="inline mr-2 text-green-400" />Отписаться</button>
-                  : <button onClick={follow} className="w-full py-3.5 rounded-2xl font-semibold glass border border-border hover:bg-secondary/60 transition-colors"><Icon name="UserPlus" size={18} className="inline mr-2 text-accent" />Подписаться</button>
+                  ? <button onClick={unfollow} className="w-full py-3.5 rounded-2xl font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors text-sm">
+                      <Icon name="UserCheck" size={17} className="inline mr-2 text-green-500" />Отписаться
+                    </button>
+                  : <button onClick={follow} className="w-full py-3.5 rounded-2xl font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors text-sm">
+                      <Icon name="UserPlus" size={17} className="inline mr-2 text-blue-500" />Подписаться
+                    </button>
                 }
-                <button onClick={block} className="w-full py-3 rounded-2xl text-destructive text-sm hover:bg-destructive/10 transition-colors">
-                  <Icon name="Ban" size={16} className="inline mr-2" />Заблокировать
+                <button onClick={block} className="w-full py-3 rounded-2xl text-red-500 text-sm hover:bg-red-50 transition-colors">
+                  <Icon name="Ban" size={15} className="inline mr-2" />Заблокировать
                 </button>
               </>
             ) : (
-              <button onClick={unblock} className="w-full py-3.5 rounded-2xl font-semibold glass border border-border hover:bg-secondary/60 transition-colors text-destructive">
+              <button onClick={unblock} className="w-full py-3.5 rounded-2xl font-semibold bg-white border border-slate-200 hover:bg-slate-50 transition-colors text-red-500">
                 <Icon name="Ban" size={18} className="inline mr-2" />Разблокировать
               </button>
             )}
@@ -918,18 +991,21 @@ function FollowersScreen({ userId, mode, me, onBack, onOpenProfile }: { userId: 
     api(`${mode}&user_id=${userId}`).then(d => setList(d.users || []));
   }, [userId, mode]);
   return (
-    <div className="min-h-screen grad-mesh flex flex-col">
-      <header className="flex items-center gap-3 px-4 py-3 glass">
-        <button onClick={onBack} className="w-10 h-10 rounded-full hover:bg-secondary/60 flex items-center justify-center"><Icon name="ArrowLeft" size={20} /></button>
-        <span className="font-semibold">{mode === 'followers' ? 'Подписчики' : 'Подписки'}</span>
+    <div className="min-h-screen flex flex-col" style={{ background: '#f0f4fa' }}>
+      <header className="flex items-center gap-3 px-4 py-3 bg-blue-600 shadow-sm">
+        <button onClick={onBack} className="w-9 h-9 rounded-xl hover:bg-blue-500 flex items-center justify-center transition-colors">
+          <Icon name="ArrowLeft" size={20} className="text-white" />
+        </button>
+        <span className="font-bold text-white">{mode === 'followers' ? 'Подписчики' : 'Подписки'}</span>
       </header>
-      <div className="flex-1 overflow-y-auto scrollbar-thin p-2">
-        {list.length === 0 && <p className="text-center text-muted-foreground mt-12 text-sm">Пусто</p>}
+      <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pt-3">
+        {list.length === 0 && <p className="text-center text-slate-400 mt-12 text-sm">Пусто</p>}
         {list.map(u => (
-          <button key={u.id} onClick={() => onOpenProfile(u.id)} className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl hover:bg-secondary/40 transition-colors">
+          <button key={u.id} onClick={() => onOpenProfile(u.id)}
+            className="w-full flex items-center gap-3 px-2 py-3 rounded-2xl hover:bg-blue-50 transition-colors">
             <Avatar url={u.avatar_url} nick={u.nick} size={44} online={u.is_online} />
-            <span className="font-semibold flex-1 text-left">@{u.nick}</span>
-            <Icon name="ChevronRight" size={18} className="text-muted-foreground" />
+            <span className="font-semibold flex-1 text-left text-slate-800">@{u.nick}</span>
+            <Icon name="ChevronRight" size={18} className="text-slate-300" />
           </button>
         ))}
       </div>
@@ -940,10 +1016,10 @@ function FollowersScreen({ userId, mode, me, onBack, onOpenProfile }: { userId: 
 // ══════════════════════════════════════════════════════════════════════════════
 // MY PROFILE TAB
 // ══════════════════════════════════════════════════════════════════════════════
-function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggleTheme, onDeleteAccount }: {
+function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onDeleteAccount }: {
   user: User; onLogout: () => void; onUpdate: (u: User) => void;
   onFollowers: (uid: number, mode: 'followers' | 'following') => void;
-  lightTheme: boolean; onToggleTheme: () => void;
+  lightTheme: boolean;
   onDeleteAccount: () => void;
 }) {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -1031,11 +1107,7 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
     load();
   };
 
-  const Toggle = ({ on, onToggle }: { on: boolean; onToggle: () => void }) => (
-    <button onClick={onToggle} className={`relative w-12 h-6 rounded-full transition-colors ${on ? 'bg-primary' : 'bg-secondary'}`}>
-      <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-6' : 'translate-x-0.5'}`} />
-    </button>
-  );
+
 
   return (
     <div className="flex flex-col h-full overflow-y-auto scrollbar-thin">
@@ -1157,14 +1229,14 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
           )}
 
           {/* Настройки */}
-          <div className="bg-white rounded-3xl p-5 space-y-1 border border-slate-100">
+          <div className="bg-white rounded-3xl p-5 border border-slate-100">
             <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-3 px-1">Настройки</p>
-            <div className="flex items-center justify-between py-2 px-1">
-              <div className="flex items-center gap-3">
-                <Icon name={lightTheme ? 'Sun' : 'Moon'} size={18} className="text-blue-500" />
+            <div className="flex items-center gap-3 py-2 px-1">
+              <Icon name={lightTheme ? 'Sun' : 'Moon'} size={18} className="text-blue-500" />
+              <div>
                 <span className="text-sm font-medium text-slate-700">{lightTheme ? 'Светлая тема' : 'Тёмная тема'}</span>
+                <p className="text-xs text-slate-400">Следует за системной темой телефона</p>
               </div>
-              <Toggle on={lightTheme} onToggle={onToggleTheme} />
             </div>
           </div>
 
@@ -2042,49 +2114,68 @@ function NewGroupScreen({ user, onBack, onCreated }: { user: User; onBack: () =>
   };
 
   return (
-    <div className="min-h-screen grad-mesh flex flex-col">
-      <header className="flex items-center gap-3 px-4 py-3 glass">
-        <button onClick={onBack} className="w-10 h-10 rounded-full hover:bg-secondary/60 flex items-center justify-center"><Icon name="ArrowLeft" size={20} /></button>
-        <span className="font-semibold flex-1">Новая группа</span>
+    <div className="min-h-screen flex flex-col" style={{ background: '#f0f4fa' }}>
+      <header className="flex items-center gap-3 px-4 py-3 bg-blue-600 shadow-sm">
+        <button onClick={onBack} className="w-9 h-9 rounded-xl hover:bg-blue-500 flex items-center justify-center transition-colors">
+          <Icon name="ArrowLeft" size={20} className="text-white" />
+        </button>
+        <span className="font-bold text-white flex-1">Новая группа</span>
         <button onClick={create} disabled={!name.trim() || creating || selected.length === 0}
-          className="px-5 py-2 rounded-full bg-gradient-to-r from-primary to-accent text-white text-sm font-semibold disabled:opacity-40">
+          className="px-5 py-2 rounded-xl bg-white text-blue-600 text-sm font-bold disabled:opacity-40 transition-all active:scale-95">
           {creating ? '...' : 'Создать'}
         </button>
       </header>
+
       <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-4">
-        <div>
-          <label className="text-xs text-muted-foreground mb-1 block">Название группы</label>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="Моя группа"
-            className="w-full bg-secondary/60 border border-border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary transition-all" />
+        {/* Название */}
+        <div className="bg-white rounded-2xl p-4 border border-slate-100">
+          <label className="text-xs font-semibold text-slate-500 mb-2 block">Название группы</label>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="Моя группа" autoFocus
+            className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-4 py-3 outline-none focus:border-blue-500 transition-all text-slate-800 text-sm" />
         </div>
 
+        {/* Выбранные участники */}
         {selected.length > 0 && (
-          <div className="flex gap-2 flex-wrap">
-            {selected.map(u => (
-              <div key={u.id} className="flex items-center gap-1.5 bg-primary/20 rounded-full pl-2 pr-3 py-1">
-                <Avatar url={u.avatar_url} nick={u.nick} size={20} />
-                <span className="text-xs font-medium">@{u.nick}</span>
-                <button onClick={() => toggle(u)}><Icon name="X" size={12} className="text-muted-foreground" /></button>
-              </div>
-            ))}
+          <div className="bg-white rounded-2xl p-4 border border-slate-100">
+            <p className="text-xs font-semibold text-slate-500 mb-3">Участники: {selected.length}</p>
+            <div className="flex gap-2 flex-wrap">
+              {selected.map(u => (
+                <div key={u.id} className="flex items-center gap-1.5 bg-blue-50 border border-blue-100 rounded-full pl-1.5 pr-3 py-1">
+                  <Avatar url={u.avatar_url} nick={u.nick} size={20} />
+                  <span className="text-xs font-semibold text-blue-700">@{u.nick}</span>
+                  <button onClick={() => toggle(u)} className="ml-0.5 text-blue-400 hover:text-red-400">
+                    <Icon name="X" size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
-        <div>
-          <p className="text-xs text-muted-foreground mb-2 font-medium">Твои подписки ({followers.length})</p>
-          {followers.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Пока нет подписок. Найди людей через поиск.</p>}
-          {followers.length > 3 && (
-            <div className="relative mb-3">
-              <Icon name="Search" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input value={q} onChange={e => setQ(e.target.value)} placeholder="Фильтр…"
-                className="w-full bg-secondary/60 border border-border rounded-full pl-9 pr-4 py-2 outline-none focus:ring-2 focus:ring-primary transition-all text-sm" />
+        {/* Список подписок */}
+        <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+          <div className="px-4 pt-4 pb-2">
+            <p className="text-xs font-semibold text-slate-500 mb-3">Подписки ({followers.length})</p>
+            {followers.length > 3 && (
+              <div className="relative mb-3">
+                <Icon name="Search" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input value={q} onChange={e => setQ(e.target.value)} placeholder="Поиск…"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2.5 outline-none focus:border-blue-500 transition-all text-sm" />
+              </div>
+            )}
+          </div>
+          {followers.length === 0 && (
+            <div className="flex flex-col items-center py-8 gap-2">
+              <Icon name="Users" size={32} className="text-slate-200" />
+              <p className="text-sm text-slate-400">Нет подписок. Найди людей через поиск.</p>
             </div>
           )}
           {filtered.map(u => (
-            <button key={u.id} onClick={() => toggle(u)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-secondary/40 transition-colors">
+            <button key={u.id} onClick={() => toggle(u)}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-blue-50 transition-colors border-t border-slate-50">
               <Avatar url={u.avatar_url} nick={u.nick} size={40} online={u.is_online} />
-              <span className="flex-1 text-left font-medium">@{u.nick}</span>
-              <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${selected.find(x => x.id === u.id) ? 'bg-primary border-primary' : 'border-border'}`}>
+              <span className="flex-1 text-left font-semibold text-slate-800 text-sm">@{u.nick}</span>
+              <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${selected.find(x => x.id === u.id) ? 'bg-blue-600 border-blue-600' : 'border-slate-300'}`}>
                 {selected.find(x => x.id === u.id) && <Icon name="Check" size={13} className="text-white" />}
               </div>
             </button>
@@ -2198,21 +2289,21 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
     : invitable;
 
   if (!group) return (
-    <div className="min-h-screen grad-mesh flex items-center justify-center">
-      <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+    <div className="min-h-screen flex items-center justify-center" style={{ background: '#f0f4fa' }}>
+      <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
     </div>
   );
 
   const isPublic = group.is_public !== false;
 
   return (
-    <div className="min-h-screen grad-mesh flex flex-col" onClick={() => { setShowPhotoMenu(false); setShowInvite(false); }}>
-      <header className="flex items-center gap-3 px-4 py-3 glass" onClick={e => e.stopPropagation()}>
-        <button onClick={onBack} className="w-10 h-10 rounded-full hover:bg-secondary/60 flex items-center justify-center">
-          <Icon name="ArrowLeft" size={20} />
+    <div className="min-h-screen flex flex-col" style={{ background: '#f0f4fa' }} onClick={() => { setShowPhotoMenu(false); setShowInvite(false); }}>
+      <header className="flex items-center gap-3 px-4 py-3 bg-blue-600 shadow-sm" onClick={e => e.stopPropagation()}>
+        <button onClick={onBack} className="w-9 h-9 rounded-xl hover:bg-blue-500 flex items-center justify-center transition-colors">
+          <Icon name="ArrowLeft" size={20} className="text-white" />
         </button>
-        <span className="font-semibold flex-1">Группа</span>
-        <button onClick={onOpenChat} className="px-4 py-2 rounded-full bg-gradient-to-r from-primary to-accent text-white text-sm font-semibold">
+        <span className="font-bold text-white flex-1">Группа</span>
+        <button onClick={onOpenChat} className="px-4 py-2 rounded-xl bg-white text-blue-600 text-sm font-bold transition-all active:scale-95">
           <Icon name="MessageCircle" size={15} className="inline mr-1" />Чат
         </button>
       </header>
@@ -2228,21 +2319,21 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
             <div className="w-24 h-24 rounded-full overflow-hidden cursor-pointer">
               {group.photo_url
                 ? <img src={group.photo_url} className="w-full h-full object-cover" />
-                : <div className="w-full h-full bg-gradient-to-br from-primary/70 to-accent/70 flex items-center justify-center">
+                : <div className="w-full h-full bg-blue-600 flex items-center justify-center">
                     <Icon name="Users" size={36} className="text-white" />
                   </div>}
             </div>
             {isAdmin && (
-              <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow cursor-pointer">
+              <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center shadow-md cursor-pointer">
                 <Icon name="Camera" size={14} className="text-white" />
               </div>
             )}
             {/* Меню фото */}
             {showPhotoMenu && (
-              <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 glass rounded-2xl p-1 z-50 w-48 shadow-xl" onClick={e => e.stopPropagation()}>
+              <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-white rounded-2xl p-1 z-50 w-48 shadow-xl border border-slate-100" onClick={e => e.stopPropagation()}>
                 <button onClick={() => { setShowPhotoMenu(false); fileRef.current?.click(); }}
-                  className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl hover:bg-secondary/60 text-sm">
-                  <Icon name="Camera" size={15} className="text-accent" /> Изменить фото
+                  className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl hover:bg-slate-50 text-sm text-slate-700">
+                  <Icon name="Camera" size={15} className="text-blue-500" /> Изменить фото
                 </button>
                 {group.photo_url && (
                   <button onClick={removePhoto}
@@ -2260,7 +2351,7 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
               value={editName}
               onChange={e => setEditName(e.target.value)}
               onBlur={() => editName.trim() && editName !== group.name && saveField({ name: editName.trim() })}
-              className="font-display font-bold text-2xl mt-4 text-center bg-transparent outline-none border-b border-transparent focus:border-primary/50 transition-colors px-2 w-full max-w-xs"
+              className="font-bold text-2xl mt-4 text-center text-slate-800 bg-transparent outline-none border-b-2 border-transparent focus:border-blue-400 transition-colors px-2 w-full max-w-xs"
             />
           ) : (
             <h2 className="font-display font-bold text-2xl mt-4">{group.name}</h2>
@@ -2274,37 +2365,35 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
               onBlur={() => editAbout !== (group.about || '') && saveField({ about: editAbout || null })}
               rows={2}
               placeholder="О группе — нажми чтобы добавить"
-              className="text-sm text-muted-foreground mt-2 text-center bg-transparent outline-none border-b border-transparent focus:border-primary/50 transition-colors resize-none w-full max-w-xs placeholder:text-muted-foreground/40"
+              className="text-sm text-slate-500 mt-2 text-center bg-transparent outline-none border-b-2 border-transparent focus:border-blue-400 transition-colors resize-none w-full max-w-xs placeholder:text-slate-300"
             />
           ) : (
-            group.about && <p className="text-sm text-muted-foreground mt-2 text-center">{group.about}</p>
+            group.about && <p className="text-sm text-slate-500 mt-2 text-center">{group.about}</p>
           )}
 
-          <p className="text-xs text-muted-foreground mt-2">
+          <p className="text-xs text-slate-400 mt-2">
             {isPublic ? '🌐 Публичная' : '🔒 Закрытая'} · {group.member_count} участников
           </p>
-          {saving && <p className="text-xs text-primary mt-1">Сохраняю...</p>}
+          {saving && <p className="text-xs text-blue-500 mt-1">Сохраняю...</p>}
         </div>
 
         {/* ── Настройки (только для админа) ── */}
         {isAdmin && (
-          <div className="mx-4 mb-3 glass rounded-2xl overflow-hidden">
-            {/* Публичная/закрытая */}
-            <div className="flex items-center justify-between px-4 py-3.5 border-b border-border/40">
+          <div className="mx-4 mb-3 bg-white rounded-2xl overflow-hidden border border-slate-100">
+            <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-100">
               <div>
-                <p className="text-sm font-medium">{isPublic ? 'Публичная группа' : 'Закрытая группа'}</p>
-                <p className="text-xs text-muted-foreground">{isPublic ? 'Любой может вступить по ссылке' : 'Только по приглашению'}</p>
+                <p className="text-sm font-semibold text-slate-800">{isPublic ? 'Публичная группа' : 'Закрытая группа'}</p>
+                <p className="text-xs text-slate-400">{isPublic ? 'Любой может вступить по ссылке' : 'Только по приглашению'}</p>
               </div>
-              <button
-                onClick={() => saveField({ is_public: !isPublic })}
-                className={`relative w-12 h-6 rounded-full transition-colors ${isPublic ? 'bg-primary' : 'bg-secondary'}`}>
-                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${isPublic ? 'translate-x-6' : 'translate-x-0.5'}`} />
+              <button onClick={() => saveField({ is_public: !isPublic })}
+                className={`relative w-11 h-6 rounded-full transition-colors ${isPublic ? 'bg-blue-600' : 'bg-slate-200'}`}>
+                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${isPublic ? 'translate-x-5' : 'translate-x-0.5'}`} />
               </button>
             </div>
-            {/* Ссылка */}
             <div className="px-4 py-3.5">
-              <p className="text-xs text-muted-foreground mb-2">Ссылка-приглашение</p>
-              <button onClick={copyLink} className="w-full py-2.5 rounded-xl bg-gradient-to-r from-primary to-accent text-white text-sm font-semibold">
+              <p className="text-xs text-slate-400 mb-2">Ссылка-приглашение</p>
+              <button onClick={copyLink}
+                className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold transition-all active:scale-[0.98]">
                 <Icon name={copied ? 'Check' : 'Link'} size={14} className="inline mr-1.5" />
                 {copied ? 'Скопировано!' : 'Скопировать ссылку'}
               </button>
@@ -2315,8 +2404,9 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
         {/* Ссылка для не-админа */}
         {!isAdmin && (
           <div className="mx-4 mb-3">
-            <button onClick={copyLink} className="w-full py-2.5 rounded-2xl glass border border-border text-sm flex items-center justify-center gap-2">
-              <Icon name={copied ? 'Check' : 'Link'} size={14} className="text-accent" />
+            <button onClick={copyLink}
+              className="w-full py-2.5 rounded-2xl bg-white border border-slate-200 text-slate-700 text-sm font-medium flex items-center justify-center gap-2">
+              <Icon name={copied ? 'Check' : 'Link'} size={14} className="text-blue-500" />
               {copied ? 'Скопировано!' : 'Скопировать ссылку'}
             </button>
           </div>
@@ -2325,72 +2415,71 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
         {/* ── Участники ── */}
         <div className="mx-4 mb-3">
           <div className="flex items-center justify-between mb-2 px-1">
-            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Участники · {group.member_count}</p>
+            <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Участники · {group.member_count}</p>
             {isAdmin && invitable.length > 0 && (
               <button onClick={e => { e.stopPropagation(); setShowInvite(v => !v); }}
-                className="flex items-center gap-1 text-xs text-primary hover:opacity-80 transition-opacity">
+                className="flex items-center gap-1 text-xs text-blue-600 font-semibold">
                 <Icon name="UserPlus" size={14} /> Пригласить
               </button>
             )}
           </div>
 
-          {/* Панель приглашения */}
           {showInvite && (
-            <div className="glass rounded-2xl p-3 mb-3" onClick={e => e.stopPropagation()}>
-              <p className="text-xs text-muted-foreground mb-2">Выбери из подписок:</p>
+            <div className="bg-white rounded-2xl p-3 mb-3 border border-slate-100" onClick={e => e.stopPropagation()}>
+              <p className="text-xs text-slate-400 mb-2 font-medium">Выбери из подписок:</p>
               {invitable.length > 4 && (
                 <input value={inviteQ} onChange={e => setInviteQ(e.target.value)} placeholder="Поиск..."
-                  className="w-full bg-secondary/60 border border-border rounded-xl px-3 py-2 text-sm outline-none mb-2" />
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-blue-500 mb-2" />
               )}
               <div className="max-h-48 overflow-y-auto space-y-1">
                 {filteredInvitable.map(u => (
                   <button key={u.id} onClick={() => addMember(u.id)}
-                    className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-secondary/60 transition-colors">
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-blue-50 transition-colors">
                     <Avatar url={u.avatar_url} nick={u.nick} size={32} online={u.is_online} />
-                    <span className="flex-1 text-left text-sm font-medium">@{u.nick}</span>
-                    <Icon name="Plus" size={16} className="text-primary shrink-0" />
+                    <span className="flex-1 text-left text-sm font-medium text-slate-800">@{u.nick}</span>
+                    <Icon name="Plus" size={16} className="text-blue-500 shrink-0" />
                   </button>
                 ))}
                 {filteredInvitable.length === 0 && (
-                  <p className="text-xs text-muted-foreground text-center py-3">Все подписки уже в группе</p>
+                  <p className="text-xs text-slate-400 text-center py-3">Все подписки уже в группе</p>
                 )}
               </div>
             </div>
           )}
 
-          <div className="glass rounded-3xl overflow-hidden">
+          <div className="bg-white rounded-2xl overflow-hidden border border-slate-100">
             {members.map((m, i) => (
-              <div key={m.id} className={`flex items-center gap-3 px-4 py-3 ${i < members.length - 1 ? 'border-b border-border/40' : ''}`}>
+              <div key={m.id} className={`flex items-center gap-3 px-4 py-3 ${i < members.length - 1 ? 'border-b border-slate-50' : ''}`}>
                 <button onClick={() => m.id !== user.id && onOpenProfile(m.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
                   <Avatar url={m.avatar_url} nick={m.nick} size={40} online={m.is_online} />
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm truncate">@{m.nick}{m.id === user.id ? ' (вы)' : ''}</div>
-                    <div className="text-xs text-muted-foreground">{roleLabel[m.role] || 'Участник'}</div>
+                    <div className="font-semibold text-sm text-slate-800 truncate">@{m.nick}{m.id === user.id ? ' (вы)' : ''}</div>
+                    <div className="text-xs text-slate-400">{roleLabel[m.role] || 'Участник'}</div>
                   </div>
                 </button>
                 {isAdmin && m.id !== user.id && (
                   <div className="flex gap-1 shrink-0">
                     {isOwner && m.role === 'member' && (
                       <button onClick={() => setRole(m.id, 'admin')} title="Назначить админом"
-                        className="w-8 h-8 rounded-full hover:bg-accent/20 flex items-center justify-center transition-colors">
-                        <Icon name="Star" size={14} className="text-accent" />
+                        className="w-8 h-8 rounded-full hover:bg-yellow-50 flex items-center justify-center transition-colors">
+                        <Icon name="Star" size={14} className="text-yellow-500" />
                       </button>
                     )}
                     {isOwner && m.role === 'admin' && (
                       <button onClick={() => setRole(m.id, 'member')} title="Снять права"
-                        className="w-8 h-8 rounded-full hover:bg-secondary/60 flex items-center justify-center transition-colors">
-                        <Icon name="StarOff" size={14} className="text-muted-foreground" />
+                        className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center transition-colors">
+                        <Icon name="StarOff" size={14} className="text-slate-400" />
                       </button>
                     )}
                     {isOwner && (
                       <button onClick={() => setTransferTarget(m.id)} title="Передать владение"
-                        className="w-8 h-8 rounded-full hover:bg-primary/20 flex items-center justify-center transition-colors">
-                        <Icon name="Crown" size={14} className="text-primary" />
+                        className="w-8 h-8 rounded-full hover:bg-blue-50 flex items-center justify-center transition-colors">
+                        <Icon name="Crown" size={14} className="text-blue-500" />
                       </button>
                     )}
                     <button onClick={() => setKickTarget(m.id)} title="Удалить из группы"
-                      className="w-8 h-8 rounded-full hover:bg-destructive/20 flex items-center justify-center transition-colors">
-                      <Icon name="UserX" size={14} className="text-destructive" />
+                      className="w-8 h-8 rounded-full hover:bg-red-50 flex items-center justify-center transition-colors">
+                      <Icon name="UserX" size={14} className="text-red-400" />
                     </button>
                   </div>
                 )}
@@ -2399,28 +2488,26 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
           </div>
         </div>
 
-        {/* Подтверждение удаления */}
         {kickTarget && (
-          <div className="mx-4 mb-3 glass rounded-2xl p-4">
-            <p className="text-sm mb-3">Удалить @{members.find(m => m.id === kickTarget)?.nick} из группы?</p>
+          <div className="mx-4 mb-3 bg-white rounded-2xl p-4 border border-slate-100">
+            <p className="text-sm text-slate-700 mb-3">Удалить @{members.find(m => m.id === kickTarget)?.nick} из группы?</p>
             <div className="flex gap-2">
               <button onClick={() => kick(kickTarget)}
-                className="flex-1 py-2.5 rounded-2xl bg-destructive text-white text-sm font-semibold">Удалить</button>
+                className="flex-1 py-2.5 rounded-2xl bg-red-500 text-white text-sm font-semibold">Удалить</button>
               <button onClick={() => setKickTarget(null)}
-                className="flex-1 py-2.5 rounded-2xl glass border border-border text-sm">Отмена</button>
+                className="flex-1 py-2.5 rounded-2xl bg-slate-100 text-slate-600 text-sm font-medium">Отмена</button>
             </div>
           </div>
         )}
 
-        {/* Передача владения */}
         {transferTarget && (
-          <div className="mx-4 mb-3 glass rounded-2xl p-4">
-            <p className="text-sm mb-3">Передать владение @{members.find(m => m.id === transferTarget)?.nick}? Вы станете обычным участником.</p>
+          <div className="mx-4 mb-3 bg-white rounded-2xl p-4 border border-slate-100">
+            <p className="text-sm text-slate-700 mb-3">Передать владение @{members.find(m => m.id === transferTarget)?.nick}? Вы станете обычным участником.</p>
             <div className="flex gap-2">
               <button onClick={transfer}
-                className="flex-1 py-2.5 rounded-2xl bg-gradient-to-r from-primary to-accent text-white text-sm font-semibold">Передать</button>
+                className="flex-1 py-2.5 rounded-2xl bg-blue-600 text-white text-sm font-semibold">Передать</button>
               <button onClick={() => setTransferTarget(null)}
-                className="flex-1 py-2.5 rounded-2xl glass border border-border text-sm">Отмена</button>
+                className="flex-1 py-2.5 rounded-2xl bg-slate-100 text-slate-600 text-sm font-medium">Отмена</button>
             </div>
           </div>
         )}
@@ -2428,7 +2515,7 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
         {/* Покинуть группу */}
         <div className="mx-4">
           <button onClick={leave}
-            className="w-full py-3.5 rounded-2xl text-destructive hover:bg-destructive/10 transition-colors text-sm font-medium flex items-center justify-center gap-2">
+            className="w-full py-3.5 rounded-2xl text-red-500 hover:bg-red-50 transition-colors text-sm font-medium flex items-center justify-center gap-2">
             <Icon name="LogOut" size={16} />Покинуть группу
           </button>
         </div>

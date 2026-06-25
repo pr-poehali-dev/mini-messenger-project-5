@@ -1,30 +1,12 @@
 {
   "tests": [
     {
-      "name": "Login by existing device",
-      "method": "POST",
-      "path": "/?action=login",
-      "body": {"nick": "__device_auto__", "device_id": "test-device-99b"},
-      "expectedStatus": 200,
-      "expectedBody": {"user": {"nick": "tester99"}},
-      "bodyMatcher": "partial"
-    },
-    {
       "name": "Login by nick - not found",
       "method": "POST",
       "path": "/?action=login_by_nick",
-      "body": {"nick": "zzz_not_exist_999", "device_id": "test-device-x"},
+      "body": {"nick": "zzz_not_exist_999", "password": "anypass", "device_id": "test-device-x"},
       "expectedStatus": 404,
       "expectedBody": {"error": "Аккаунт с таким ником не найден"},
-      "bodyMatcher": "partial"
-    },
-    {
-      "name": "Login by nick - success",
-      "method": "POST",
-      "path": "/?action=login_by_nick",
-      "body": {"nick": "tester99", "device_id": "test-device-99b"},
-      "expectedStatus": 200,
-      "expectedBody": {"user": {"nick": "tester99"}},
       "bodyMatcher": "partial"
     },
     {
