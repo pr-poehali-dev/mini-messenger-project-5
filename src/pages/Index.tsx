@@ -270,7 +270,7 @@ function LoginScreen({ draftNick, setDraftNick, onLogin, onLoginByNick, error, s
   onLogin: () => void; onLoginByNick: (nick: string) => void;
   error: string; setError: (e: string) => void;
 }) {
-  const [tab, setTab] = useState<'login' | 'register'>('login');
+  const [tab, setTab] = useState<'login' | 'register' | 'start'>('start');
   const [loginNick, setLoginNick] = useState('');
   const [nickStatus, setNickStatus] = useState<'idle' | 'checking' | 'ok' | 'taken'>('idle');
   const [nickHint, setNickHint] = useState('');
@@ -294,117 +294,116 @@ function LoginScreen({ draftNick, setDraftNick, onLogin, onLoginByNick, error, s
   const borderColor = nickStatus === 'ok' ? 'border-green-400/60' : nickStatus === 'taken' ? 'border-destructive/60' : 'border-border';
 
   return (
-    <div className="min-h-screen grad-mesh relative overflow-hidden flex items-center justify-center p-6">
-      <div className="absolute top-1/4 -left-20 w-96 h-96 rounded-full bg-primary/30 blur-[120px] animate-float" />
-      <div className="absolute bottom-1/4 -right-20 w-96 h-96 rounded-full bg-accent/20 blur-[120px] animate-float" style={{ animationDelay: '2s' }} />
-      <div className="relative w-full max-w-md animate-fade-up">
-        {/* Логотип */}
-        <div className="flex flex-col items-center mb-8">
-          <div className="relative mb-6 animate-sway" style={{ transformOrigin: 'center 30%' }}>
-            {/* Мягкое свечение позади */}
-            <div className="absolute -inset-4 rounded-[40px] bg-gradient-to-br from-primary/40 to-accent/30 blur-3xl" />
-            {/* Основной блок */}
-            <div className="relative w-28 h-28 rounded-[32px] shadow-2xl shadow-primary/40 overflow-hidden"
-              style={{ background: 'linear-gradient(145deg, hsl(230 60% 22%), hsl(240 55% 16%))' }}>
-              {/* Верхний блик */}
-              <div className="absolute top-0 left-0 right-0 h-1/2 rounded-t-[32px]"
-                style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 100%)' }} />
-              {/* Фиолетовый акцент снизу */}
-              <div className="absolute bottom-0 left-0 right-0 h-16 rounded-b-[32px]"
-                style={{ background: 'linear-gradient(0deg, hsl(265 89% 40% / 0.5) 0%, transparent 100%)' }} />
-              {/* Иконка */}
-              <div className="relative z-10 w-full h-full flex items-center justify-center">
-                <svg width="62" height="56" viewBox="0 0 62 56" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <rect x="2" y="4" width="34" height="26" rx="9" fill="white" fillOpacity="0.92"/>
-                  <path d="M10 30 L4 42 L20 30 Z" fill="white" fillOpacity="0.92"/>
-                  <rect x="22" y="22" width="36" height="26" rx="9" fill="url(#grd)"/>
-                  <path d="M50 48 L58 58 L42 48 Z" fill="url(#grd)"/>
-                  <circle cx="12" cy="17" r="2.5" fill="hsl(265 89% 66%)"/>
-                  <circle cx="19" cy="17" r="2.5" fill="hsl(190 95% 55%)"/>
-                  <circle cx="26" cy="17" r="2.5" fill="hsl(320 85% 65%)"/>
-                  <defs>
-                    <linearGradient id="grd" x1="22" y1="22" x2="58" y2="48" gradientUnits="userSpaceOnUse">
-                      <stop stopColor="hsl(265, 89%, 66%)"/>
-                      <stop offset="1" stopColor="hsl(190, 95%, 55%)"/>
-                    </linearGradient>
-                  </defs>
-                </svg>
-              </div>
-            </div>
-          </div>
-          {/* Название под логотипом */}
-          <p className="font-display font-black text-3xl tracking-tight text-center leading-tight select-none">
-            <span className="text-gradient">Вай</span>
-            <span className="text-foreground"> Мессенджер</span>
-          </p>
-          <p className="text-slate-400 text-xs mt-2 tracking-widest uppercase">Общайся свободно</p>
-        </div>
-        <div className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100">
-          {/* Вкладки */}
-          <div className="flex bg-slate-100 rounded-2xl p-1 mb-6">
-            <button
-              onClick={() => { setTab('login'); setLoginNick(''); }}
-              className={`flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all ${tab === 'login' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500'}`}
-            >Войти</button>
-            <button
-              onClick={() => { setTab('register'); }}
-              className={`flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all ${tab === 'register' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500'}`}
-            >Зарегистрироваться</button>
-          </div>
+    <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(160deg, #1a56db 0%, #1e3a8a 55%, #0f172a 100%)' }}>
+      {/* Декоративные круги */}
+      <div className="absolute top-[-80px] right-[-60px] w-72 h-72 rounded-full opacity-20" style={{ background: 'radial-gradient(circle, #60a5fa, transparent)' }} />
+      <div className="absolute top-[200px] left-[-80px] w-56 h-56 rounded-full opacity-10" style={{ background: 'radial-gradient(circle, #93c5fd, transparent)' }} />
 
-          {tab === 'login' ? (
-            <>
-              <p className="text-slate-400 text-sm mb-6">Введи свой ник чтобы войти в аккаунт</p>
-              <div className="relative mb-1">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">@</span>
-                <input
-                  value={loginNick}
-                  onChange={(e) => setLoginNick(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
-                  onKeyDown={(e) => e.key === 'Enter' && loginNick.trim().length >= 2 && onLoginByNick(loginNick)}
-                  placeholder="my_nickname"
-                  maxLength={30}
-                  autoFocus
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-9 pr-4 py-3.5 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 transition-all text-slate-800"
-                />
-              </div>
-              <p className="text-xs mb-5 h-4 text-slate-400">Только латиница, цифры и _</p>
-              {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
-              <button
-                disabled={loginNick.trim().length < 2}
-                onClick={() => onLoginByNick(loginNick)}
-                className="w-full py-4 rounded-2xl font-bold bg-blue-600 hover:bg-blue-700 disabled:opacity-40 transition-all text-white text-sm"
-              >Войти</button>
-            </>
-          ) : (
-            <>
-              <p className="text-slate-500 text-sm mb-2">Придумай уникальный ник. Только латиница, цифры и _</p>
-              <p className="text-xs text-slate-400 mb-6">С этого устройства будешь входить автоматически</p>
-              <div className="relative mb-1">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">@</span>
-                <input
-                  value={draftNick}
-                  onChange={(e) => setDraftNick(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
-                  onKeyDown={(e) => e.key === 'Enter' && nickStatus === 'ok' && onLogin()}
-                  placeholder="my_nickname"
-                  maxLength={30}
-                  className={`w-full bg-slate-50 border rounded-2xl pl-9 pr-10 py-3.5 outline-none focus:ring-2 focus:ring-blue-500 transition-all ${borderColor}`}
-                />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2">
-                  {nickStatus === 'checking' && <span className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin block" />}
-                  {nickStatus === 'ok' && <Icon name="Check" size={16} className="text-green-500" />}
-                  {nickStatus === 'taken' && <Icon name="X" size={16} className="text-red-500" />}
-                </span>
-              </div>
-              <p className={`text-xs mb-5 h-4 ${nickColor}`}>{nickHint}</p>
-              {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
-              <button
-                disabled={draftNick.trim().length < 2 || nickStatus !== 'ok'}
-                onClick={onLogin}
-                className="w-full py-4 rounded-2xl font-bold bg-blue-600 hover:bg-blue-700 disabled:opacity-40 transition-all text-white text-sm"
-              >Зарегистрироваться</button>
-            </>
-          )}
+      {/* Верхняя часть — логотип и название */}
+      <div className="flex-1 flex flex-col items-center justify-center pt-16 pb-8 px-6">
+        {/* Иконка */}
+        <div className="w-24 h-24 rounded-[28px] mb-6 flex items-center justify-center shadow-2xl"
+          style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.25)' }}>
+          <svg width="52" height="48" viewBox="0 0 62 56" fill="none">
+            <rect x="2" y="4" width="34" height="26" rx="9" fill="white" fillOpacity="0.95"/>
+            <path d="M10 30 L4 42 L20 30 Z" fill="white" fillOpacity="0.95"/>
+            <rect x="22" y="22" width="36" height="26" rx="9" fill="white" fillOpacity="0.4"/>
+            <path d="M50 48 L58 58 L42 48 Z" fill="white" fillOpacity="0.4"/>
+          </svg>
         </div>
+        <h1 className="text-white font-bold text-3xl tracking-tight mb-2">Вай Мессенджер</h1>
+        <p className="text-blue-200 text-sm opacity-80">Быстро. Просто. Надёжно.</p>
+      </div>
+
+      {/* Нижняя карточка */}
+      <div className="rounded-t-[32px] px-6 pt-8 pb-10" style={{ background: '#fff' }}>
+        {tab === 'welcome' || (tab !== 'login' && tab !== 'register') ? null : null}
+
+        {tab === 'register' ? (
+          /* ── РЕГИСТРАЦИЯ ── */
+          <>
+            <h2 className="text-slate-800 font-bold text-xl mb-1">Создать аккаунт</h2>
+            <p className="text-slate-400 text-sm mb-6">Придумай уникальный ник — только латиница, цифры и _</p>
+            <div className="relative mb-1">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">@</span>
+              <input
+                value={draftNick}
+                onChange={(e) => setDraftNick(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
+                onKeyDown={(e) => e.key === 'Enter' && nickStatus === 'ok' && onLogin()}
+                placeholder="my_nickname"
+                maxLength={30}
+                autoFocus
+                className={`w-full bg-slate-50 border-2 rounded-2xl pl-9 pr-10 py-4 outline-none focus:border-blue-500 transition-all text-slate-800 text-base font-medium ${nickStatus === 'ok' ? 'border-green-400' : nickStatus === 'taken' ? 'border-red-400' : 'border-slate-200'}`}
+              />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2">
+                {nickStatus === 'checking' && <span className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin block" />}
+                {nickStatus === 'ok' && <Icon name="CheckCircle" size={18} className="text-green-500" />}
+                {nickStatus === 'taken' && <Icon name="XCircle" size={18} className="text-red-500" />}
+              </span>
+            </div>
+            <p className={`text-xs mb-5 h-4 px-1 ${nickColor}`}>{nickHint || 'Минимум 2 символа'}</p>
+            {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+            <button
+              disabled={draftNick.trim().length < 2 || nickStatus !== 'ok'}
+              onClick={onLogin}
+              className="w-full py-4 rounded-2xl font-bold text-white text-base mb-3 transition-all active:scale-[0.98] disabled:opacity-40"
+              style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}
+            >Зарегистрироваться</button>
+            <button
+              onClick={() => { setTab('login'); setDraftNick(''); }}
+              className="w-full py-3.5 rounded-2xl font-semibold text-slate-600 text-sm bg-slate-100 hover:bg-slate-200 transition-all"
+            >Уже есть аккаунт? Войти</button>
+          </>
+        ) : (
+          /* ── ПРИВЕТСТВИЕ / ВХОД ── */
+          <>
+            {tab === 'login' ? (
+              <>
+                <h2 className="text-slate-800 font-bold text-xl mb-1">С возвращением!</h2>
+                <p className="text-slate-400 text-sm mb-6">Введи свой ник чтобы войти</p>
+                <div className="relative mb-1">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">@</span>
+                  <input
+                    value={loginNick}
+                    onChange={(e) => setLoginNick(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
+                    onKeyDown={(e) => e.key === 'Enter' && loginNick.trim().length >= 2 && onLoginByNick(loginNick)}
+                    placeholder="my_nickname"
+                    maxLength={30}
+                    autoFocus
+                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl pl-9 pr-4 py-4 outline-none focus:border-blue-500 transition-all text-slate-800 text-base font-medium"
+                  />
+                </div>
+                <p className="text-xs mb-5 h-4 text-slate-400 px-1">Только латиница, цифры и _</p>
+                {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+                <button
+                  disabled={loginNick.trim().length < 2}
+                  onClick={() => onLoginByNick(loginNick)}
+                  className="w-full py-4 rounded-2xl font-bold text-white text-base mb-3 transition-all active:scale-[0.98] disabled:opacity-40"
+                  style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}
+                >Войти</button>
+                <button
+                  onClick={() => { setTab('register'); setLoginNick(''); }}
+                  className="w-full py-3.5 rounded-2xl font-semibold text-slate-600 text-sm bg-slate-100 hover:bg-slate-200 transition-all"
+                >Нет аккаунта? Зарегистрироваться</button>
+              </>
+            ) : (
+              /* Стартовый экран — первое что видит пользователь */
+              <>
+                <h2 className="text-slate-800 font-bold text-xl mb-1">Добро пожаловать</h2>
+                <p className="text-slate-400 text-sm mb-8">Войди или создай новый аккаунт</p>
+                <button
+                  onClick={() => setTab('register')}
+                  className="w-full py-4 rounded-2xl font-bold text-white text-base mb-3 transition-all active:scale-[0.98]"
+                  style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}
+                >Создать аккаунт</button>
+                <button
+                  onClick={() => setTab('login')}
+                  className="w-full py-4 rounded-2xl font-bold text-slate-700 text-base bg-slate-100 hover:bg-slate-200 transition-all active:scale-[0.98]"
+                >Войти</button>
+              </>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -518,24 +517,34 @@ function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (t: Tab) =
     { key: 'profile', icon: 'User', label: 'Профиль' },
   ];
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#f5f7fb' }}>
-      <div className="flex-1 overflow-hidden flex flex-col pb-[72px]">{children}</div>
-      <nav className="fixed bottom-0 left-0 right-0 glass border-t border-border flex safe-area-pb" style={{ background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(24px)' }}>
-        {tabs.map(t => (
-          <button key={t.key} onClick={() => onTab(t.key)}
-            className={`flex-1 flex flex-col items-center justify-center py-3 gap-1 transition-all relative`}>
-            <div className={`relative flex items-center justify-center w-10 h-7 rounded-xl transition-all ${tab === t.key ? 'bg-blue-50' : ''}`}>
-              <Icon name={t.icon} size={20} className={tab === t.key ? 'text-blue-600' : 'text-slate-400'} />
-              {(t.badge || 0) > 0 && (
-                <span className="absolute -top-1 -right-1.5 min-w-[15px] h-[15px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5">
-                  {t.badge! > 99 ? '99+' : t.badge}
+    <div className="min-h-screen flex flex-col" style={{ background: '#f0f4fa' }}>
+      <div className="flex-1 overflow-hidden flex flex-col pb-[80px]">{children}</div>
+      <div className="fixed bottom-0 left-0 right-0 flex justify-center pb-4 pt-2 px-4"
+        style={{ background: 'linear-gradient(to top, #f0f4fa 60%, transparent)' }}>
+        <nav className="flex items-center gap-1 px-2 py-2 rounded-[28px] shadow-xl"
+          style={{ background: 'rgba(255,255,255,0.98)', backdropFilter: 'blur(24px)', boxShadow: '0 8px 32px rgba(30,58,138,0.13), 0 2px 8px rgba(30,58,138,0.08)' }}>
+          {tabs.map(t => (
+            <button key={t.key} onClick={() => onTab(t.key)}
+              className="relative flex flex-col items-center transition-all"
+              style={{ minWidth: 64 }}>
+              <div className={`relative flex flex-col items-center justify-center gap-0.5 px-4 py-2 rounded-[20px] transition-all duration-200
+                ${tab === t.key ? 'bg-blue-600 shadow-md shadow-blue-200' : 'hover:bg-slate-100'}`}>
+                <Icon name={t.icon} size={21}
+                  className={tab === t.key ? 'text-white' : 'text-slate-400'} />
+                <span className={`text-[10px] font-semibold leading-none transition-colors
+                  ${tab === t.key ? 'text-white' : 'text-slate-400'}`}>
+                  {t.label}
                 </span>
-              )}
-            </div>
-            <span className={`text-[10px] font-medium transition-colors ${tab === t.key ? 'text-blue-600' : 'text-slate-400'}`}>{t.label}</span>
-          </button>
-        ))}
-      </nav>
+                {(t.badge || 0) > 0 && (
+                  <span className="absolute top-1 right-1.5 min-w-[16px] h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5 shadow-sm">
+                    {t.badge! > 99 ? '99+' : t.badge}
+                  </span>
+                )}
+              </div>
+            </button>
+          ))}
+        </nav>
+      </div>
     </div>
   );
 }
