@@ -13,11 +13,14 @@ def _hash_pw(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 
-def _push(to_user_ids: list, title: str, body: str, url: str = '/') -> None:
+def _push(to_user_ids: list, title: str, body: str, url: str = '/') -> dict:
     """Отправить push через OneSignal по external_id пользователей."""
     api_key = os.environ.get('ONESIGNAL_API_KEY', '')
-    if not api_key or not to_user_ids:
-        return
+    if not api_key:
+        print('[PUSH] ONESIGNAL_API_KEY не задан')
+        return {'error': 'no_key'}
+    if not to_user_ids:
+        return {'error': 'no_recipients'}
     try:
         payload = json.dumps({
             'app_id': ONESIGNAL_APP_ID,
@@ -38,9 +41,17 @@ def _push(to_user_ids: list, title: str, body: str, url: str = '/') -> None:
             },
             method='POST'
         )
-        urllib.request.urlopen(req, timeout=5)
-    except Exception:
-        pass
+        resp = urllib.request.urlopen(req, timeout=8)
+        result = json.loads(resp.read().decode())
+        print(f'[PUSH] OK → {result}')
+        return result
+    except urllib.error.HTTPError as e:
+        err = e.read().decode()
+        print(f'[PUSH] HTTP Error {e.code}: {err}')
+        return {'error': err}
+    except Exception as e:
+        print(f'[PUSH] Exception: {e}')
+        return {'error': str(e)}
 
 
 def _conn():
@@ -986,6 +997,14 @@ def handler(event: dict, context) -> dict:
             cur.execute("SELECT status FROM active_calls WHERE call_id=%s", (call_id,))
             row = cur.fetchone()
             return _resp(200, {'status': row['status'] if row else 'ended'})
+
+        # ── TEST PUSH (только для отладки) ────────────────
+        if action == 'test_push' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            if not uid:
+                return _resp(400, {'error': 'user_id обязателен'})
+            result = _push([uid], '🔔 Вай Мессенджер', 'Push-уведомления работают!', '/')
+            return _resp(200, {'result': result})
 
         return _resp(404, {'error': 'Неизвестное действие'})
     finally:
