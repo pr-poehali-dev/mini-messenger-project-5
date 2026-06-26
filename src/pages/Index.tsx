@@ -2031,9 +2031,11 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
           const grouped = reactions.reduce<Record<string, number>>((acc, r) => { acc[r.emoji] = (acc[r.emoji] || 0) + 1; return acc; }, {});
           const isSelected = selectedMsg === m.id;
           const showEmoji = emojiTarget === m.id;
+          // Анимация только у последнего сообщения (только что пришло)
+          const isLast = i === messages.length - 1;
 
           return (
-            <div key={m.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'} ${mine ? 'msg-out' : 'msg-in'}`}
+            <div key={m.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'} ${isLast ? (mine ? 'msg-out' : 'msg-in') : ''}`}
               onClick={e => { e.stopPropagation(); if (!m.is_removed) { setSelectedMsg(isSelected ? null : m.id); setEmojiTarget(null); } }}>
               {showNick && <span className="text-[11px] text-accent ml-10 mb-0.5">{m.sender_nick}</span>}
               <div className={`flex items-end gap-1.5 ${mine ? 'flex-row-reverse' : ''} max-w-[82%]`}>

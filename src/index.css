@@ -156,78 +156,59 @@
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.07);
   }
 
-  /* ─── Анимация появления сообщения ────────────────────────────────────── */
+  /* ─── Анимация только у нового сообщения ──────────────────────────────── */
   .msg-in {
-    animation: msgIn 0.28s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+    animation: msgIn 0.18s ease-out both;
   }
   .msg-out {
-    animation: msgOut 0.28s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+    animation: msgOut 0.18s ease-out both;
   }
   @keyframes msgIn {
     from {
       opacity: 0;
-      transform: translateX(-12px) scale(0.94);
+      transform: translateX(-6px);
     }
     to {
       opacity: 1;
-      transform: translateX(0) scale(1);
+      transform: translateX(0);
     }
   }
   @keyframes msgOut {
     from {
       opacity: 0;
-      transform: translateX(12px) scale(0.94);
+      transform: translateX(6px);
     }
     to {
       opacity: 1;
-      transform: translateX(0) scale(1);
+      transform: translateX(0);
     }
   }
 
   /* ─── Анимация кнопки отправки ─────────────────────────────────────────── */
   .send-pop {
-    animation: sendPop 0.18s cubic-bezier(0.34, 1.6, 0.64, 1) both;
+    animation: sendPop 0.15s ease-out both;
   }
   @keyframes sendPop {
     from {
-      transform: scale(0.7) rotate(-20deg);
-      opacity: 0.5;
+      transform: scale(0.85);
+      opacity: 0.7;
     }
     to {
-      transform: scale(1) rotate(0deg);
+      transform: scale(1);
       opacity: 1;
     }
   }
 
   /* ─── Анимация фото при загрузке ───────────────────────────────────────── */
   .img-appear {
-    animation: imgAppear 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+    animation: imgAppear 0.25s ease-out both;
   }
   @keyframes imgAppear {
     from {
       opacity: 0;
-      transform: scale(0.88);
-      filter: blur(4px);
     }
     to {
       opacity: 1;
-      transform: scale(1);
-      filter: blur(0);
-    }
-  }
-
-  /* ─── Нативный feel — плавные переходы экранов ─────────────────────────── */
-  .screen-enter {
-    animation: screenIn 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
-  }
-  @keyframes screenIn {
-    from {
-      opacity: 0;
-      transform: translateX(18px);
-    }
-    to {
-      opacity: 1;
-      transform: translateX(0);
     }
   }
 
