@@ -97,39 +97,42 @@
       background: linear-gradient(160deg, #1a56db 0%, #1e3a8a 50%, #0f172a 100%);
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
-      transition: opacity 0.35s ease;
-      /* тоже учитываем safe-area */
+      transition: opacity 0.22s ease, transform 0.22s ease;
       padding-top: env(safe-area-inset-top);
       padding-bottom: env(safe-area-inset-bottom);
     }
-    #vai-splash.fade { opacity: 0; pointer-events: none; }
+    #vai-splash.fade {
+      opacity: 0;
+      transform: scale(1.04);
+      pointer-events: none;
+    }
     #vai-splash img {
-      width: 96px; height: 96px;
-      border-radius: 26px;
-      box-shadow: 0 16px 48px rgba(0,0,0,0.5);
-      margin-bottom: 20px;
+      width: 88px; height: 88px;
+      border-radius: 22px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+      margin-bottom: 16px;
+      animation: splashLogo 0.5s cubic-bezier(0.34, 1.5, 0.64, 1) both;
     }
     #vai-splash h1 {
       color: #fff; font-size: 22px; font-weight: 700;
       font-family: -apple-system, 'SF Pro Display', 'Helvetica Neue', sans-serif;
-      margin: 0 0 6px; letter-spacing: -0.4px;
+      margin: 0 0 4px; letter-spacing: -0.4px;
+      animation: splashText 0.4s 0.1s ease both;
     }
     #vai-splash p {
-      color: rgba(255,255,255,0.5); font-size: 14px;
+      color: rgba(255,255,255,0.45); font-size: 13px;
       font-family: -apple-system, 'Helvetica Neue', sans-serif;
-      margin: 0 0 44px;
+      margin: 0;
+      animation: splashText 0.4s 0.18s ease both;
     }
-    #vai-splash .dots { display: flex; gap: 7px; }
-    #vai-splash .dot {
-      width: 7px; height: 7px; border-radius: 50%;
-      background: rgba(255,255,255,0.35);
-      animation: vdot 1.3s ease-in-out infinite;
+    #vai-splash .dots { display: none; }
+    @keyframes splashLogo {
+      from { opacity: 0; transform: scale(0.7); }
+      to   { opacity: 1; transform: scale(1); }
     }
-    #vai-splash .dot:nth-child(2) { animation-delay: 0.18s; }
-    #vai-splash .dot:nth-child(3) { animation-delay: 0.36s; }
-    @keyframes vdot {
-      0%, 80%, 100% { transform: scale(0.65); opacity: 0.3; }
-      40% { transform: scale(1.1); opacity: 1; }
+    @keyframes splashText {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
   </style>
 </head>
@@ -184,11 +187,11 @@
       if (!el || el._hidden) return;
       el._hidden = true;
       el.classList.add('fade');
-      setTimeout(function() { el && el.parentNode && el.parentNode.removeChild(el); }, 380);
+      setTimeout(function() { el && el.parentNode && el.parentNode.removeChild(el); }, 250);
     };
 
     // Резервный таймер на случай медленной загрузки
-    setTimeout(function() { window.__hideSplash && window.__hideSplash(); }, 3000);
+    setTimeout(function() { window.__hideSplash && window.__hideSplash(); }, 1500);
   </script>
 
   <!-- Yandex.Metrika counter -->

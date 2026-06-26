@@ -141,19 +141,82 @@
     border-radius: 999px;
   }
 
+  /* ─── Пузыри сообщений ────────────────────────────────────────────────── */
   .msg-bubble-mine {
-    background: linear-gradient(135deg, hsl(217 91% 50%), hsl(217 91% 42%));
+    background: linear-gradient(135deg, hsl(217 91% 52%), hsl(217 91% 43%));
     color: white;
     border-radius: 18px 18px 4px 18px;
+    box-shadow: 0 2px 8px hsl(217 91% 50% / 0.28);
   }
 
   .msg-bubble-peer {
     background: hsl(var(--secondary));
     color: hsl(var(--foreground));
     border-radius: 18px 18px 18px 4px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.07);
   }
 
-  /* ─── Нативный feel — плавные переходы ────────────────────────────────── */
+  /* ─── Анимация появления сообщения ────────────────────────────────────── */
+  .msg-in {
+    animation: msgIn 0.28s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+  }
+  .msg-out {
+    animation: msgOut 0.28s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+  }
+  @keyframes msgIn {
+    from {
+      opacity: 0;
+      transform: translateX(-12px) scale(0.94);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+    }
+  }
+  @keyframes msgOut {
+    from {
+      opacity: 0;
+      transform: translateX(12px) scale(0.94);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+    }
+  }
+
+  /* ─── Анимация кнопки отправки ─────────────────────────────────────────── */
+  .send-pop {
+    animation: sendPop 0.18s cubic-bezier(0.34, 1.6, 0.64, 1) both;
+  }
+  @keyframes sendPop {
+    from {
+      transform: scale(0.7) rotate(-20deg);
+      opacity: 0.5;
+    }
+    to {
+      transform: scale(1) rotate(0deg);
+      opacity: 1;
+    }
+  }
+
+  /* ─── Анимация фото при загрузке ───────────────────────────────────────── */
+  .img-appear {
+    animation: imgAppear 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+  }
+  @keyframes imgAppear {
+    from {
+      opacity: 0;
+      transform: scale(0.88);
+      filter: blur(4px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+      filter: blur(0);
+    }
+  }
+
+  /* ─── Нативный feel — плавные переходы экранов ─────────────────────────── */
   .screen-enter {
     animation: screenIn 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
   }
@@ -168,13 +231,26 @@
     }
   }
 
-  /* Убираем резиновый скролл на iOS */
+  /* ─── Пульс записи голоса ──────────────────────────────────────────────── */
+  .voice-wave {
+    animation: voiceWave 0.9s ease-in-out infinite alternate;
+  }
+  @keyframes voiceWave {
+    from {
+      transform: scaleY(0.4);
+    }
+    to {
+      transform: scaleY(1);
+    }
+  }
+
+  /* ─── Убираем резиновый скролл на iOS ─────────────────────────────────── */
   body {
     overscroll-behavior: none;
     -webkit-overflow-scrolling: touch;
   }
 
-  /* Safe area для iPhone с чёлкой */
+  /* ─── Safe area для iPhone с чёлкой ───────────────────────────────────── */
   .safe-top {
     padding-top: env(safe-area-inset-top);
   }
@@ -182,11 +258,29 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 
-  /* Кнопки — нативная отдача при нажатии */
-  button:active {
-    transform: scale(0.97);
-  }
+  /* ─── Кнопки — нативная отдача при нажатии ────────────────────────────── */
   button {
-    transition: transform 0.1s ease;
+    transition:
+      transform 0.12s cubic-bezier(0.34, 1.4, 0.64, 1),
+      opacity 0.1s ease,
+      background-color 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  button:active {
+    transform: scale(0.93);
+    opacity: 0.88;
+  }
+
+  /* ─── Ссылки / интерактивные элементы без синей рамки на тапе ─────────── */
+  a,
+  input,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* ─── Плавный скролл ───────────────────────────────────────────────────── */
+  * {
+    scroll-behavior: smooth;
   }
 }

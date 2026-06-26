@@ -1749,7 +1749,6 @@ function VoicePlayer({ src, mine }: { src: string; mine: boolean }) {
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [speed, setSpeed] = useState(1);
-
   const speeds = [1, 1.5, 2];
 
   const toggle = () => {
@@ -1757,46 +1756,74 @@ function VoicePlayer({ src, mine }: { src: string; mine: boolean }) {
     if (playing) { a.pause(); setPlaying(false); }
     else { a.play(); setPlaying(true); }
   };
-
   const cycleSpeed = () => {
     const a = audioRef.current; if (!a) return;
     const next = speeds[(speeds.indexOf(speed) + 1) % speeds.length];
-    setSpeed(next);
-    a.playbackRate = next;
+    setSpeed(next); a.playbackRate = next;
   };
-
   const seek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const a = audioRef.current; if (!a) return;
     a.currentTime = Number(e.target.value);
     setProgress(Number(e.target.value));
   };
-
   const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2,'0')}:${String(Math.floor(s % 60)).padStart(2,'0')}`;
+  const pct = duration > 0 ? (progress / duration) * 100 : 0;
+
+  // Волны — 5 столбиков, анимируются только во время воспроизведения
+  const bars = [0.4, 0.75, 1, 0.65, 0.45];
 
   return (
-    <div className={`flex items-center gap-2 py-0.5 min-w-[200px] max-w-[240px]`}>
+    <div className="flex items-center gap-2.5 py-0.5 min-w-[210px] max-w-[250px]">
       <audio ref={audioRef} src={src} preload="metadata"
         onTimeUpdate={e => setProgress((e.target as HTMLAudioElement).currentTime)}
         onLoadedMetadata={e => setDuration((e.target as HTMLAudioElement).duration)}
         onEnded={() => { setPlaying(false); setProgress(0); if (audioRef.current) audioRef.current.currentTime = 0; }}
       />
+      {/* Кнопка play/pause */}
       <button onClick={toggle}
-        className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center transition-all ${mine ? 'bg-white/20 hover:bg-white/30' : 'bg-primary/20 hover:bg-primary/30'}`}>
-        <Icon name={playing ? 'Pause' : 'Play'} size={16} className={mine ? 'text-white' : 'text-primary'} />
+        className={`w-9 h-9 shrink-0 rounded-full flex items-center justify-center shadow-sm
+          ${mine ? 'bg-white/25 hover:bg-white/35' : 'bg-primary/15 hover:bg-primary/25'}`}>
+        <Icon name={playing ? 'Pause' : 'Play'} size={17} className={mine ? 'text-white' : 'text-primary'} />
       </button>
-      <div className="flex-1 flex flex-col gap-1">
-        <input type="range" min={0} max={duration || 1} step={0.1} value={progress} onChange={seek}
-          className="w-full h-1 rounded-full accent-current cursor-pointer"
-          style={{ accentColor: mine ? 'rgba(255,255,255,0.8)' : 'hsl(var(--primary))' }}
-        />
-        <span className={`text-[10px] ${mine ? 'text-white/50' : 'text-muted-foreground'}`}>
-          {fmt(progress)} / {fmt(duration)}
-        </span>
+
+      <div className="flex-1 flex flex-col gap-1.5">
+        {/* Волны + прогресс */}
+        <div className="relative flex items-center gap-0.5 h-6">
+          {/* Волны */}
+          <div className="flex items-center gap-[3px] w-full h-full">
+            {bars.map((h, i) => (
+              <div key={i}
+                className="rounded-full flex-1"
+                style={{
+                  height: `${h * 100}%`,
+                  background: mine
+                    ? `rgba(255,255,255,${playing ? 0.9 : 0.4})`
+                    : `hsl(var(--primary) / ${playing ? 0.85 : 0.35})`,
+                  transform: playing ? undefined : 'scaleY(1)',
+                  animation: playing ? `voiceWave ${0.6 + i * 0.12}s ease-in-out infinite alternate` : 'none',
+                  transition: 'background 0.3s ease',
+                }}
+              />
+            ))}
+          </div>
+          {/* Прогресс-бар поверх волн */}
+          <input type="range" min={0} max={duration || 1} step={0.1} value={progress} onChange={seek}
+            className="absolute inset-0 w-full opacity-0 cursor-pointer h-full"
+          />
+        </div>
+
+        {/* Время + скорость */}
+        <div className="flex items-center justify-between">
+          <span className={`text-[10px] tabular-nums ${mine ? 'text-white/55' : 'text-muted-foreground'}`}>
+            {fmt(progress)} / {fmt(duration)}
+          </span>
+          <button onClick={cycleSpeed}
+            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full
+              ${mine ? 'bg-white/20 text-white' : 'bg-primary/10 text-primary'}`}>
+            {speed}×
+          </button>
+        </div>
       </div>
-      <button onClick={cycleSpeed}
-        className={`text-[10px] font-bold w-8 h-6 rounded-full flex items-center justify-center shrink-0 transition-all ${mine ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-secondary hover:bg-secondary/80 text-foreground'}`}>
-        {speed}x
-      </button>
     </div>
   );
 }
@@ -2002,7 +2029,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
           const showEmoji = emojiTarget === m.id;
 
           return (
-            <div key={m.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}
+            <div key={m.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'} ${mine ? 'msg-out' : 'msg-in'}`}
               onClick={e => { e.stopPropagation(); if (!m.is_removed) { setSelectedMsg(isSelected ? null : m.id); setEmojiTarget(null); } }}>
               {showNick && <span className="text-[11px] text-accent ml-10 mb-0.5">{m.sender_nick}</span>}
               <div className={`flex items-end gap-1.5 ${mine ? 'flex-row-reverse' : ''} max-w-[82%]`}>
@@ -2012,9 +2039,9 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
                     {m.is_removed
                       ? <p className="text-xs italic opacity-60">Сообщение удалено</p>
                       : m.media_type === 'image' || m.image_url
-                        ? <img src={m.media_url || m.image_url || ''} alt="" className="rounded-2xl max-h-60 max-w-full" />
+                        ? <img src={m.media_url || m.image_url || ''} alt="" className="rounded-2xl max-h-60 max-w-full img-appear" loading="lazy" />
                         : m.media_type === 'video'
-                          ? <video src={m.media_url || ''} controls className="rounded-2xl max-h-48 max-w-full" />
+                          ? <video src={m.media_url || ''} controls className="rounded-2xl max-h-48 max-w-full img-appear" />
                           : (m.media_type === 'audio' || m.media_type === 'voice')
                             ? <VoicePlayer src={m.media_url || ''} mine={mine} />
                             : m.media_type === 'file'
@@ -2153,12 +2180,13 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
               placeholder="Сообщение…"
               className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 transition-all text-sm text-slate-800 placeholder:text-slate-400" />
             {input.trim()
-              ? <button onClick={() => send()} className="w-9 h-9 shrink-0 rounded-xl bg-blue-600 hover:bg-blue-700 flex items-center justify-center transition-colors shadow-sm shadow-blue-200">
-                  <Icon name="Send" size={17} className="text-white" />
+              ? <button key="send" onClick={() => send()}
+                  className="w-10 h-10 shrink-0 rounded-full bg-blue-600 flex items-center justify-center shadow-md shadow-blue-300/40 send-pop">
+                  <Icon name="Send" size={18} className="text-white" />
                 </button>
-              : <button onClick={startVoice}
-                  className="w-9 h-9 shrink-0 rounded-xl bg-blue-600 hover:bg-blue-700 flex items-center justify-center transition-colors shadow-sm shadow-blue-200">
-                  <Icon name="Mic" size={17} className="text-white" />
+              : <button key="mic" onClick={startVoice}
+                  className="w-10 h-10 shrink-0 rounded-full bg-blue-600 flex items-center justify-center shadow-md shadow-blue-300/40 send-pop">
+                  <Icon name="Mic" size={18} className="text-white" />
                 </button>
             }
           </div>
