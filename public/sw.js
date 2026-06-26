@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vai-messenger-v3';
+const CACHE_NAME = 'vai-messenger-v4';
 const ICON_URL = 'https://cdn.poehali.dev/projects/59076a76-2862-4ba6-9c95-c02c43e87c88/files/d13675c5-0092-4683-9d21-a86c2a22bd22.jpg';
 
 // ── Установка ─────────────────────────────────────────────────────────────────
@@ -11,12 +11,17 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// ── Активация — удаляем старые кэши ──────────────────────────────────────────
+// ── Активация — удаляем старые кэши и говорим всем клиентам обновиться ───────
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    ).then(async () => {
+      await self.clients.claim();
+      // Говорим всем открытым вкладкам что вышло обновление
+      const clients = await self.clients.matchAll({ type: 'window' });
+      clients.forEach(client => client.postMessage({ type: 'APP_UPDATED' }));
+    })
   );
 });
 

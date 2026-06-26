@@ -149,9 +149,33 @@
   <script type="module" src="/src/main.tsx"></script>
 
   <script>
-    // ── Service Worker ────────────────────────────────────────────────────────
+    // ── Service Worker + авто-обновление ─────────────────────────────────────
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+      navigator.serviceWorker.register('/sw.js', { scope: '/' })
+        .then(function(reg) {
+          // Проверяем обновление каждый раз при открытии
+          reg.update();
+          // Если SW обновился — перезагружаем страницу автоматически
+          reg.addEventListener('updatefound', function() {
+            var newSW = reg.installing;
+            if (!newSW) return;
+            newSW.addEventListener('statechange', function() {
+              if (newSW.state === 'activated') {
+                // Новый SW активен — тихо перезагружаемся
+                window.location.reload();
+              }
+            });
+          });
+        })
+        .catch(function() {});
+
+      // Слушаем сообщение от SW об обновлении
+      navigator.serviceWorker.addEventListener('message', function(event) {
+        if (event.data && event.data.type === 'APP_UPDATED') {
+          // Небольшая задержка чтобы не мешать текущему действию пользователя
+          setTimeout(function() { window.location.reload(); }, 1500);
+        }
+      });
     }
 
     // ── Функция скрытия splash — вызывается из React ──────────────────────────
