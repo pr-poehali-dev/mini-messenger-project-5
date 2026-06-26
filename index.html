@@ -75,20 +75,19 @@
     }
     html {
       height: 100%;
-      background: #0f172a;
-      /* safe-area для iPhone с чёлкой/Dynamic Island */
-      padding-top: env(safe-area-inset-top);
+      background: #1a56db;
     }
     body {
       margin: 0; padding: 0;
-      overscroll-behavior: none;   /* убираем резиновый скролл страницы */
-      background: #0f172a;
+      overscroll-behavior: none;
+      background: #1a56db;
       min-height: 100vh;
-      min-height: 100dvh;         /* dvh = dynamic viewport height, правильно на iOS */
+      min-height: 100dvh;
     }
     #root {
       min-height: 100vh;
       min-height: 100dvh;
+      background: #1a56db;
     }
 
     /* ─── Splash screen ────────────────────────────────────────────────────── */
@@ -98,8 +97,6 @@
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
       transition: opacity 0.22s ease, transform 0.22s ease;
-      padding-top: env(safe-area-inset-top);
-      padding-bottom: env(safe-area-inset-bottom);
     }
     #vai-splash.fade {
       opacity: 0;
