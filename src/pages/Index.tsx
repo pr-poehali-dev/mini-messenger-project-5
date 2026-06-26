@@ -561,20 +561,33 @@ function SetupScreen({ user, onDone }: { user: User; onDone: (u: User) => void }
 // TABS SHELL
 // ══════════════════════════════════════════════════════════════════════════════
 function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (t: Tab) => void; children: React.ReactNode; user: User }) {
-  const [unread, setUnread] = useState(0);
+  const [unreadNotifs, setUnreadNotifs] = useState(0);
+  const [unreadChats, setUnreadChats] = useState(0);
+
   useEffect(() => {
-    const load = () => api(`notifications&user_id=${user.id}`).then(d => {
-      setUnread(Number(d.unread) || 0);
+    const loadNotifs = () => api(`notifications&user_id=${user.id}`).then(d => {
+      setUnreadNotifs(Number(d.unread) || 0);
     });
-    load();
-    const iv = setInterval(load, 15000);
+    loadNotifs();
+    const iv = setInterval(loadNotifs, 10000);
+    return () => clearInterval(iv);
+  }, [user.id]);
+
+  useEffect(() => {
+    const loadChats = () => api(`chats&user_id=${user.id}`).then(d => {
+      const chats = (d.chats as Array<{ unread_count?: number }>) || [];
+      const total = chats.reduce((sum, c) => sum + (Number(c.unread_count) || 0), 0);
+      setUnreadChats(total);
+    });
+    loadChats();
+    const iv = setInterval(loadChats, 5000);
     return () => clearInterval(iv);
   }, [user.id]);
 
   const tabs: { key: Tab; icon: string; label: string; badge?: number }[] = [
     { key: 'search', icon: 'Search', label: 'Поиск' },
-    { key: 'chats', icon: 'MessageCircle', label: 'Чаты' },
-    { key: 'notifications', icon: 'Bell', label: 'Уведомления', badge: unread },
+    { key: 'chats', icon: 'MessageCircle', label: 'Чаты', badge: unreadChats },
+    { key: 'notifications', icon: 'Bell', label: 'Уведомления', badge: unreadNotifs },
     { key: 'profile', icon: 'User', label: 'Профиль' },
   ];
   return (
