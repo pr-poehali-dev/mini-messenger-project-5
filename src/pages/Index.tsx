@@ -97,7 +97,7 @@ export default function Index() {
     if (user) return;
     const device_id = getDeviceId();
     // Пытаемся восстановить сессию по device (nick не нужен — передаём пустой, backend найдёт по device)
-    api('login', 'POST', { nick: '__device_auto__', device_id }).then(data => {
+    api('login', 'POST', { nick: '', device_id }).then(data => {
       if (data.user) {
         const u = data.user;
         setUser(u);
