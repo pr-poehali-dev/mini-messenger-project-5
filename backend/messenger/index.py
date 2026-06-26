@@ -657,6 +657,10 @@ def handler(event: dict, context) -> dict:
         # ── PING / OFFLINE ───────────────────────────────
         if action == 'ping' and method == 'POST':
             uid = int(body.get('user_id') or 0)
+            cur.execute("SELECT id FROM users WHERE id=%s", (uid,))
+            if not cur.fetchone():
+                # Пользователь удалён — сообщаем фронтенду разлогиниться
+                return _resp(200, {'deleted': True})
             cur.execute("UPDATE users SET is_online=TRUE, last_seen=NOW() WHERE id=%s", (uid,))
             conn.commit()
             return _resp(200, {'ok': True})

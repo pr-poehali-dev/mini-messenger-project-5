@@ -196,8 +196,19 @@ export default function Index() {
     // Скрываем splash screen
     if (typeof window.__hideSplash === 'function') window.__hideSplash();
 
-    const iv = setInterval(() => api('ping', 'POST', { user_id: user.id }), 30000);
-    api('ping', 'POST', { user_id: user.id });
+    const doPing = async () => {
+      const d = await api('ping', 'POST', { user_id: user.id });
+      if (d.deleted) {
+        // Аккаунт удалён администратором — принудительно выходим
+        localStorage.removeItem('orbit_user');
+        didLogout.current = true;
+        setUser(null);
+        setScreen({ name: 'login' });
+        setLoginError('Ваш аккаунт был удалён.');
+      }
+    };
+    doPing();
+    const iv = setInterval(doPing, 30000);
     const off = () => api('offline', 'POST', { user_id: user.id });
     window.addEventListener('beforeunload', off);
     return () => { clearInterval(iv); window.removeEventListener('beforeunload', off); };
