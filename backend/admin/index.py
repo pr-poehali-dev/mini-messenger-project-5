@@ -125,43 +125,62 @@ def handler(event: dict, context) -> dict:
             if not uid:
                 return _resp(400, {'error': 'user_id обязателен'})
 
-            # 1. Находим все чаты пользователя (DM)
-            cur.execute(
-                f"SELECT id FROM {SCHEMA}.chats WHERE user_a=%s OR user_b=%s",
-                (uid, uid)
-            )
+            S = SCHEMA
+
+            # 1. Звонки и сигналы (нет FK зависимостей дальше)
+            cur.execute(f"DELETE FROM {S}.active_calls WHERE caller_id=%s OR callee_id=%s", (uid, uid))
+            cur.execute(f"DELETE FROM {S}.call_signals WHERE from_user_id=%s OR to_user_id=%s", (uid, uid))
+            cur.execute(f"DELETE FROM {S}.typing_status WHERE user_id=%s", (uid,))
+
+            # 2. Находим все чаты пользователя (DM и групповые через chats)
+            cur.execute(f"SELECT id FROM {S}.chats WHERE user_a=%s OR user_b=%s", (uid, uid))
             chat_ids = [r['id'] for r in cur.fetchall()]
 
-            # 2. Удаляем всё что связано с этими чатами
+            # 3. Для каждого чата — чистим сообщения и производные
             for cid in chat_ids:
-                cur.execute(f"DELETE FROM {SCHEMA}.message_reactions WHERE message_id IN (SELECT id FROM {SCHEMA}.messages WHERE chat_id=%s)", (cid,))
-                cur.execute(f"DELETE FROM {SCHEMA}.messages WHERE chat_id=%s", (cid,))
-                cur.execute(f"DELETE FROM {SCHEMA}.chat_reads WHERE chat_id=%s", (cid,))
-                cur.execute(f"DELETE FROM {SCHEMA}.hidden_chats WHERE chat_id=%s", (cid,))
-                cur.execute(f"DELETE FROM {SCHEMA}.typing_status WHERE chat_id=%s", (cid,))
+                cur.execute(f"DELETE FROM {S}.message_reactions WHERE message_id IN (SELECT id FROM {S}.messages WHERE chat_id=%s)", (cid,))
+                cur.execute(f"DELETE FROM {S}.chat_reads WHERE chat_id=%s", (cid,))
+                cur.execute(f"DELETE FROM {S}.hidden_chats WHERE chat_id=%s", (cid,))
+                cur.execute(f"DELETE FROM {S}.messages WHERE chat_id=%s", (cid,))
 
-            # 3. Удаляем сами чаты пользователя
-            if chat_ids:
-                cur.execute(f"DELETE FROM {SCHEMA}.chats WHERE user_a=%s OR user_b=%s", (uid, uid))
+            # 4. Удаляем DM-чаты пользователя
+            cur.execute(f"DELETE FROM {S}.chats WHERE user_a=%s OR user_b=%s", (uid, uid))
 
-            # 4. Убираем из групп и групповые уведомления
-            cur.execute(f"DELETE FROM {SCHEMA}.group_members WHERE user_id=%s", (uid,))
+            # 5. Группы где пользователь — владелец: удаляем группу целиком
+            cur.execute(f"SELECT id FROM {S}.groups WHERE owner_id=%s", (uid,))
+            owned_groups = [r['id'] for r in cur.fetchall()]
+            for gid in owned_groups:
+                # Находим групповой чат
+                cur.execute(f"SELECT id FROM {S}.chats WHERE group_id=%s", (gid,))
+                gchat = cur.fetchone()
+                if gchat:
+                    gcid = gchat['id']
+                    cur.execute(f"DELETE FROM {S}.message_reactions WHERE message_id IN (SELECT id FROM {S}.messages WHERE chat_id=%s)", (gcid,))
+                    cur.execute(f"DELETE FROM {S}.chat_reads WHERE chat_id=%s", (gcid,))
+                    cur.execute(f"DELETE FROM {S}.hidden_chats WHERE chat_id=%s", (gcid,))
+                    cur.execute(f"DELETE FROM {S}.messages WHERE chat_id=%s", (gcid,))
+                    cur.execute(f"DELETE FROM {S}.chats WHERE id=%s", (gcid,))
+                cur.execute(f"DELETE FROM {S}.group_members WHERE group_id=%s", (gid,))
+                cur.execute(f"DELETE FROM {S}.groups WHERE id=%s", (gid,))
 
-            # 5. Удаляем реакции, уведомления, подписки, блоки
-            cur.execute(f"DELETE FROM {SCHEMA}.message_reactions WHERE user_id=%s", (uid,))
-            cur.execute(f"DELETE FROM {SCHEMA}.notifications WHERE user_id=%s OR from_user_id=%s", (uid, uid))
-            cur.execute(f"DELETE FROM {SCHEMA}.follows WHERE follower_id=%s OR following_id=%s", (uid, uid))
-            cur.execute(f"DELETE FROM {SCHEMA}.blocks WHERE blocker_id=%s OR blocked_id=%s", (uid, uid))
+            # 6. Убираем из чужих групп (где участник, не owner)
+            cur.execute(f"DELETE FROM {S}.group_members WHERE user_id=%s", (uid,))
 
-            # 6. Звонки и сигналы
-            cur.execute(f"DELETE FROM {SCHEMA}.call_signals WHERE from_user_id=%s OR to_user_id=%s", (uid, uid))
-            cur.execute(f"DELETE FROM {SCHEMA}.active_calls WHERE caller_id=%s OR callee_id=%s", (uid, uid))
+            # 7. Реакции пользователя в чужих чатах
+            cur.execute(f"DELETE FROM {S}.message_reactions WHERE user_id=%s", (uid,))
 
-            # 7. Оставшиеся сообщения юзера в групповых чатах — помечаем как удалённые
-            cur.execute(f"UPDATE {SCHEMA}.messages SET is_removed=TRUE, text='[удалено]' WHERE sender_id=%s", (uid,))
+            # 8. Сообщения в оставшихся чужих чатах — помечаем удалёнными
+            cur.execute(f"UPDATE {S}.messages SET is_removed=TRUE, text='Сообщение удалено' WHERE sender_id=%s", (uid,))
 
-            # 8. Наконец удаляем самого пользователя
-            cur.execute(f"DELETE FROM {SCHEMA}.users WHERE id=%s", (uid,))
+            # 9. Уведомления, подписки, блоки
+            cur.execute(f"DELETE FROM {S}.notifications WHERE user_id=%s OR from_user_id=%s", (uid, uid))
+            cur.execute(f"DELETE FROM {S}.follows WHERE follower_id=%s OR following_id=%s", (uid, uid))
+            cur.execute(f"DELETE FROM {S}.blocks WHERE blocker_id=%s OR blocked_id=%s", (uid, uid))
+            cur.execute(f"DELETE FROM {S}.hidden_chats WHERE user_id=%s", (uid,))
+            cur.execute(f"DELETE FROM {S}.chat_reads WHERE user_id=%s", (uid,))
+
+            # 10. Наконец удаляем пользователя — теперь все FK очищены
+            cur.execute(f"DELETE FROM {S}.users WHERE id=%s", (uid,))
             conn.commit()
 
             return _resp(200, {'ok': True})
