@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import Icon from '@/components/ui/icon';
 
+declare global { interface Window { __hideSplash?: () => void; } }
+
 const API = 'https://functions.poehali.dev/b927178a-1937-4d4d-8fd6-2a1ffe4d52be';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -107,7 +109,12 @@ export default function Index() {
         localStorage.setItem('orbit_user', JSON.stringify(u));
         setUser(u);
         setScreen(u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' });
+      } else {
+        // Нет сохранённой сессии — показываем экран логина, убираем splash
+        if (typeof window.__hideSplash === 'function') window.__hideSplash();
       }
+    }).catch(() => {
+      if (typeof window.__hideSplash === 'function') window.__hideSplash();
     });
     return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -154,11 +161,54 @@ export default function Index() {
   // ping online every 30s
   useEffect(() => {
     if (!user) return;
+
+    // Передаём userId в Service Worker для фоновых уведомлений
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: 'SET_USER', userId: user.id });
+    }
+
+    // Запрашиваем разрешение на уведомления (один раз)
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+
+    // Скрываем splash screen
+    if (typeof window.__hideSplash === 'function') window.__hideSplash();
+
     const iv = setInterval(() => api('ping', 'POST', { user_id: user.id }), 30000);
     api('ping', 'POST', { user_id: user.id });
     const off = () => api('offline', 'POST', { user_id: user.id });
     window.addEventListener('beforeunload', off);
     return () => { clearInterval(iv); window.removeEventListener('beforeunload', off); };
+  }, [user]);
+
+  // Показываем браузерные уведомления когда приходят сообщения (приложение открыто)
+  const lastNotifId = useRef(0);
+  useEffect(() => {
+    if (!user) return;
+    if (Notification.permission !== 'granted') return;
+    const check = async () => {
+      const d = await api(`notifications&user_id=${user.id}`);
+      const notifs = (d.notifications as Array<{id: number; type: string; from_nick?: string; is_read: boolean}>) || [];
+      const newOnes = notifs.filter(n => !n.is_read && n.id > lastNotifId.current);
+      if (newOnes.length && lastNotifId.current > 0) {
+        newOnes.forEach(n => {
+          const labels: Record<string, string> = {
+            new_message: '💬 Новое сообщение',
+            missed_call: '📞 Пропущенный звонок',
+            follow: '👤 Новый подписчик',
+            group_invite: '👥 Приглашение в группу',
+          };
+          const sw = navigator.serviceWorker.controller;
+          if (sw) {
+            sw.postMessage({ type: 'SHOW_NOTIFICATION', title: labels[n.type] || 'Вай Мессенджер', body: n.from_nick ? `@${n.from_nick}` : '' });
+          }
+        });
+      }
+      if (notifs.length) lastNotifId.current = Math.max(...notifs.map(n => n.id));
+    };
+    const iv = setInterval(check, 8000);
+    return () => clearInterval(iv);
   }, [user]);
 
   // Входящие звонки — глобальный polling

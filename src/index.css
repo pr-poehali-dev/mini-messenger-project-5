@@ -152,4 +152,41 @@
     color: hsl(var(--foreground));
     border-radius: 18px 18px 18px 4px;
   }
+
+  /* ─── Нативный feel — плавные переходы ────────────────────────────────── */
+  .screen-enter {
+    animation: screenIn 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+  }
+  @keyframes screenIn {
+    from {
+      opacity: 0;
+      transform: translateX(18px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  /* Убираем резиновый скролл на iOS */
+  body {
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Safe area для iPhone с чёлкой */
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Кнопки — нативная отдача при нажатии */
+  button:active {
+    transform: scale(0.97);
+  }
+  button {
+    transition: transform 0.1s ease;
+  }
 }
