@@ -16,9 +16,11 @@ const api = async (action: string, method = 'GET', body?: object): Promise<Recor
       method, headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
     });
-    return r.json();
+    const json = await r.json();
+    if (!r.ok && !json.error) json.error = `Ошибка сервера (${r.status})`;
+    return json;
   } catch {
-    return {};
+    return { error: 'Нет соединения. Проверь интернет и попробуй снова.' };
   }
 };
 const fmtTime = (iso: string | null) => {
@@ -92,42 +94,43 @@ export default function Index() {
   const push = (s: Screen) => setScreen(s);
   const back = () => setScreen(user ? { name: 'tabs', tab: 'chats' } : { name: 'login' });
 
-  // При открытии приложения — если нет user в localStorage но есть device_id → автовход
+  // При открытии приложения — автовход по device_id
   useEffect(() => {
     if (user) return;
+    let cancelled = false;
     const device_id = getDeviceId();
-    // Пытаемся восстановить сессию по device (nick не нужен — передаём пустой, backend найдёт по device)
     api('login', 'POST', { nick: '', device_id }).then(data => {
+      if (cancelled) return;
       if (data.user) {
-        const u = data.user;
-        setUser(u);
+        const u = data.user as User & { profile_complete: boolean };
         localStorage.setItem('orbit_user', JSON.stringify(u));
-        push(u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' });
+        setUser(u);
+        setScreen(u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' });
       }
-      // если ошибка — остаёмся на экране логина (новое устройство, нужно регистрироваться)
     });
+    return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = async (nick: string, password: string) => {
     setLoginError('');
     const data = await api('login', 'POST', { nick: nick.trim().toLowerCase(), password, device_id: getDeviceId() });
     if (data.error) { setLoginError(data.error as string); return; }
-    if (!data.user) { setLoginError('Ошибка соединения, попробуй ещё раз'); return; }
+    if (!data.user) { setLoginError('Нет соединения. Проверь интернет и попробуй снова.'); return; }
     const u = data.user as User & { profile_complete: boolean };
-    setUser(u);
     localStorage.setItem('orbit_user', JSON.stringify(u));
-    push(u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' });
+    setUser(u);
+    setScreen(u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' });
   };
 
   const loginByNick = async (nick: string, password: string) => {
     setLoginError('');
     const data = await api('login_by_nick', 'POST', { nick: nick.trim().toLowerCase(), password, device_id: getDeviceId() });
     if (data.error) { setLoginError(data.error as string); return; }
-    if (!data.user) { setLoginError('Ошибка соединения, попробуй ещё раз'); return; }
+    if (!data.user) { setLoginError('Нет соединения. Проверь интернет и попробуй снова.'); return; }
     const u = data.user as User & { profile_complete: boolean };
-    setUser(u);
     localStorage.setItem('orbit_user', JSON.stringify(u));
-    push(u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' });
+    setUser(u);
+    setScreen(u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' });
   };
 
   // Выход — НЕ удаляем device_id из localStorage, только user из памяти
@@ -177,7 +180,7 @@ export default function Index() {
     return () => clearInterval(iv);
   }, [user, globalCall, incomingCall]);  
 
-  if (!user || screen.name === 'login') return <LoginScreen onRegister={login} onLogin={loginByNick} error={loginError} setError={setLoginError} />;
+  if (screen.name === 'login' || !user) return <LoginScreen onRegister={login} onLogin={loginByNick} error={loginError} setError={setLoginError} />;
   if (screen.name === 'setup') return <SetupScreen user={user} onDone={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); push({ name: 'tabs', tab: 'chats' }); }} />;
 
   const renderScreen = () => {
