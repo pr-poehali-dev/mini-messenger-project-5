@@ -82,7 +82,11 @@ export default function Index() {
   const [user, setUser] = useState<User | null>(() => {
     const r = localStorage.getItem('orbit_user'); return r ? JSON.parse(r) : null;
   });
-  const [screen, setScreen] = useState<Screen>(user ? { name: 'tabs', tab: 'chats' } : { name: 'login' });
+  const [screen, setScreen] = useState<Screen>(() => {
+    const r = localStorage.getItem('orbit_user');
+    if (r) { const u = JSON.parse(r); return u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' }; }
+    return { name: 'login' };
+  });
   const [loginError, setLoginError] = useState('');
   const didLogout = useRef(false); // флаг ручного выхода — блокирует автовход
   // Системная тема — следим за prefers-color-scheme

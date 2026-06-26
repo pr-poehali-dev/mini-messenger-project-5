@@ -90,9 +90,8 @@
       background: #1a56db;
     }
 
-    /* ─── Скрываем контент пока React не готов ───────────────────────────── */
-    #root { opacity: 0; transition: opacity 0.2s ease; }
-    #root.ready { opacity: 1; }
+    /* ─── #root всегда виден — без мигания ───────────────────────────────── */
+    #root { opacity: 1; }
   </style>
 </head>
 
@@ -130,14 +129,8 @@
       });
     }
 
-    // ── Показываем #root когда React готов ────────────────────────────────────
-    window.__hideSplash = function() {
-      var root = document.getElementById('root');
-      if (root) root.classList.add('ready');
-    };
-
-    // Резервный таймер — показываем в любом случае через 1.2с
-    setTimeout(function() { window.__hideSplash && window.__hideSplash(); }, 1200);
+    // splash убран — функция-заглушка чтобы не было ошибок в React
+    window.__hideSplash = function() {};
   </script>
 
   <!-- Yandex.Metrika counter -->
