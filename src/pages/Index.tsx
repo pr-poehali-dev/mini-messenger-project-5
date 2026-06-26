@@ -1,7 +1,17 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import Icon from '@/components/ui/icon';
 
-declare global { interface Window { __hideSplash?: () => void; } }
+declare global {
+  interface Window {
+    __hideSplash?: () => void;
+    OneSignalDeferred?: Array<(os: OneSignalType) => void>;
+  }
+}
+type OneSignalType = {
+  login: (id: string) => Promise<void>;
+  User: { PushSubscription: { optIn: () => Promise<void> } };
+  Notifications: { requestPermission: () => Promise<void>; permissionNative: string };
+};
 
 const API = 'https://functions.poehali.dev/b927178a-1937-4d4d-8fd6-2a1ffe4d52be';
 
@@ -167,9 +177,20 @@ export default function Index() {
       navigator.serviceWorker.controller.postMessage({ type: 'SET_USER', userId: user.id });
     }
 
-    // Запрашиваем разрешение на уведомления (один раз)
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
+    // OneSignal — привязываем пользователя и запрашиваем разрешение на push
+    if (window.OneSignalDeferred) {
+      window.OneSignalDeferred.push(async (OneSignal) => {
+        try {
+          // Привязываем external user ID — чтобы слать push конкретному юзеру
+          await OneSignal.login(String(user.id));
+          // Запрашиваем разрешение если ещё не давали
+          if (OneSignal.Notifications.permissionNative === 'default') {
+            await OneSignal.Notifications.requestPermission();
+          }
+          // Подписываемся на push
+          await OneSignal.User.PushSubscription.optIn();
+        } catch (_e) { /* push не поддерживается на этом устройстве */ }
+      });
     }
 
     // Скрываем splash screen

@@ -44,11 +44,11 @@
       "bodyMatcher": "partial"
     },
     {
-      "name": "Profile get",
+      "name": "Profile get - not found",
       "method": "GET",
-      "path": "/?action=profile&user_id=1&me=0",
-      "expectedStatus": 200,
-      "expectedBody": {"user": {}},
+      "path": "/?action=profile&user_id=999999&me=0",
+      "expectedStatus": 404,
+      "expectedBody": {"error": "Не найден"},
       "bodyMatcher": "partial"
     }
   ]

@@ -2,12 +2,45 @@ import json
 import os
 import secrets
 import hashlib
+import urllib.request
 import psycopg2
 from psycopg2.extras import RealDictCursor
+
+ONESIGNAL_APP_ID = 'b50464b8-77e0-4bef-9897-aba0433d5f06'
 
 
 def _hash_pw(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
+
+
+def _push(to_user_ids: list, title: str, body: str, url: str = '/') -> None:
+    """Отправить push через OneSignal по external_id пользователей."""
+    api_key = os.environ.get('ONESIGNAL_API_KEY', '')
+    if not api_key or not to_user_ids:
+        return
+    try:
+        payload = json.dumps({
+            'app_id': ONESIGNAL_APP_ID,
+            'include_aliases': {'external_id': [str(uid) for uid in to_user_ids]},
+            'target_channel': 'push',
+            'headings': {'ru': title, 'en': title},
+            'contents': {'ru': body, 'en': body},
+            'url': url,
+            'ttl': 86400,
+            'priority': 10,
+        }).encode()
+        req = urllib.request.Request(
+            'https://api.onesignal.com/notifications',
+            data=payload,
+            headers={
+                'Content-Type': 'application/json',
+                'Authorization': f'Key {api_key}',
+            },
+            method='POST'
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception:
+        pass
 
 
 def _conn():
@@ -235,7 +268,14 @@ def handler(event: dict, context) -> dict:
             me = int(body.get('user_id') or 0)
             target = int(body.get('target_id') or 0)
             cur.execute("INSERT INTO follows (follower_id, following_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (me, target))
+            # Уведомление в БД
+            cur.execute("INSERT INTO notifications (user_id, type, from_user_id) VALUES (%s, 'follow', %s)", (target, me))
             conn.commit()
+            # Push
+            cur.execute("SELECT nick FROM users WHERE id=%s", (me,))
+            me_row = cur.fetchone()
+            if me_row:
+                _push([target], '👤 Новый подписчик', f'@{me_row["nick"]} подписался на вас', '/')
             return _resp(200, {'ok': True})
 
         if action == 'unfollow' and method == 'POST':
@@ -443,6 +483,15 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return _resp(200, {'ok': True})
 
+        # ── REGISTER PUSH (сохраняем OneSignal external_id уже привязан, но на случай явного вызова) ──
+        if action == 'register_push' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            onesignal_id = (body.get('onesignal_id') or '').strip()
+            if uid and onesignal_id:
+                cur.execute("UPDATE users SET onesignal_id=%s WHERE id=%s", (onesignal_id, uid))
+                conn.commit()
+            return _resp(200, {'ok': True})
+
         # ── SEND MESSAGE ──────────────────────────────────
         if action == 'send' and method == 'POST':
             chat_id = int(body.get('chat_id') or 0)
@@ -462,6 +511,28 @@ def handler(event: dict, context) -> dict:
             msg = cur.fetchone()
             cur.execute("DELETE FROM typing_status WHERE chat_id=%s AND user_id=%s", (chat_id, sender))
             conn.commit()
+
+            # Push: кому отправить (участники чата кроме отправителя)
+            cur.execute("SELECT nick FROM users WHERE id=%s", (sender,))
+            sender_row = cur.fetchone()
+            sender_nick = sender_row['nick'] if sender_row else '?'
+            # Определяем получателей
+            cur.execute("SELECT user_a, user_b, group_id FROM chats WHERE id=%s", (chat_id,))
+            chat_row = cur.fetchone()
+            push_to = []
+            if chat_row:
+                if chat_row['group_id']:
+                    # Групповой чат — всем участникам кроме отправителя
+                    cur.execute("SELECT user_id FROM group_members WHERE group_id=%s AND user_id!=%s", (chat_row['group_id'], sender))
+                    push_to = [r['user_id'] for r in cur.fetchall()]
+                else:
+                    # Личный чат
+                    other = chat_row['user_b'] if chat_row['user_a'] == sender else chat_row['user_a']
+                    push_to = [other]
+            if push_to:
+                preview = (text or '📷 Фото')[:60]
+                _push(push_to, f'@{sender_nick}', preview, '/')
+
             return _resp(200, {'message': msg})
 
         # ── UPLOAD MEDIA ──────────────────────────────────
@@ -651,7 +722,6 @@ def handler(event: dict, context) -> dict:
             from_uid = int(body.get('from_user_id') or 0)
             to_uid = int(body.get('to_user_id') or 0)
             call_type = body.get('call_type', 'audio')
-            # Находим chat_id между двумя пользователями
             a, b = min(from_uid, to_uid), max(from_uid, to_uid)
             cur.execute("SELECT id FROM chats WHERE user_a=%s AND user_b=%s AND group_id IS NULL", (a, b))
             chat_row = cur.fetchone()
@@ -661,6 +731,12 @@ def handler(event: dict, context) -> dict:
                 (to_uid, 'missed_call', from_uid, chat_id, call_type),
             )
             conn.commit()
+            # Push — пропущенный звонок
+            cur.execute("SELECT nick FROM users WHERE id=%s", (from_uid,))
+            caller = cur.fetchone()
+            caller_nick = caller['nick'] if caller else '?'
+            icon = '📹' if call_type == 'video' else '📞'
+            _push([to_uid], f'{icon} Пропущенный звонок', f'@{caller_nick} звонил вам', '/')
             return _resp(200, {'ok': True})
 
         # ── GROUP INFO ────────────────────────────────────
