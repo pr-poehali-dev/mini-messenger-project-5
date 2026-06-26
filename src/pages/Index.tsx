@@ -72,6 +72,7 @@ export default function Index() {
   });
   const [screen, setScreen] = useState<Screen>(user ? { name: 'tabs', tab: 'chats' } : { name: 'login' });
   const [loginError, setLoginError] = useState('');
+  const didLogout = useRef(false); // флаг ручного выхода — блокирует автовход
   // Системная тема — следим за prefers-color-scheme
   const getSystemDark = () => window.matchMedia('(prefers-color-scheme: dark)').matches;
   const [lightTheme, setLightTheme] = useState(() => !getSystemDark());
@@ -94,9 +95,9 @@ export default function Index() {
   const push = (s: Screen) => setScreen(s);
   const back = () => setScreen(user ? { name: 'tabs', tab: 'chats' } : { name: 'login' });
 
-  // При открытии приложения — автовход по device_id
+  // При открытии приложения — автовход по device_id (только если не нажимали "Выйти")
   useEffect(() => {
-    if (user) return;
+    if (user || didLogout.current) return;
     let cancelled = false;
     const device_id = getDeviceId();
     api('login', 'POST', { nick: '', device_id }).then(data => {
@@ -133,22 +134,21 @@ export default function Index() {
     setScreen(u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' });
   };
 
-  // Выход — НЕ удаляем device_id из localStorage, только user из памяти
-  // При следующем открытии автовход сработает по device_id
   const logout = () => {
     if (user) api('offline', 'POST', { user_id: user.id });
+    didLogout.current = true;
     localStorage.removeItem('orbit_user');
     setUser(null);
-    push({ name: 'login' });
+    setScreen({ name: 'login' });
   };
 
-  // Удаление аккаунта — чистит device_id в БД → можно регистрироваться заново
   const deleteAccount = async () => {
     if (!user) return;
     await api('delete_account', 'POST', { user_id: user.id });
+    didLogout.current = true;
     localStorage.removeItem('orbit_user');
     setUser(null);
-    push({ name: 'login' });
+    setScreen({ name: 'login' });
   };
 
   // ping online every 30s
