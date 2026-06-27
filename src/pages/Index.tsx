@@ -389,8 +389,8 @@ function LoginScreen({ onRegister, onLogin, error, setError }: {
   };
 
   return (
-    <div className="min-h-screen flex flex-col overflow-hidden relative"
-      style={{ background: 'linear-gradient(160deg, #1a56db 0%, #1e3a8a 55%, #0f172a 100%)' }}>
+    <div className="flex flex-col overflow-hidden relative"
+      style={{ background: 'linear-gradient(160deg, #1a56db 0%, #1e3a8a 55%, #0f172a 100%)', height: '100dvh', paddingTop: 'env(safe-area-inset-top)' }}>
       <div className="absolute top-[-60px] right-[-60px] w-72 h-72 rounded-full opacity-20 pointer-events-none"
         style={{ background: 'radial-gradient(circle, #60a5fa, transparent)' }} />
       <div className="absolute bottom-[35%] left-[-80px] w-56 h-56 rounded-full opacity-10 pointer-events-none"
@@ -677,10 +677,10 @@ function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (t: Tab) =
     { key: 'profile', icon: 'User', label: 'Профиль' },
   ];
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#f0f4fa' }}>
+    <div className="flex flex-col" style={{ background: '#f0f4fa', height: '100dvh', paddingTop: 'env(safe-area-inset-top)' }}>
       <div className="flex-1 overflow-hidden flex flex-col pb-[80px]">{children}</div>
-      <div className="fixed bottom-0 left-0 right-0 flex justify-center pb-4 pt-2 px-4"
-        style={{ background: 'linear-gradient(to top, #f0f4fa 60%, transparent)' }}>
+      <div className="fixed bottom-0 left-0 right-0 flex justify-center pt-2 px-4"
+        style={{ background: 'linear-gradient(to top, #f0f4fa 60%, transparent)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}>
         <nav className="flex items-center gap-1 px-2 py-2 rounded-[28px] shadow-xl"
           style={{ background: 'rgba(255,255,255,0.98)', backdropFilter: 'blur(24px)', boxShadow: '0 8px 32px rgba(30,58,138,0.13), 0 2px 8px rgba(30,58,138,0.08)' }}>
           {tabs.map(t => (
@@ -716,6 +716,8 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup }: { user: User; o
   const [chats, setChats] = useState<ChatItem[]>([]);
   const [showMenu, setShowMenu] = useState(false);
   const [swipedId, setSwipedId] = useState<number | null>(null);
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<'all' | 'unread' | 'groups'>('all');
 
   const load = useCallback(async () => {
     const d = await api(`chats&user_id=${user.id}`);
@@ -737,38 +739,72 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup }: { user: User; o
     setDeleteConfirm(null);
   };
 
+  const unreadCount = chats.filter(c => (c.unread_count || 0) > 0).length;
+  const groupCount = chats.filter(c => c.kind === 'group').length;
+
+  const visibleChats = chats.filter(c => {
+    const name = c.kind === 'group' ? (c.group_name || '') : (c.peer_nick || '');
+    if (search && !name.toLowerCase().includes(search.toLowerCase())) return false;
+    if (filter === 'unread') return (c.unread_count || 0) > 0;
+    if (filter === 'groups') return c.kind === 'group';
+    return true;
+  });
+
   return (
     <div className="flex flex-col h-full" onClick={() => { setShowMenu(false); setSwipedId(null); }}>
-      {/* Шапка чатов — только кнопка создания группы */}
-      <div className="flex items-center justify-between px-4 pt-4 pb-2" onClick={e => e.stopPropagation()}>
-        <h1 className="text-xl font-bold text-slate-800" style={{ letterSpacing: '-0.3px' }}>Сообщения</h1>
-        <div className="relative">
-          <button onClick={() => setShowMenu(v => !v)}
-            className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm shadow-blue-200 transition-all active:scale-95">
-            <Icon name="Plus" size={18} className="text-white" />
-          </button>
-          {showMenu && (
-            <div className="absolute right-0 top-11 bg-white rounded-2xl p-1 z-50 w-52 shadow-xl border border-slate-100 animate-fade-up">
-              <button onClick={() => { setShowMenu(false); onNewGroup(); }}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-50 transition-colors text-sm text-slate-700 font-medium">
-                <Icon name="Users" size={16} className="text-blue-600" /> Создать группу
-              </button>
-            </div>
-          )}
+      {/* Фиксированная шапка */}
+      <div className="shrink-0 bg-white px-4 pt-4 pb-2 border-b border-slate-100" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-2xl font-bold text-slate-900" style={{ letterSpacing: '-0.5px' }}>Чаты</h1>
+          <div className="relative">
+            <button onClick={() => setShowMenu(v => !v)}
+              className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm shadow-blue-200 transition-all active:scale-95">
+              <Icon name="Plus" size={18} className="text-white" />
+            </button>
+            {showMenu && (
+              <div className="absolute right-0 top-11 bg-white rounded-2xl p-1 z-50 w-52 shadow-xl border border-slate-100 animate-fade-up">
+                <button onClick={() => { setShowMenu(false); onNewGroup(); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-50 transition-colors text-sm text-slate-700 font-medium">
+                  <Icon name="Users" size={16} className="text-blue-600" /> Создать группу
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        {/* Поиск */}
+        <div className="flex items-center gap-2 bg-slate-100 rounded-2xl px-3 py-2.5 mb-3">
+          <Icon name="Search" size={16} className="text-slate-400 shrink-0" />
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Поиск"
+            className="flex-1 bg-transparent outline-none text-sm text-slate-700 placeholder:text-slate-400" />
+          {search && <button onClick={() => setSearch('')}><Icon name="X" size={14} className="text-slate-400" /></button>}
+        </div>
+        {/* Фильтры */}
+        <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
+          {([
+            { key: 'all', label: 'Все' },
+            { key: 'unread', label: `Непрочитанные${unreadCount > 0 ? ` ${unreadCount}` : ''}` },
+            { key: 'groups', label: `Группы${groupCount > 0 ? ` ${groupCount}` : ''}` },
+          ] as const).map(f => (
+            <button key={f.key} onClick={() => setFilter(f.key)}
+              className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${filter === f.key ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+              {f.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-2">
-        {chats.length === 0 && (
+      <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-2 bg-white">
+        {visibleChats.length === 0 && (
           <div className="flex flex-col items-center justify-center mt-24 gap-3">
             <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center">
               <Icon name="MessageCircle" size={32} className="text-blue-300" />
             </div>
-            <p className="font-semibold text-slate-500 text-sm">Нет сообщений</p>
-            <p className="text-xs text-slate-400">Найди людей через поиск</p>
+            <p className="font-semibold text-slate-500 text-sm">{search ? 'Ничего не найдено' : 'Нет сообщений'}</p>
+            <p className="text-xs text-slate-400">{search ? 'Попробуй другой запрос' : 'Найди людей через поиск'}</p>
           </div>
         )}
-        {chats.map(c => (
+        {visibleChats.map(c => (
           <div key={c.chat_id} className="relative overflow-hidden rounded-2xl">
             {swipedId === c.chat_id && (
               <div className="absolute right-0 top-0 bottom-0 flex items-center pr-2 animate-slide-in-right">
@@ -860,12 +896,13 @@ function SearchTab({ user, onOpenProfile }: { user: User; onOpenProfile: (id: nu
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-4 pt-4 pb-2">
-        <h1 className="text-xl font-bold text-slate-800 mb-3" style={{ letterSpacing: '-0.3px' }}>Поиск</h1>
-        <div className="relative">
-          <Icon name="Search" size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+      <div className="shrink-0 px-4 pt-4 pb-3 bg-white border-b border-slate-100">
+        <h1 className="text-2xl font-bold text-slate-900 mb-3" style={{ letterSpacing: '-0.5px' }}>Поиск</h1>
+        <div className="flex items-center gap-2 bg-slate-100 rounded-2xl px-3 py-2.5">
+          <Icon name="Search" size={16} className="text-slate-400 shrink-0" />
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Найти по нику…"
-            className="w-full bg-white border border-slate-200 rounded-2xl pl-10 pr-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 transition-all text-slate-800 placeholder:text-slate-400 text-sm" />
+            className="flex-1 bg-transparent outline-none text-sm text-slate-700 placeholder:text-slate-400" />
+          {q && <button onClick={() => setQ('')}><Icon name="X" size={14} className="text-slate-400" /></button>}
         </div>
       </div>
       <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-2">
@@ -928,8 +965,8 @@ function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall }: {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-4 pt-4 pb-2">
-        <h1 className="text-xl font-bold text-slate-800" style={{ letterSpacing: '-0.3px' }}>Уведомления</h1>
+      <div className="shrink-0 px-4 pt-4 pb-3 bg-white border-b border-slate-100">
+        <h1 className="text-2xl font-bold text-slate-900" style={{ letterSpacing: '-0.5px' }}>Уведомления</h1>
       </div>
       <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-2">
         {loading && (
@@ -1212,10 +1249,13 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onDelet
 
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto scrollbar-thin">
-      <div className="px-4 pt-4 pb-2 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-800" style={{ letterSpacing: '-0.3px' }}>Профиль</h1>
+    <div className="flex flex-col h-full">
+      {/* Фиксированный заголовок профиля */}
+      <div className="shrink-0 px-4 pt-4 pb-3 bg-white border-b border-slate-100 flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-slate-900" style={{ letterSpacing: '-0.5px' }}>Профиль</h1>
       </div>
+      {/* Скроллится только контент */}
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
 
       {!profile && !loadError && (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 mt-20">
@@ -1366,6 +1406,7 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onDelet
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
@@ -1989,35 +2030,37 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
   const subtitleColor = typing.length > 0 ? 'text-blue-200' : peerOnline && !groupName ? 'text-green-300' : 'text-blue-200';
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#f0f4fa' }} onClick={() => { setSelectedMsg(null); setEmojiTarget(null); setShowAttach(false); }}>
-      {/* Header */}
-      <header className="flex items-center gap-2 px-3 py-2.5 bg-blue-600 shadow-sm shadow-blue-300" onClick={e => e.stopPropagation()}>
-        <button onClick={onBack} className="w-9 h-9 rounded-xl hover:bg-blue-500 flex items-center justify-center transition-colors shrink-0">
-          <Icon name="ArrowLeft" size={20} className="text-white" />
+    <div className="fixed inset-0 flex flex-col" style={{ background: '#f0f4fa' }} onClick={() => { setSelectedMsg(null); setEmojiTarget(null); setShowAttach(false); }}>
+      {/* Header — фиксированный, как Telegram */}
+      <header className="shrink-0 flex items-center gap-2 px-2 bg-blue-600 shadow-md"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 8px)', paddingBottom: '10px' }}
+        onClick={e => e.stopPropagation()}>
+        <button onClick={onBack} className="w-10 h-10 rounded-full hover:bg-white/15 flex items-center justify-center transition-colors shrink-0">
+          <Icon name="ArrowLeft" size={22} className="text-white" />
         </button>
-        <button className="flex items-center gap-2.5 flex-1 text-left min-w-0"
+        <button className="flex items-center gap-3 flex-1 text-left min-w-0"
           onClick={() => peer ? onOpenProfile(peer.id) : groupId && onOpenGroup(groupId, chatId)}>
-          {peer ? <Avatar url={peer.avatar_url} nick={peer.nick} size={36} online={peerOnline} />
-            : <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0"><Icon name="Users" size={16} className="text-white" /></div>}
-          <div className="min-w-0">
-            <div className="font-semibold text-white text-sm truncate">{title}</div>
-            {subtitle && <div className="text-xs text-blue-100 truncate">{subtitle}</div>}
+          {peer ? <Avatar url={peer.avatar_url} nick={peer.nick} size={40} online={peerOnline} />
+            : <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center shrink-0"><Icon name="Users" size={18} className="text-white" /></div>}
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold text-white text-base truncate leading-tight">{title}</div>
+            {subtitle && <div className={`text-xs truncate mt-0.5 ${subtitleColor}`}>{subtitle}</div>}
           </div>
         </button>
         {peer && <>
           <button onClick={() => { const cid = `${user.id}_${peer.id}_${Date.now()}`; setInCall({ kind: 'audio', callId: cid, outgoing: true }); }}
-            className="w-9 h-9 rounded-xl hover:bg-blue-500 flex items-center justify-center transition-colors shrink-0">
-            <Icon name="Phone" size={18} className="text-white" />
+            className="w-10 h-10 rounded-full hover:bg-white/15 flex items-center justify-center transition-colors shrink-0">
+            <Icon name="Phone" size={20} className="text-white" />
           </button>
           <button onClick={() => { const cid = `${user.id}_${peer.id}_${Date.now()}`; setInCall({ kind: 'video', callId: cid, outgoing: true }); }}
-            className="w-9 h-9 rounded-xl bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors shrink-0">
-            <Icon name="Video" size={18} className="text-white" />
+            className="w-10 h-10 rounded-full hover:bg-white/15 flex items-center justify-center transition-colors shrink-0">
+            <Icon name="Video" size={20} className="text-white" />
           </button>
         </>}
       </header>
 
-      {/* Messages */}
-      <main ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin px-3 py-4 space-y-1"
+      {/* Messages — только эта область скроллится */}
+      <main ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-3 py-4 space-y-1"
         onScroll={() => {
           const el = scrollRef.current;
           if (!el) return;
@@ -2118,8 +2161,10 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
         })}
       </main>
 
-      {/* Composer */}
-      <div className="p-3 bg-white border-t border-slate-100" onClick={e => e.stopPropagation()}>
+      {/* Composer — фиксированный снизу */}
+      <div className="shrink-0 px-2 pt-2 pb-3 bg-white border-t border-slate-100"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 10px)' }}
+        onClick={e => e.stopPropagation()}>
         <input ref={fileRef} type="file" hidden onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(f, fileType.current); e.target.value = ''; }} />
         <input ref={fileRef2} type="file" hidden accept="*/*" onChange={e => {
           const f = e.target.files?.[0]; if (!f) return;
@@ -2178,21 +2223,28 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
         ) : (
           <div className="flex items-center gap-2">
             <button onClick={() => setShowAttach(v => !v)}
-              className={`w-9 h-9 shrink-0 rounded-xl flex items-center justify-center transition-colors ${showAttach ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:bg-slate-100'}`}>
-              <Icon name="Paperclip" size={19} />
+              className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-colors ${showAttach ? 'bg-blue-100 text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}>
+              <Icon name="Paperclip" size={22} />
             </button>
-            <input value={input} onChange={e => handleInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
-              placeholder="Сообщение…"
-              className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 transition-all text-sm text-slate-800 placeholder:text-slate-400" />
+            <div className="flex-1 flex items-center bg-white border border-slate-200 rounded-full px-4 gap-2 shadow-sm">
+              <input value={input} onChange={e => handleInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
+                placeholder="Сообщение"
+                className="flex-1 bg-transparent outline-none py-2.5 text-sm text-slate-800 placeholder:text-slate-400" />
+              {!input.trim() && (
+                <button className="shrink-0 text-slate-400">
+                  <Icon name="Smile" size={20} />
+                </button>
+              )}
+            </div>
             {input.trim()
               ? <button key="send" onClick={() => send()}
                   className="w-10 h-10 shrink-0 rounded-full bg-blue-600 flex items-center justify-center shadow-md shadow-blue-300/40 send-pop">
                   <Icon name="Send" size={18} className="text-white" />
                 </button>
               : <button key="mic" onClick={startVoice}
-                  className="w-10 h-10 shrink-0 rounded-full bg-blue-600 flex items-center justify-center shadow-md shadow-blue-300/40 send-pop">
-                  <Icon name="Mic" size={18} className="text-white" />
+                  className="w-10 h-10 shrink-0 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100 transition-colors">
+                  <Icon name="Mic" size={22} />
                 </button>
             }
           </div>
