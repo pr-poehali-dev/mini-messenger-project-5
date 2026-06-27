@@ -121,6 +121,16 @@
 
     // splash убран — функция-заглушка чтобы не было ошибок в React
     window.__hideSplash = function() {};
+
+    // Автоматическая тёмная тема как у Т-Банка
+    (function() {
+      var isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (isDark) document.documentElement.classList.add('dark');
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+        if (e.matches) document.documentElement.classList.add('dark');
+        else document.documentElement.classList.remove('dark');
+      });
+    })();
   </script>
 
   <!-- Yandex.Metrika counter -->

@@ -251,6 +251,7 @@ export default function Index() {
   const [incomingCall, setIncomingCall] = useState<{ callId: string; kind: string; nick: string; avatar_url?: string | null; callerId: number } | null>(null);
   const [globalCall, setGlobalCall] = useState<{ kind: 'audio' | 'video'; callId: string; peer: User; outgoing?: boolean } | null>(null);
   const lastCallSigId = useRef(0);
+  const [pendingCall, setPendingCall] = useState<{ kind: 'audio' | 'video' } | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -271,12 +272,19 @@ export default function Index() {
 
   const renderScreen = () => {
     if (screen.name === 'chat') return <ChatScreen user={user} chatId={screen.chatId} peer={screen.peer} groupName={screen.groupName} groupId={screen.groupId}
-      onBack={() => push({ name: 'tabs', tab: 'chats' })}
+      onBack={() => { setPendingCall(null); push({ name: 'tabs', tab: 'chats' }); }}
       onOpenProfile={(id) => push({ name: 'user_profile', userId: id })}
-      onOpenGroup={(gid, chatId) => push({ name: 'group_info', groupId: gid, chatId })} />;
+      onOpenGroup={(gid, chatId) => push({ name: 'group_info', groupId: gid, chatId })}
+      autoCall={pendingCall}
+      onCallStarted={() => setPendingCall(null)} />;
     if (screen.name === 'user_profile') return <UserProfileScreen me={user} userId={screen.userId} onBack={back}
-      onOpenChat={async (peerId) => { const d = await api('open_chat', 'POST', { user_id: user.id, peer_id: peerId }); push({ name: 'chat', chatId: d.chat_id, peer: d.peer }); }}
-      onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} />;
+      onOpenChat={async (peerId) => { const d = await api('open_chat', 'POST', { user_id: user.id, peer_id: peerId }); push({ name: 'chat', chatId: d.chat_id as number, peer: d.peer as User }); }}
+      onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })}
+      onCall={async (peer, kind) => {
+        const d = await api('open_chat', 'POST', { user_id: user.id, peer_id: peer.id });
+        setPendingCall({ kind });
+        push({ name: 'chat', chatId: d.chat_id as number, peer: (d.peer as User) || peer });
+      }} />;
     if (screen.name === 'followers') return <FollowersScreen userId={screen.userId} mode={screen.mode} me={user} onBack={back} onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />;
     if (screen.name === 'new_group') return <NewGroupScreen user={user} onBack={() => push({ name: 'tabs', tab: 'chats' })}
       onCreated={(chatId, groupName, groupId) => push({ name: 'group_info', groupId, chatId })} />;
@@ -1041,9 +1049,10 @@ function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall }: {
 // ══════════════════════════════════════════════════════════════════════════════
 // USER PROFILE SCREEN (чужой)
 // ══════════════════════════════════════════════════════════════════════════════
-function UserProfileScreen({ me, userId, onBack, onOpenChat, onFollowers }: { me: User; userId: number; onBack: () => void; onOpenChat: (id: number) => void; onFollowers: (uid: number, mode: 'followers' | 'following') => void }) {
+function UserProfileScreen({ me, userId, onBack, onOpenChat, onFollowers, onCall }: { me: User; userId: number; onBack: () => void; onOpenChat: (id: number) => void; onFollowers: (uid: number, mode: 'followers' | 'following') => void; onCall?: (peer: User, kind: 'audio' | 'video') => void }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showPhoto, setShowPhoto] = useState(false);
 
   const load = async () => {
     const d = await api(`profile&user_id=${userId}&me=${me.id}`);
@@ -1057,8 +1066,9 @@ function UserProfileScreen({ me, userId, onBack, onOpenChat, onFollowers }: { me
   const unblock = async () => { await api('unblock', 'POST', { user_id: me.id, target_id: userId }); load(); };
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#f0f4fa' }}>
-      <header className="flex items-center gap-3 px-4 py-3 bg-blue-600 shadow-sm">
+    <div className="fixed inset-0 flex flex-col" style={{ background: '#f0f4fa' }}>
+      <header className="flex items-center gap-3 px-4 bg-blue-600 shadow-sm"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 10px)', paddingBottom: '10px' }}>
         <button onClick={onBack} className="w-9 h-9 rounded-xl hover:bg-blue-500 flex items-center justify-center transition-colors">
           <Icon name="ArrowLeft" size={20} className="text-white" />
         </button>
@@ -1068,7 +1078,12 @@ function UserProfileScreen({ me, userId, onBack, onOpenChat, onFollowers }: { me
       {profile && (
         <div className="flex-1 overflow-y-auto scrollbar-thin">
           <div className="flex flex-col items-center pt-8 pb-4 px-6">
-            <Avatar url={profile.avatar_url} nick={profile.nick} size={96} online={profile.is_online} />
+            <button onClick={() => profile.avatar_url && setShowPhoto(true)}>
+              <Avatar url={profile.avatar_url} nick={profile.nick} size={96} online={profile.is_online} />
+            </button>
+            {showPhoto && profile.avatar_url && (
+              <MediaViewer src={profile.avatar_url} type="image" onClose={() => setShowPhoto(false)} />
+            )}
             <h2 className="font-bold text-2xl mt-4 text-slate-800">@{profile.nick}</h2>
             <p className="text-sm text-slate-400 mt-1">
               {profile.is_online ? <span className="text-green-500 font-medium">в сети</span> : fmtLastSeen(profile.last_seen || null)}
@@ -1097,6 +1112,16 @@ function UserProfileScreen({ me, userId, onBack, onOpenChat, onFollowers }: { me
                   style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}>
                   <Icon name="MessageCircle" size={17} className="inline mr-2" />Написать
                 </button>
+                <div className="flex gap-2">
+                  <button onClick={() => onCall?.({ id: userId, nick: profile.nick, avatar_url: profile.avatar_url }, 'audio')}
+                    className="flex-1 py-3 rounded-2xl font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors text-sm">
+                    <Icon name="Phone" size={17} className="inline mr-2 text-blue-500" />Аудио
+                  </button>
+                  <button onClick={() => onCall?.({ id: userId, nick: profile.nick, avatar_url: profile.avatar_url }, 'video')}
+                    className="flex-1 py-3 rounded-2xl font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors text-sm">
+                    <Icon name="Video" size={17} className="inline mr-2 text-blue-500" />Видео
+                  </button>
+                </div>
                 {profile.i_follow
                   ? <button onClick={unfollow} className="w-full py-3.5 rounded-2xl font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors text-sm">
                       <Icon name="UserCheck" size={17} className="inline mr-2 text-green-500" />Отписаться
@@ -1179,6 +1204,15 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onDelet
   const [nickSaving, setNickSaving] = useState(false);
 
   const [loadError, setLoadError] = useState(false);
+
+  // заблокированные
+  const [showBlocked, setShowBlocked] = useState(false);
+  const [blocked, setBlocked] = useState<User[]>([]);
+
+  const loadBlocked = async () => {
+    const d = await api(`blocked&user_id=${user.id}`);
+    setBlocked((d.users as User[]) || []);
+  };
 
   const load = async () => {
     setLoadError(false);
@@ -1385,6 +1419,12 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onDelet
           {/* Аккаунт */}
           <div className="bg-white rounded-3xl p-5 space-y-1 border border-slate-100">
             <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-3 px-1">Аккаунт</p>
+            <button onClick={() => { setShowBlocked(true); loadBlocked(); }}
+              className="w-full flex items-center gap-3 py-3 px-1 hover:text-blue-600 transition-colors border-t border-slate-100">
+              <Icon name="Ban" size={18} className="text-red-400" />
+              <span className="text-sm text-slate-700 flex-1 text-left">Заблокированные</span>
+              <Icon name="ChevronRight" size={16} className="text-slate-300" />
+            </button>
             <button onClick={onLogout} className="w-full flex items-center gap-3 py-3 px-1 rounded-2xl hover:bg-slate-50 transition-colors">
               <Icon name="LogOut" size={18} className="text-slate-400" />
               <span className="text-sm font-medium text-slate-700">Выйти</span>
@@ -1407,6 +1447,33 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onDelet
         </div>
       )}
       </div>
+
+      {/* Модальное окно заблокированных */}
+      {showBlocked && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={() => setShowBlocked(false)}>
+          <div className="bg-white rounded-t-3xl w-full max-h-[70vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-800">Заблокированные</h3>
+              <button onClick={() => setShowBlocked(false)}><Icon name="X" size={20} className="text-slate-400" /></button>
+            </div>
+            {blocked.length === 0
+              ? <p className="text-center text-slate-400 py-8">Никого нет</p>
+              : blocked.map(u => (
+                <div key={u.id} className="flex items-center gap-3 py-3 border-b border-slate-50">
+                  <Avatar url={u.avatar_url} nick={u.nick} size={44} />
+                  <span className="flex-1 font-semibold text-slate-800">@{u.nick}</span>
+                  <button onClick={async () => {
+                    await api('unblock', 'POST', { user_id: user.id, target_id: u.id });
+                    setBlocked(bs => bs.filter(b => b.id !== u.id));
+                  }} className="px-4 py-1.5 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">
+                    Разблокировать
+                  </button>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1873,15 +1940,35 @@ function VoicePlayer({ src, mine }: { src: string; mine: boolean }) {
   );
 }
 
+// ── MEDIA VIEWER ─────────────────────────────────────────────────────────────
+function MediaViewer({ src, type, onClose }: { src: string; type: 'image' | 'video'; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[100] bg-black flex items-center justify-center"
+      onClick={onClose}>
+      <button className="absolute right-4 w-10 h-10 rounded-full bg-white/20 flex items-center justify-center z-10"
+        style={{ top: 'calc(env(safe-area-inset-top) + 12px)' }}
+        onClick={onClose}>
+        <Icon name="X" size={22} className="text-white" />
+      </button>
+      {type === 'image'
+        ? <img src={src} alt="" className="max-w-full max-h-full object-contain" onClick={e => e.stopPropagation()} />
+        : <video src={src} controls autoPlay className="max-w-full max-h-full" onClick={e => e.stopPropagation()} />
+      }
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 const EMOJIS = ['❤️','😂','😮','😢','👍','👎','🔥','🎉','😍','🤔'];
 
 type Reaction = { emoji: string; user_id: number };
 type MsgExt = Message & { reactions?: Reaction[]; is_removed?: boolean; media_type?: string; media_url?: string };
 
-function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProfile, onOpenGroup }: {
+function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProfile, onOpenGroup, autoCall, onCallStarted }: {
   user: User; chatId: number; peer?: User; groupName?: string; groupId?: number;
   onBack: () => void; onOpenProfile: (id: number) => void; onOpenGroup: (gid: number, chatId: number) => void;
+  autoCall?: { kind: 'audio' | 'video' } | null;
+  onCallStarted?: () => void;
 }) {
   const [messages, setMessages] = useState<MsgExt[]>([]);
   const [input, setInput] = useState('');
@@ -1893,6 +1980,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
   const [recording, setRecording] = useState(false);
   const [recordSecs, setRecordSecs] = useState(0);
   const [inCall, setInCall] = useState<{ kind: 'audio' | 'video'; callId: string; outgoing: boolean } | null>(null);
+  const [mediaView, setMediaView] = useState<{ src: string; type: 'image' | 'video' } | null>(null);
   const lastIdRef = useRef(0);
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLElement>(null);
@@ -1939,6 +2027,14 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
+
+  // Автозвонок при открытии чата из профиля
+  useEffect(() => {
+    if (!autoCall || !peer) return;
+    const cid = `${user.id}_${peer.id}_${Date.now()}`;
+    setInCall({ kind: autoCall.kind, callId: cid, outgoing: true });
+    onCallStarted?.();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleInput = (v: string) => {
     setInput(v);
@@ -2088,9 +2184,20 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
                     {m.is_removed
                       ? <p className="text-xs italic opacity-60">Сообщение удалено</p>
                       : m.media_type === 'image' || m.image_url
-                        ? <img src={m.media_url || m.image_url || ''} alt="" className="rounded-2xl max-h-60 max-w-full img-appear" loading="lazy" />
+                        ? <img src={m.media_url || m.image_url || ''} alt=""
+                            className="rounded-2xl max-h-60 max-w-full img-appear cursor-pointer"
+                            loading="lazy"
+                            onClick={e => { e.stopPropagation(); setMediaView({ src: m.media_url || m.image_url || '', type: 'image' }); }} />
                         : m.media_type === 'video'
-                          ? <video src={m.media_url || ''} controls className="rounded-2xl max-h-48 max-w-full img-appear" />
+                          ? <div onClick={e => { e.stopPropagation(); setMediaView({ src: m.media_url || '', type: 'video' }); }}
+                              className="relative cursor-pointer">
+                              <video src={m.media_url || ''} className="rounded-2xl max-h-48 max-w-full img-appear pointer-events-none" />
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <div className="w-12 h-12 rounded-full bg-black/50 flex items-center justify-center">
+                                  <Icon name="Play" size={24} className="text-white ml-1" />
+                                </div>
+                              </div>
+                            </div>
                           : (m.media_type === 'audio' || m.media_type === 'voice')
                             ? <VoicePlayer src={m.media_url || ''} mine={mine} />
                             : m.media_type === 'file'
@@ -2262,6 +2369,8 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
           onEnd={() => setInCall(null)}
         />
       )}
+      {/* Fullscreen media viewer */}
+      {mediaView && <MediaViewer src={mediaView.src} type={mediaView.type} onClose={() => setMediaView(null)} />}
     </div>
   );
 }
@@ -2298,8 +2407,9 @@ function NewGroupScreen({ user, onBack, onCreated }: { user: User; onBack: () =>
   };
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#f0f4fa' }}>
-      <header className="flex items-center gap-3 px-4 py-3 bg-blue-600 shadow-sm">
+    <div className="fixed inset-0 flex flex-col" style={{ background: '#f0f4fa' }}>
+      <header className="flex items-center gap-3 px-4 bg-blue-600 shadow-sm"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 10px)', paddingBottom: '10px' }}>
         <button onClick={onBack} className="w-9 h-9 rounded-xl hover:bg-blue-500 flex items-center justify-center transition-colors">
           <Icon name="ArrowLeft" size={20} className="text-white" />
         </button>
@@ -2481,8 +2591,9 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
   const isPublic = group.is_public !== false;
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#f0f4fa' }} onClick={() => { setShowPhotoMenu(false); setShowInvite(false); }}>
-      <header className="flex items-center gap-3 px-4 py-3 bg-blue-600 shadow-sm" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 flex flex-col" style={{ background: '#f0f4fa' }} onClick={() => { setShowPhotoMenu(false); setShowInvite(false); }}>
+      <header className="flex items-center gap-3 px-4 bg-blue-600 shadow-sm" onClick={e => e.stopPropagation()}
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 10px)', paddingBottom: '10px' }}>
         <button onClick={onBack} className="w-9 h-9 rounded-xl hover:bg-blue-500 flex items-center justify-center transition-colors">
           <Icon name="ArrowLeft" size={20} className="text-white" />
         </button>
