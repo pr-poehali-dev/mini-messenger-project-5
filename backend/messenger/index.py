@@ -1344,12 +1344,14 @@ def handler(event: dict, context) -> dict:
 
         # ── АДМИН: удалить/заблокировать ─────────────────
         if action == 'realty_admin_action' and method == 'POST':
-            lid       = int(body.get('listing_id') or 0)
+            lid          = int(body.get('listing_id') or 0)
             admin_action = body.get('admin_action', '')
             if admin_action == 'block':
                 cur.execute("UPDATE realty_listings SET is_blocked=TRUE WHERE id=%s", (lid,))
             elif admin_action == 'unblock':
                 cur.execute("UPDATE realty_listings SET is_blocked=FALSE WHERE id=%s", (lid,))
+            elif admin_action == 'delete':
+                cur.execute("UPDATE realty_listings SET is_blocked=TRUE WHERE id=%s", (lid,))
             conn.commit()
             return _resp(200, {'ok': True})
 
@@ -1402,6 +1404,30 @@ def handler(event: dict, context) -> dict:
             if not row: return _resp(404, {'error': 'Не найдено'})
             if row['user_id'] != uid: return _resp(403, {'error': 'Нет доступа'})
             cur.execute("UPDATE realty_listings SET is_blocked=TRUE WHERE id=%s", (lid,))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── Редактировать объявление (только владелец) ────
+        if action == 'realty_edit' and method == 'POST':
+            uid  = int(body.get('user_id') or 0)
+            lid  = int(body.get('listing_id') or 0)
+            data = body.get('listing', {})
+            cur.execute("SELECT user_id FROM realty_listings WHERE id=%s", (lid,))
+            row = cur.fetchone()
+            if not row: return _resp(404, {'error': 'Не найдено'})
+            if row['user_id'] != uid: return _resp(403, {'error': 'Нет доступа'})
+            cur.execute("""
+                UPDATE realty_listings SET
+                  deal_type=%s, city=%s, district=%s, street=%s,
+                  rooms=%s, area=%s, price=%s, description=%s, phone=%s, photos=%s
+                WHERE id=%s
+            """, (
+                data.get('deal_type','sale'), data.get('city',''),
+                data.get('district'), data.get('street'),
+                data.get('rooms'), data.get('area'),
+                int(data.get('price',0)), data.get('description'),
+                data.get('phone'), data.get('photos',[]), lid
+            ))
             conn.commit()
             return _resp(200, {'ok': True})
 

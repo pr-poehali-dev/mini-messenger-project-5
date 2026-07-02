@@ -2136,8 +2136,17 @@ function RealtyTab({ user, onOpenChat }: { user: User; onOpenChat: (chatId: numb
   const [showFilters, setShowFilters] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [selectedListing, setSelectedListing] = useState<RealtyListing | null>(null);
-  const [activeTab, setActiveTab] = useState<'feed'|'favorites'>('feed');
+  const [activeTab, setActiveTab] = useState<'feed'|'favorites'|'admin'>('feed');
+  const [adminListings, setAdminListings] = useState<(RealtyListing & { is_blocked?: boolean })[]>([]);
+  const [adminStats, setAdminStats] = useState<{ total: number; paid: number } | null>(null);
+  const ADMIN_NICK = 'murat_dzaurov';
   const [filters, setFilters] = useState({ deal_type: '', city: '', district: '', rooms: '', price_min: '', price_max: '' });
+
+  const loadAdmin = async () => {
+    const d = await api('realty_admin_list');
+    setAdminListings((d.listings as (RealtyListing & { is_blocked?: boolean })[]) || []);
+    setAdminStats(d.stats as { total: number; paid: number } | null);
+  };
 
   const load = async (f = filters, search = q) => {
     setLoading(true);
@@ -2154,7 +2163,7 @@ function RealtyTab({ user, onOpenChat }: { user: User; onOpenChat: (chatId: numb
 
   useEffect(() => { load(); loadFavorites(); }, []);
 
-  const displayedListings = activeTab === 'favorites' ? favorites : listings;
+  const displayedListings = activeTab === 'favorites' ? favorites : activeTab === 'admin' ? [] : listings;
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
@@ -2175,8 +2184,14 @@ function RealtyTab({ user, onOpenChat }: { user: User; onOpenChat: (chatId: numb
           </button>
           <button onClick={() => { setActiveTab('favorites'); loadFavorites(); }}
             className={`flex-1 py-2 rounded-2xl text-sm font-semibold transition-colors flex items-center justify-center gap-1.5 ${activeTab === 'favorites' ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
-            ❤️ Избранное {favorites.length > 0 && <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${activeTab === 'favorites' ? 'bg-white/25 text-white' : 'bg-red-100 text-red-600'}`}>{favorites.length}</span>}
+            ❤️ {favorites.length > 0 && <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${activeTab === 'favorites' ? 'bg-white/25 text-white' : 'bg-red-100 text-red-600'}`}>{favorites.length}</span>}
           </button>
+          {user.nick === ADMIN_NICK && (
+            <button onClick={() => { setActiveTab('admin'); loadAdmin(); }}
+              className={`flex-1 py-2 rounded-2xl text-sm font-semibold transition-colors ${activeTab === 'admin' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'}`}>
+              ⚙️ Админ
+            </button>
+          )}
         </div>
         {activeTab === 'feed' && <div className="flex gap-2">
           <div className="relative flex-1">
@@ -2227,6 +2242,70 @@ function RealtyTab({ user, onOpenChat }: { user: User; onOpenChat: (chatId: numb
           </button>
         ))}
       </div>
+
+      {/* Админ-панель недвижимости */}
+      {activeTab === 'admin' && (
+        <div className="fixed inset-0 z-50 bg-slate-900 flex flex-col" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+          <div className="flex items-center gap-3 px-4 py-4 border-b border-slate-700">
+            <button onClick={() => setActiveTab('feed')} className="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center">
+              <Icon name="ArrowLeft" size={18} className="text-white" />
+            </button>
+            <h2 className="font-bold text-white text-lg flex-1">Управление объявлениями</h2>
+          </div>
+          {adminStats && (
+            <div className="flex gap-3 px-4 py-3">
+              <div className="flex-1 bg-slate-800 rounded-2xl p-3 text-center">
+                <p className="text-2xl font-bold text-white">{adminStats.total}</p>
+                <p className="text-xs text-slate-400 mt-0.5">Всего</p>
+              </div>
+              <div className="flex-1 bg-green-900/50 rounded-2xl p-3 text-center">
+                <p className="text-2xl font-bold text-green-400">{adminStats.paid}</p>
+                <p className="text-xs text-slate-400 mt-0.5">Оплачено</p>
+              </div>
+              <div className="flex-1 bg-slate-800 rounded-2xl p-3 text-center">
+                <p className="text-2xl font-bold text-slate-300">{adminStats.total - adminStats.paid}</p>
+                <p className="text-xs text-slate-400 mt-0.5">Ожидают</p>
+              </div>
+            </div>
+          )}
+          <div className="flex-1 overflow-y-auto px-4 py-2 space-y-3">
+            {adminListings.map(l => (
+              <div key={l.id} className={`bg-slate-800 rounded-2xl p-4 ${l.is_blocked ? 'opacity-50' : ''}`}>
+                <div className="flex items-start gap-3">
+                  {l.photos && l.photos[0]
+                    ? <img src={l.photos[0]} className="w-16 h-16 rounded-xl object-cover shrink-0" />
+                    : <div className="w-16 h-16 rounded-xl bg-slate-700 flex items-center justify-center text-2xl shrink-0">🏠</div>
+                  }
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-white text-sm">{fmtPrice(l.price)}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">{l.city}{l.district ? `, ${l.district}` : ''}</p>
+                    <p className="text-xs text-blue-400 mt-0.5">@{l.seller_nick}</p>
+                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                      {l.is_paid && <span className="text-[10px] bg-green-900/70 text-green-400 px-2 py-0.5 rounded-full font-semibold">✅ Оплачено</span>}
+                      {l.is_blocked && <span className="text-[10px] bg-red-900/70 text-red-400 px-2 py-0.5 rounded-full font-semibold">🚫 Заблокировано</span>}
+                      <span className="text-[10px] text-slate-500">{l.deal_type === 'sale' ? 'Продажа' : 'Аренда'}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <button onClick={async () => {
+                    await api('realty_admin_action', 'POST', { listing_id: l.id, admin_action: l.is_blocked ? 'unblock' : 'block' });
+                    loadAdmin();
+                  }} className={`flex-1 py-2 rounded-xl text-xs font-semibold ${l.is_blocked ? 'bg-green-600 text-white' : 'bg-yellow-600 text-white'}`}>
+                    {l.is_blocked ? '✅ Разблокировать' : '🚫 Заблокировать'}
+                  </button>
+                  <button onClick={async () => {
+                    await api('realty_admin_action', 'POST', { listing_id: l.id, admin_action: 'delete' });
+                    loadAdmin();
+                  }} className="flex-1 py-2 rounded-xl text-xs font-semibold bg-red-700 text-white">
+                    🗑️ Удалить
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Фильтры */}
       {showFilters && <RealtyFilters filters={filters} onApply={f => { setFilters(f); setShowFilters(false); load(f, q); }} onClose={() => setShowFilters(false)} />}
@@ -2469,6 +2548,134 @@ function RealtyForm({ user, onClose, onPublished }: { user: User; onClose: () =>
   );
 }
 
+// ── Форма редактирования объявления ──────────────────────────────────────────
+function RealtyEditForm({ listing, user, onClose, onSaved }: { listing: RealtyListing; user: User; onClose: () => void; onSaved: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [photos, setPhotos] = useState<string[]>(listing.photos || []);
+  const [form, setForm] = useState({
+    deal_type: listing.deal_type,
+    city: listing.city || '',
+    district: listing.district || '',
+    street: listing.street || '',
+    rooms: listing.rooms ? String(listing.rooms) : '',
+    area: listing.area ? String(listing.area) : '',
+    price: String(listing.price),
+    description: listing.description || '',
+    phone: listing.phone || '',
+  });
+  const fileRef = useRef<HTMLInputElement>(null);
+  const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
+
+  const uploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file || photos.length >= 5) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const [, b64] = (reader.result as string).split(',');
+      const ext = file.name.split('.').pop() || 'jpg';
+      const d = await api('realty_upload_photo', 'POST', { user_id: user.id, data: b64, ext });
+      if (d.url) setPhotos(p => [...p, d.url as string]);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const save = async () => {
+    if (!form.city || !form.price) return;
+    setSaving(true);
+    await api('realty_edit', 'POST', {
+      user_id: user.id,
+      listing_id: listing.id,
+      listing: { ...form, rooms: form.rooms ? +form.rooms : null, area: form.area ? +form.area : null, price: +form.price, photos }
+    });
+    setSaving(false);
+    onSaved();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[110] bg-black/50 flex items-end" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl w-full max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 shrink-0">
+          <h3 className="font-bold text-lg">Редактировать объявление</h3>
+          <button onClick={onClose}><Icon name="X" size={20} className="text-slate-400" /></button>
+        </div>
+        <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+          {/* Фото */}
+          <div>
+            <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Фото</p>
+            <div className="flex gap-2 flex-wrap">
+              {photos.map((p, i) => (
+                <div key={i} className="relative w-20 h-20 rounded-2xl overflow-hidden">
+                  <img src={p} className="w-full h-full object-cover" />
+                  <button onClick={() => setPhotos(ps => ps.filter((_,j) => j !== i))}
+                    className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center">
+                    <Icon name="X" size={10} className="text-white" />
+                  </button>
+                </div>
+              ))}
+              {photos.length < 5 && (
+                <button onClick={() => fileRef.current?.click()}
+                  className="w-20 h-20 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center gap-1 text-slate-400">
+                  <Icon name="Camera" size={20} /><span className="text-[10px]">Добавить</span>
+                </button>
+              )}
+              <input ref={fileRef} type="file" accept="image/*" hidden onChange={uploadPhoto} />
+            </div>
+          </div>
+          {/* Тип */}
+          <div>
+            <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Тип сделки</p>
+            <div className="flex gap-2">
+              {[['sale','Продажа'],['rent','Аренда']].map(([v,l]) => (
+                <button key={v} onClick={() => set('deal_type', v)}
+                  className={`flex-1 py-2.5 rounded-2xl text-sm font-semibold border ${form.deal_type === v ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 text-slate-600'}`}>{l}</button>
+              ))}
+            </div>
+          </div>
+          {/* Поля */}
+          {[['city','Город *'],['district','Район'],['street','Улица, дом']].map(([k,l]) => (
+            <div key={k}>
+              <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">{l}</p>
+              <input value={(form as Record<string,string>)[k]} onChange={e => set(k, e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500" />
+            </div>
+          ))}
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Комнат</p>
+              <input value={form.rooms} onChange={e => set('rooms', e.target.value)} type="number"
+                className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500" />
+            </div>
+            <div className="flex-1">
+              <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Площадь (м²)</p>
+              <input value={form.area} onChange={e => set('area', e.target.value)} type="number"
+                className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500" />
+            </div>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Цена (₽) *</p>
+            <input value={form.price} onChange={e => set('price', e.target.value)} type="number"
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Описание</p>
+            <textarea value={form.description} onChange={e => set('description', e.target.value)} maxLength={500} rows={3}
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 resize-none" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Телефон</p>
+            <input value={form.phone} onChange={e => set('phone', e.target.value)} type="tel"
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500" />
+          </div>
+          <button onClick={save} disabled={saving || !form.city || !form.price}
+            className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold text-base disabled:opacity-40 mb-4">
+            {saving ? 'Сохраняем...' : 'Сохранить изменения'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Карточка объявления ───────────────────────────────────────────────────────
 function RealtyCard({ listing: l, user, onClose, onOpenChat, onDeleted }: { listing: RealtyListing; user: User; onClose: () => void; onOpenChat: (chatId: number, listing: RealtyListing) => void; onDeleted?: () => void }) {
   const [photoIdx, setPhotoIdx] = useState(0);
@@ -2478,6 +2685,7 @@ function RealtyCard({ listing: l, user, onClose, onOpenChat, onDeleted }: { list
   const [savingFav, setSavingFav] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const photos = l.photos && l.photos.length > 0 ? l.photos : [];
 
   useEffect(() => {
@@ -2626,6 +2834,13 @@ function RealtyCard({ listing: l, user, onClose, onOpenChat, onDeleted }: { list
                   {opening ? 'Открываем...' : 'Написать продавцу'}
                 </button>
               )}
+              {/* Кнопка редактирования — только для владельца */}
+              {l.seller_id === user.id && (
+                <button onClick={() => setShowEdit(true)}
+                  className="w-full py-3.5 rounded-2xl border border-blue-200 text-blue-600 font-semibold flex items-center justify-center gap-2 hover:bg-blue-50 transition-colors">
+                  <Icon name="Pencil" size={18} /> Редактировать
+                </button>
+              )}
               {/* Кнопка удаления — только для владельца */}
               {l.seller_id === user.id && (
                 <button onClick={() => setConfirmDelete(true)}
@@ -2654,6 +2869,10 @@ function RealtyCard({ listing: l, user, onClose, onOpenChat, onDeleted }: { list
                   </button>
                 </div>
               </div>
+            )}
+            {/* Форма редактирования */}
+            {showEdit && (
+              <RealtyEditForm listing={l} user={user} onClose={() => setShowEdit(false)} onSaved={() => { setShowEdit(false); onDeleted?.(); }} />
             )}
           </div>
         </div>

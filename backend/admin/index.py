@@ -230,6 +230,17 @@ def handler(event: dict, context) -> dict:
                 sent += 1
 
             conn.commit()
+
+            # Создаём уведомления в таблице notifications для каждого
+            bot_user_id = bot_id
+            user_ids = [u['id'] for u in all_users]
+            for uid in user_ids:
+                cur.execute(
+                    f"INSERT INTO {SCHEMA}.notifications (user_id, type, from_user_id, payload, is_read, created_at) VALUES (%s, 'broadcast', %s, %s, FALSE, NOW())",
+                    (uid, bot_user_id, text or '')
+                )
+            conn.commit()
+
             return _resp(200, {'ok': True, 'sent': sent})
 
         # ── Загрузка медиа ────────────────────────────────────────────────
