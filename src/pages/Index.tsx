@@ -2034,6 +2034,15 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
       setPeerOnline(d.peer_online || false);
       if (d.peer_last_seen) setPeerLastSeen(d.peer_last_seen as string);
     }
+    // Применяем обновления: удаления у всех + реакции
+    const updates = d.updates as { id: number; is_removed: boolean; reactions: Reaction[] }[] || [];
+    if (updates.length) {
+      setMessages(ms => ms.map(m => {
+        const upd = updates.find(u => u.id === m.id);
+        if (!upd) return m;
+        return { ...m, is_removed: upd.is_removed, reactions: upd.reactions };
+      }));
+    }
   }, [chatId, user.id, peer]);
 
   useEffect(() => {

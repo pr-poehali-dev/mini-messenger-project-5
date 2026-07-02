@@ -496,6 +496,30 @@ def handler(event: dict, context) -> dict:
                 if pr:
                     peer_online = bool(pr['is_online'])
                     peer_last_seen = pr['last_seen'].isoformat() if pr['last_seen'] else None
+            # Обновления: удалённые сообщения + свежие реакции (за последние 30 сек)
+            cur.execute(
+                """
+                SELECT m.id, m.is_removed,
+                       COALESCE(
+                           json_agg(json_build_object('emoji', r.emoji, 'user_id', r.user_id))
+                           FILTER (WHERE r.message_id IS NOT NULL), '[]'
+                       ) AS reactions
+                FROM messages m
+                LEFT JOIN message_reactions r ON r.message_id = m.id
+                WHERE m.chat_id=%s
+                  AND (
+                    m.is_removed = TRUE
+                    OR EXISTS (
+                      SELECT 1 FROM message_reactions mr
+                      WHERE mr.message_id = m.id
+                        AND mr.created_at > NOW() - INTERVAL '30 seconds'
+                    )
+                  )
+                GROUP BY m.id
+                """,
+                (chat_id,),
+            )
+            updates = cur.fetchall()
             conn.commit()
             return _resp(200, {
                 'messages':      msgs,
@@ -503,6 +527,7 @@ def handler(event: dict, context) -> dict:
                 'typing':        typing,
                 'peer_online':   peer_online,
                 'peer_last_seen': peer_last_seen,
+                'updates':       updates,
             })
 
         if action == 'messages' and method == 'GET':
