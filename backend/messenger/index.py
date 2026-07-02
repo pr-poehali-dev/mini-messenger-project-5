@@ -1171,6 +1171,188 @@ def handler(event: dict, context) -> dict:
             result = _push([uid], '🔔 Вай Мессенджер', 'Push-уведомления работают!', '/')
             return _resp(200, {'result': result})
 
+        # ══════════════════════════════════════════════════
+        # НЕДВИЖИМОСТЬ
+        # ══════════════════════════════════════════════════
+
+        # ── Список объявлений с фильтрами ─────────────────
+        if action == 'realty_list' and method == 'GET':
+            deal_type = params.get('deal_type', '')
+            city      = params.get('city', '')
+            district  = params.get('district', '')
+            rooms     = params.get('rooms', '')
+            price_min = params.get('price_min', '')
+            price_max = params.get('price_max', '')
+            q         = params.get('q', '')
+            conditions = ["l.is_paid=TRUE", "l.is_blocked=FALSE"]
+            args = []
+            if deal_type: conditions.append("l.deal_type=%s"); args.append(deal_type)
+            if city:      conditions.append("l.city ILIKE %s"); args.append(f'%{city}%')
+            if district:  conditions.append("l.district ILIKE %s"); args.append(f'%{district}%')
+            if rooms:     conditions.append("l.rooms=%s"); args.append(int(rooms))
+            if price_min: conditions.append("l.price>=%s"); args.append(int(price_min))
+            if price_max: conditions.append("l.price<=%s"); args.append(int(price_max))
+            if q:         conditions.append("(l.city ILIKE %s OR l.description ILIKE %s OR l.street ILIKE %s)"); args += [f'%{q}%']*3
+            where = ' AND '.join(conditions)
+            cur.execute(f"""
+                SELECT l.id, l.deal_type, l.city, l.district, l.street,
+                       l.rooms, l.area, l.price, l.description, l.photos,
+                       l.is_paid, l.created_at,
+                       u.id AS seller_id, u.nick AS seller_nick, u.avatar_url AS seller_avatar
+                FROM realty_listings l JOIN users u ON u.id=l.user_id
+                WHERE {where} ORDER BY l.created_at DESC LIMIT 50
+            """, args)
+            return _resp(200, {'listings': cur.fetchall()})
+
+        # ── Одно объявление ───────────────────────────────
+        if action == 'realty_get' and method == 'GET':
+            lid = int(params.get('id') or 0)
+            cur.execute("""
+                SELECT l.*, u.id AS seller_id, u.nick AS seller_nick, u.avatar_url AS seller_avatar
+                FROM realty_listings l JOIN users u ON u.id=l.user_id WHERE l.id=%s
+            """, (lid,))
+            row = cur.fetchone()
+            if not row: return _resp(404, {'error': 'Не найдено'})
+            return _resp(200, {'listing': row})
+
+        # ── Создать объявление ────────────────────────────
+        if action == 'realty_create' and method == 'POST':
+            uid  = int(body.get('user_id') or 0)
+            data = body.get('listing', {})
+            cur.execute("""
+                INSERT INTO realty_listings
+                  (user_id,deal_type,city,district,street,rooms,area,price,description,phone,photos)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+            """, (uid, data.get('deal_type','sale'), data.get('city',''),
+                  data.get('district'), data.get('street'), data.get('rooms'),
+                  data.get('area'), int(data.get('price',0)),
+                  data.get('description'), data.get('phone'),
+                  data.get('photos',[])))
+            lid = cur.fetchone()['id']
+            conn.commit()
+            return _resp(200, {'id': lid})
+
+        # ── Оплата объявления (демо) ──────────────────────
+        if action == 'realty_pay' and method == 'POST':
+            lid = int(body.get('listing_id') or 0)
+            uid = int(body.get('user_id') or 0)
+            cur.execute("SELECT id,user_id FROM realty_listings WHERE id=%s", (lid,))
+            row = cur.fetchone()
+            if not row: return _resp(404, {'error': 'Не найдено'})
+            if row['user_id'] != uid: return _resp(403, {'error': 'Нет доступа'})
+            cur.execute("UPDATE realty_listings SET is_paid=TRUE WHERE id=%s", (lid,))
+            conn.commit()
+            return _resp(200, {'ok': True, 'paid': True})
+
+        # ── Загрузить фото объявления ─────────────────────
+        if action == 'realty_upload_photo' and method == 'POST':
+            uid  = int(body.get('user_id') or 0)
+            data = body.get('data', '')
+            ext  = body.get('ext', 'jpg')
+            import base64, boto3
+            s3 = boto3.client('s3', endpoint_url='https://bucket.poehali.dev',
+                              aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+                              aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
+            key = f"realty/{uid}_{secrets.token_hex(8)}.{ext}"
+            s3.put_object(Bucket='files', Key=key, Body=base64.b64decode(data),
+                          ContentType=f'image/{ext}')
+            url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
+            return _resp(200, {'url': url})
+
+        # ── Чат по объявлению: открыть/получить ──────────
+        if action == 'realty_open_chat' and method == 'POST':
+            lid       = int(body.get('listing_id') or 0)
+            buyer_id  = int(body.get('buyer_id') or 0)
+            cur.execute("SELECT id,user_id FROM realty_listings WHERE id=%s", (lid,))
+            listing = cur.fetchone()
+            if not listing: return _resp(404, {'error': 'Объявление не найдено'})
+            seller_id = listing['user_id']
+            if buyer_id == seller_id: return _resp(400, {'error': 'Нельзя писать себе'})
+            cur.execute("SELECT id FROM realty_chats WHERE listing_id=%s AND buyer_id=%s", (lid, buyer_id))
+            row = cur.fetchone()
+            if not row:
+                cur.execute("INSERT INTO realty_chats (listing_id,buyer_id,seller_id) VALUES (%s,%s,%s) RETURNING id",
+                            (lid, buyer_id, seller_id))
+                row = cur.fetchone()
+                conn.commit()
+            return _resp(200, {'chat_id': row['id'], 'seller_id': seller_id})
+
+        # ── Сообщения чата по объявлению ─────────────────
+        if action == 'realty_messages' and method == 'GET':
+            cid   = int(params.get('chat_id') or 0)
+            after = int(params.get('after') or 0)
+            cur.execute("""
+                SELECT m.id, m.sender_id, u.nick AS sender_nick, u.avatar_url AS sender_avatar,
+                       m.text, m.created_at
+                FROM realty_messages m JOIN users u ON u.id=m.sender_id
+                WHERE m.chat_id=%s AND m.id>%s ORDER BY m.id ASC LIMIT 100
+            """, (cid, after))
+            return _resp(200, {'messages': cur.fetchall()})
+
+        # ── Отправить сообщение в чат объявления ─────────
+        if action == 'realty_send' and method == 'POST':
+            cid    = int(body.get('chat_id') or 0)
+            uid    = int(body.get('user_id') or 0)
+            text   = body.get('text', '').strip()
+            if not text: return _resp(400, {'error': 'Пустое сообщение'})
+            cur.execute("INSERT INTO realty_messages (chat_id,sender_id,text) VALUES (%s,%s,%s) RETURNING id",
+                        (cid, uid, text))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── Мои объявления ────────────────────────────────
+        if action == 'realty_my' and method == 'GET':
+            uid = int(params.get('user_id') or 0)
+            cur.execute("""
+                SELECT l.*, u.nick AS seller_nick FROM realty_listings l
+                JOIN users u ON u.id=l.user_id WHERE l.user_id=%s ORDER BY l.created_at DESC
+            """, (uid,))
+            return _resp(200, {'listings': cur.fetchall()})
+
+        # ── Мои чаты по объявлениям ───────────────────────
+        if action == 'realty_my_chats' and method == 'GET':
+            uid = int(params.get('user_id') or 0)
+            cur.execute("""
+                SELECT rc.id AS chat_id, rl.id AS listing_id,
+                       rl.city, rl.district, rl.street, rl.deal_type, rl.rooms, rl.price, rl.photos,
+                       CASE WHEN rc.buyer_id=%s THEN u2.id ELSE u1.id END AS peer_id,
+                       CASE WHEN rc.buyer_id=%s THEN u2.nick ELSE u1.nick END AS peer_nick,
+                       CASE WHEN rc.buyer_id=%s THEN u2.avatar_url ELSE u1.avatar_url END AS peer_avatar,
+                       (SELECT text FROM realty_messages rm WHERE rm.chat_id=rc.id ORDER BY rm.id DESC LIMIT 1) AS last_text,
+                       (SELECT created_at FROM realty_messages rm WHERE rm.chat_id=rc.id ORDER BY rm.id DESC LIMIT 1) AS last_at
+                FROM realty_chats rc
+                JOIN realty_listings rl ON rl.id=rc.listing_id
+                JOIN users u1 ON u1.id=rc.buyer_id
+                JOIN users u2 ON u2.id=rc.seller_id
+                WHERE rc.buyer_id=%s OR rc.seller_id=%s
+                ORDER BY last_at DESC NULLS LAST
+            """, (uid, uid, uid, uid, uid))
+            return _resp(200, {'chats': cur.fetchall()})
+
+        # ── АДМИН: все объявления ─────────────────────────
+        if action == 'realty_admin_list' and method == 'GET':
+            cur.execute("""
+                SELECT l.*, u.nick AS seller_nick, u.avatar_url AS seller_avatar
+                FROM realty_listings l JOIN users u ON u.id=l.user_id
+                ORDER BY l.created_at DESC LIMIT 200
+            """)
+            cur.execute("SELECT COUNT(*) AS total FROM realty_listings")
+            total = cur.fetchone()['total']
+            cur.execute("SELECT COUNT(*) AS paid FROM realty_listings WHERE is_paid=TRUE")
+            paid = cur.fetchone()['paid']
+            return _resp(200, {'listings': cur.fetchall(), 'stats': {'total': total, 'paid': paid}})
+
+        # ── АДМИН: удалить/заблокировать ─────────────────
+        if action == 'realty_admin_action' and method == 'POST':
+            lid       = int(body.get('listing_id') or 0)
+            admin_action = body.get('admin_action', '')
+            if admin_action == 'block':
+                cur.execute("UPDATE realty_listings SET is_blocked=TRUE WHERE id=%s", (lid,))
+            elif admin_action == 'unblock':
+                cur.execute("UPDATE realty_listings SET is_blocked=FALSE WHERE id=%s", (lid,))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
         return _resp(404, {'error': 'Неизвестное действие'})
     finally:
         conn.close()

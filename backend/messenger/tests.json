@@ -58,6 +58,14 @@
       "expectedStatus": 200,
       "expectedBody": {"messages": [], "typing": []},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Realty list",
+      "method": "GET",
+      "path": "/?action=realty_list&deal_type=sale",
+      "expectedStatus": 200,
+      "expectedBody": {"listings": []},
+      "bodyMatcher": "partial"
     }
   ]
 }

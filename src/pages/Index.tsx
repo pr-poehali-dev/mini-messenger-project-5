@@ -62,7 +62,8 @@ type User = { id: number; nick: string; avatar_url?: string | null; profile_comp
 type Profile = User & { city?: string; birthdate?: string; about?: string; is_online?: boolean; last_seen?: string; followers: number; following: number; i_follow?: boolean; i_blocked?: boolean };
 type ChatItem = { chat_id: number; kind: 'dm' | 'group'; peer_id?: number; peer_nick?: string; peer_avatar?: string | null; peer_online?: boolean; group_id?: number; group_name?: string; group_avatar?: string | null; last_text?: string | null; last_at?: string | null; unread_count?: number };
 type Message = { id: number; sender_id: number; sender_nick: string; sender_avatar?: string | null; text?: string | null; image_url?: string | null; media_type?: string | null; media_url?: string | null; created_at: string; is_removed?: boolean; is_read?: boolean; reactions?: { emoji: string; user_id: number }[] };
-type Tab = 'search' | 'chats' | 'notifications' | 'profile';
+type Tab = 'search' | 'chats' | 'notifications' | 'realty' | 'profile';
+type RealtyListing = { id: number; deal_type: 'sale'|'rent'; city: string; district?: string; street?: string; rooms?: number; area?: number; price: number; description?: string; phone?: string; photos?: string[]; is_paid: boolean; created_at: string; seller_id: number; seller_nick: string; seller_avatar?: string|null };
 type Notif = { id: number; type: string; from_user_id?: number; from_nick?: string; from_avatar?: string | null; chat_id?: number; group_id?: number; payload?: string; is_read: boolean; created_at: string };
 type GroupInfo = { id: number; name: string; about?: string; photo_url?: string | null; invite_token: string; owner_id: number; my_role?: string; member_count: number; is_public?: boolean };
 type GroupMember = User & { role: string };
@@ -76,7 +77,8 @@ type Screen =
   | { name: 'user_profile'; userId: number }
   | { name: 'followers'; userId: number; mode: 'followers' | 'following' }
   | { name: 'new_group' }
-  | { name: 'group_info'; groupId: number; chatId: number };
+  | { name: 'group_info'; groupId: number; chatId: number }
+  | { name: 'realty_chat'; chatId: number; listing: RealtyListing };
 
 export default function Index() {
   const [user, setUser] = useState<User | null>(() => {
@@ -296,6 +298,8 @@ export default function Index() {
       onBack={() => push({ name: 'tabs', tab: 'chats' })}
       onOpenChat={() => push({ name: 'chat', chatId: screen.chatId, groupId: screen.groupId, groupName: '' })}
       onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />;
+    if (screen.name === 'realty_chat') return <RealtyChatScreen
+      user={user} chatId={screen.chatId} listing={screen.listing} onBack={back} />;
     const tab = (screen as { name: 'tabs'; tab: Tab }).tab;
     return (
       <TabsShell tab={tab} onTab={(t) => push({ name: 'tabs', tab: t })} user={user}>
@@ -303,7 +307,10 @@ export default function Index() {
         {tab === 'chats' && <ChatsTab user={user}
           onOpenChat={(c) => push({ name: 'chat', chatId: c.chat_id, peer: c.peer_id ? { id: c.peer_id, nick: c.peer_nick!, avatar_url: c.peer_avatar } : undefined, groupName: c.group_name, groupId: c.group_id })}
           onNewGroup={() => push({ name: 'new_group' })}
-          onOpenGroup={(gid, chatId) => push({ name: 'group_info', groupId: gid, chatId })} />}
+          onOpenGroup={(gid, chatId) => push({ name: 'group_info', groupId: gid, chatId })}
+          onOpenRealtyChat={(chatId, listing) => push({ name: 'realty_chat', chatId, listing })} />}
+        {tab === 'realty' && <RealtyTab user={user}
+          onOpenChat={(chatId, listing) => push({ name: 'realty_chat', chatId, listing })} />}
         {tab === 'notifications' && <NotificationsTab user={user}
           onOpenChat={(chatId) => push({ name: 'chat', chatId })}
           onOpenProfile={(id) => push({ name: 'user_profile', userId: id })}
@@ -684,10 +691,11 @@ function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (t: Tab) =
     return () => clearInterval(iv);
   }, [user.id]);
 
-  const tabs: { key: Tab; icon: string; label: string; badge?: number }[] = [
+  const tabs: { key: Tab; icon: string; label: string; badge?: number; emoji?: string }[] = [
     { key: 'search', icon: 'Search', label: 'Поиск' },
     { key: 'chats', icon: 'MessageCircle', label: 'Чаты', badge: unreadChats },
-    { key: 'notifications', icon: 'Bell', label: 'Уведомления', badge: unreadNotifs },
+    { key: 'realty', icon: 'Home', label: 'Жильё' },
+    { key: 'notifications', icon: 'Bell', label: 'События', badge: unreadNotifs },
     { key: 'profile', icon: 'User', label: 'Профиль' },
   ];
   return (
@@ -726,7 +734,7 @@ function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (t: Tab) =
 // ══════════════════════════════════════════════════════════════════════════════
 // CHATS TAB
 // ══════════════════════════════════════════════════════════════════════════════
-function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup }: { user: User; onOpenChat: (c: ChatItem) => void; onNewGroup: () => void; onOpenGroup: (gid: number, chatId: number) => void }) {
+function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat }: { user: User; onOpenChat: (c: ChatItem) => void; onNewGroup: () => void; onOpenGroup: (gid: number, chatId: number) => void; onOpenRealtyChat: (chatId: number, listing: RealtyListing) => void }) {
   const [chats, setChats] = useState<ChatItem[]>([]);
   const [showMenu, setShowMenu] = useState(false);
   const [swipedId, setSwipedId] = useState<number | null>(null);
@@ -818,6 +826,8 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup }: { user: User; o
             <p className="text-xs text-slate-400">{search ? 'Попробуй другой запрос' : 'Найди людей через поиск'}</p>
           </div>
         )}
+        {/* Чаты по объявлениям */}
+        <RealtyChatsInline user={user} onOpen={onOpenRealtyChat} />
         {visibleChats.map(c => (
           <div key={c.chat_id} className="relative overflow-hidden rounded-2xl">
             {swipedId === c.chat_id && (
@@ -2067,6 +2077,538 @@ function IncomingCallBanner({ caller, kind, onAccept, onReject }: {
           <button onClick={onAccept}
             className="flex-1 py-3.5 rounded-2xl bg-green-500 text-white font-semibold flex items-center justify-center gap-2">
             <Icon name="Phone" size={18} className="text-white" /> Принять
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// НЕДВИЖИМОСТЬ — ВКЛАДКА
+// ══════════════════════════════════════════════════════════════════════════════
+const CITIES = ['Магас','Назрань','Малгобек','Карабулак','Сунжа','Грозный','Нальчик','Владикавказ','Черкесск','Махачкала','Ставрополь','Москва','Санкт-Петербург','Краснодар','Ростов-на-Дону','Минеральные Воды','Пятигорск','Кисловодск','Моздок','Прохладный'];
+
+function fmtPrice(p: number) {
+  if (p >= 1_000_000) return (p / 1_000_000).toFixed(1).replace(/\.0$/,'') + ' млн ₽';
+  if (p >= 1_000) return Math.round(p / 1_000) + ' тыс ₽';
+  return p + ' ₽';
+}
+
+// ── Чаты по объявлениям в списке чатов ───────────────────────────────────────
+function RealtyChatsInline({ user, onOpen }: { user: User; onOpen: (chatId: number, listing: RealtyListing) => void }) {
+  const [chats, setChats] = useState<{ chat_id: number; listing_id: number; city: string; district?: string; deal_type: string; rooms?: number; price: number; photos?: string[]; peer_nick: string; peer_avatar?: string|null; last_text?: string; last_at?: string }[]>([]);
+
+  useEffect(() => {
+    api(`realty_my_chats&user_id=${user.id}`).then(d => setChats((d.chats as typeof chats) || []));
+  }, [user.id]);
+
+  if (chats.length === 0) return null;
+
+  return (
+    <>
+      <div className="px-2 py-2 mt-2">
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Чаты по объявлениям</p>
+      </div>
+      {chats.map(c => (
+        <button key={c.chat_id} onClick={() => onOpen(c.chat_id, { id: c.listing_id, deal_type: c.deal_type as 'sale'|'rent', city: c.city, district: c.district, rooms: c.rooms, price: c.price, photos: c.photos, is_paid: true, created_at: '', seller_id: 0, seller_nick: c.peer_nick, seller_avatar: c.peer_avatar } as RealtyListing)}
+          className="w-full flex items-center gap-3 px-2 py-3 rounded-2xl hover:bg-blue-50 transition-colors mb-1">
+          <div className="w-12 h-12 rounded-2xl overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center">
+            {c.photos && c.photos[0] ? <img src={c.photos[0]} className="w-full h-full object-cover" /> : <span className="text-2xl">🏠</span>}
+          </div>
+          <div className="flex-1 min-w-0 text-left">
+            <p className="font-semibold text-slate-800 text-sm truncate">{c.city} · {fmtPrice(c.price)}</p>
+            <p className="text-xs text-slate-400 truncate mt-0.5">{c.last_text || 'Нет сообщений'}</p>
+          </div>
+          {c.last_at && <span className="text-[11px] text-slate-400 shrink-0">{new Date(c.last_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}</span>}
+        </button>
+      ))}
+      <div className="border-t border-slate-100 mt-2 mb-2" />
+    </>
+  );
+}
+
+function RealtyTab({ user, onOpenChat }: { user: User; onOpenChat: (chatId: number, listing: RealtyListing) => void }) {
+  const [listings, setListings] = useState<RealtyListing[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [selectedListing, setSelectedListing] = useState<RealtyListing | null>(null);
+  const [filters, setFilters] = useState({ deal_type: '', city: '', district: '', rooms: '', price_min: '', price_max: '' });
+
+  const load = async (f = filters, search = q) => {
+    setLoading(true);
+    const p = new URLSearchParams({ ...(f.deal_type ? { deal_type: f.deal_type } : {}), ...(f.city ? { city: f.city } : {}), ...(f.district ? { district: f.district } : {}), ...(f.rooms ? { rooms: f.rooms } : {}), ...(f.price_min ? { price_min: f.price_min } : {}), ...(f.price_max ? { price_max: f.price_max } : {}), ...(search ? { q: search } : {}) });
+    const d = await api(`realty_list&${p.toString()}`);
+    setListings((d.listings as RealtyListing[]) || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, []);
+
+  return (
+    <div className="flex flex-col h-full bg-slate-50">
+      {/* Header */}
+      <div className="shrink-0 bg-white border-b border-slate-100 px-4 pt-4 pb-3">
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-2xl font-bold text-slate-900" style={{ letterSpacing: '-0.5px' }}>🏡 Недвижимость</h1>
+          <button onClick={() => setShowForm(true)}
+            className="flex items-center gap-1.5 bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-2xl active:bg-blue-700 transition-colors">
+            <Icon name="Plus" size={16} /> Подать
+          </button>
+        </div>
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Icon name="Search" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && load(filters, q)}
+              placeholder="Поиск по городу, описанию..."
+              className="w-full bg-slate-100 rounded-2xl pl-9 pr-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <button onClick={() => setShowFilters(true)}
+            className="px-3 py-2.5 rounded-2xl bg-slate-100 flex items-center gap-1.5 text-sm font-medium text-slate-600">
+            <Icon name="SlidersHorizontal" size={15} /> Фильтры
+          </button>
+        </div>
+      </div>
+
+      {/* Лента */}
+      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+        {loading && <div className="flex justify-center mt-16"><div className="w-7 h-7 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>}
+        {!loading && listings.length === 0 && (
+          <div className="flex flex-col items-center mt-20 gap-3">
+            <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center text-3xl">🏠</div>
+            <p className="text-slate-500 text-sm font-medium">Объявлений пока нет</p>
+            <button onClick={() => setShowForm(true)} className="text-blue-600 text-sm font-semibold">Подать первое →</button>
+          </div>
+        )}
+        {listings.map(l => (
+          <button key={l.id} onClick={() => setSelectedListing(l)}
+            className="w-full bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm active:scale-[0.99] transition-transform text-left">
+            {l.photos && l.photos.length > 0
+              ? <img src={l.photos[0]} alt="" className="w-full h-44 object-cover" />
+              : <div className="w-full h-44 bg-gradient-to-br from-blue-50 to-slate-100 flex items-center justify-center text-4xl">🏠</div>
+            }
+            <div className="p-4">
+              <div className="flex items-start justify-between gap-2">
+                <p className="font-bold text-xl text-slate-900">{fmtPrice(l.price)}</p>
+                <span className={`text-xs font-semibold px-2 py-1 rounded-full ${l.deal_type === 'sale' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                  {l.deal_type === 'sale' ? 'Продажа' : 'Аренда'}
+                </span>
+              </div>
+              <p className="text-sm text-slate-700 mt-1 font-medium">
+                {[l.rooms ? `${l.rooms}-комн.` : null, l.area ? `${l.area} м²` : null].filter(Boolean).join(' · ')}
+              </p>
+              <p className="text-sm text-slate-400 mt-0.5 flex items-center gap-1">
+                <Icon name="MapPin" size={12} className="shrink-0" />
+                {[l.city, l.district, l.street].filter(Boolean).join(', ')}
+              </p>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Фильтры */}
+      {showFilters && <RealtyFilters filters={filters} onApply={f => { setFilters(f); setShowFilters(false); load(f, q); }} onClose={() => setShowFilters(false)} />}
+
+      {/* Форма публикации */}
+      {showForm && <RealtyForm user={user} onClose={() => setShowForm(false)} onPublished={() => { setShowForm(false); load(); }} />}
+
+      {/* Карточка объявления */}
+      {selectedListing && <RealtyCard listing={selectedListing} user={user} onClose={() => setSelectedListing(null)} onOpenChat={onOpenChat} />}
+    </div>
+  );
+}
+
+// ── Фильтры ───────────────────────────────────────────────────────────────────
+function RealtyFilters({ filters, onApply, onClose }: { filters: Record<string,string>; onApply: (f: Record<string,string>) => void; onClose: () => void }) {
+  const [f, setF] = useState({ ...filters });
+  const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl w-full max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100">
+          <h3 className="font-bold text-lg text-slate-900">Фильтры</h3>
+          <button onClick={onClose}><Icon name="X" size={20} className="text-slate-400" /></button>
+        </div>
+        <div className="px-5 py-4 space-y-5">
+          <div>
+            <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Тип сделки</p>
+            <div className="flex gap-2">
+              {[['','Все'],['sale','Купить'],['rent','Снять']].map(([v,l]) => (
+                <button key={v} onClick={() => set('deal_type', v)}
+                  className={`flex-1 py-2.5 rounded-2xl text-sm font-semibold border transition-colors ${f.deal_type === v ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200'}`}>{l}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Город</p>
+            <select value={f.city} onChange={e => set('city', e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none">
+              <option value="">Любой</option>
+              {CITIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Район</p>
+            <input value={f.district} onChange={e => set('district', e.target.value)} placeholder="Введите район..."
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Комнат</p>
+            <div className="flex gap-2">
+              {[['','Любое'],['1','1'],['2','2'],['3','3'],['4','4'],['5','5+']].map(([v,l]) => (
+                <button key={v} onClick={() => set('rooms', v)}
+                  className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-colors ${f.rooms === v ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200'}`}>{l}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Цена (₽)</p>
+            <div className="flex gap-2 items-center">
+              <input value={f.price_min} onChange={e => set('price_min', e.target.value)} placeholder="от"
+                type="number" className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500" />
+              <span className="text-slate-400">—</span>
+              <input value={f.price_max} onChange={e => set('price_max', e.target.value)} placeholder="до"
+                type="number" className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500" />
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-3 px-5 pb-8">
+          <button onClick={() => { const e = {deal_type:'',city:'',district:'',rooms:'',price_min:'',price_max:''}; setF(e); onApply(e); }}
+            className="flex-1 py-3.5 rounded-2xl border border-slate-200 text-sm font-semibold text-slate-600">Сбросить</button>
+          <button onClick={() => onApply(f)}
+            className="flex-1 py-3.5 rounded-2xl bg-blue-600 text-white text-sm font-bold">Применить</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Форма публикации ──────────────────────────────────────────────────────────
+function RealtyForm({ user, onClose, onPublished }: { user: User; onClose: () => void; onPublished: () => void }) {
+  const [step, setStep] = useState<'form'|'pay'>('form');
+  const [saving, setSaving] = useState(false);
+  const [listingId, setListingId] = useState<number|null>(null);
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [form, setForm] = useState({ deal_type: 'sale', city: '', district: '', street: '', rooms: '', area: '', price: '', description: '', phone: '' });
+  const fileRef = useRef<HTMLInputElement>(null);
+  const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
+
+  const uploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file || photos.length >= 5) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const [, b64] = (reader.result as string).split(',');
+      const ext = file.name.split('.').pop() || 'jpg';
+      const d = await api('realty_upload_photo', 'POST', { user_id: user.id, data: b64, ext });
+      if (d.url) setPhotos(p => [...p, d.url as string]);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const submit = async () => {
+    if (!form.city || !form.price) return;
+    setSaving(true);
+    const d = await api('realty_create', 'POST', { user_id: user.id, listing: { ...form, rooms: form.rooms ? +form.rooms : null, area: form.area ? +form.area : null, price: +form.price, photos } });
+    setListingId(d.id as number);
+    setSaving(false);
+    setStep('pay');
+  };
+
+  const pay = async () => {
+    if (!listingId) return;
+    setSaving(true);
+    await api('realty_pay', 'POST', { listing_id: listingId, user_id: user.id });
+    setSaving(false);
+    onPublished();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl w-full max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 shrink-0">
+          <h3 className="font-bold text-lg">{step === 'form' ? 'Новое объявление' : 'Оплата публикации'}</h3>
+          <button onClick={onClose}><Icon name="X" size={20} className="text-slate-400" /></button>
+        </div>
+
+        {step === 'form' && (
+          <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+            {/* Фото */}
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Фото (до 5 шт.)</p>
+              <div className="flex gap-2 flex-wrap">
+                {photos.map((p, i) => (
+                  <div key={i} className="relative w-20 h-20 rounded-2xl overflow-hidden">
+                    <img src={p} className="w-full h-full object-cover" />
+                    <button onClick={() => setPhotos(ps => ps.filter((_,j) => j !== i))}
+                      className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center">
+                      <Icon name="X" size={10} className="text-white" />
+                    </button>
+                  </div>
+                ))}
+                {photos.length < 5 && (
+                  <button onClick={() => fileRef.current?.click()}
+                    className="w-20 h-20 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center gap-1 text-slate-400">
+                    <Icon name="Camera" size={20} />
+                    <span className="text-[10px]">Добавить</span>
+                  </button>
+                )}
+                <input ref={fileRef} type="file" accept="image/*" hidden onChange={uploadPhoto} />
+              </div>
+            </div>
+            {/* Тип */}
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Тип сделки</p>
+              <div className="flex gap-2">
+                {[['sale','Продажа'],['rent','Аренда']].map(([v,l]) => (
+                  <button key={v} onClick={() => set('deal_type', v)}
+                    className={`flex-1 py-2.5 rounded-2xl text-sm font-semibold border ${form.deal_type === v ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 text-slate-600'}`}>{l}</button>
+                ))}
+              </div>
+            </div>
+            {/* Город */}
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Город *</p>
+              <select value={form.city} onChange={e => set('city', e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500">
+                <option value="">Выберите город</option>
+                {CITIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            {[['district','Район',''],['street','Улица, дом','']].map(([k,l,ph]) => (
+              <div key={k}>
+                <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">{l}</p>
+                <input value={(form as Record<string,string>)[k]} onChange={e => set(k, e.target.value)} placeholder={ph}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500" />
+              </div>
+            ))}
+            {/* Комнаты + площадь */}
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Комнат</p>
+                <input value={form.rooms} onChange={e => set('rooms', e.target.value)} type="number" placeholder="1"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500" />
+              </div>
+              <div className="flex-1">
+                <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Площадь (м²)</p>
+                <input value={form.area} onChange={e => set('area', e.target.value)} type="number" placeholder="50"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500" />
+              </div>
+            </div>
+            {/* Цена */}
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Цена (₽) *</p>
+              <input value={form.price} onChange={e => set('price', e.target.value)} type="number" placeholder="3500000"
+                className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500" />
+            </div>
+            {/* Описание */}
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Описание</p>
+              <textarea value={form.description} onChange={e => set('description', e.target.value)} placeholder="Опишите объект..." maxLength={500} rows={3}
+                className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 resize-none" />
+              <p className="text-right text-xs text-slate-400 mt-1">{form.description.length}/500</p>
+            </div>
+            {/* Телефон */}
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Телефон продавца</p>
+              <input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+7 (___) ___-__-__" type="tel"
+                className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500" />
+            </div>
+            <button onClick={submit} disabled={saving || !form.city || !form.price}
+              className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold text-base disabled:opacity-40">
+              {saving ? 'Сохранение...' : 'Далее — Оплата 50 ₽ →'}
+            </button>
+          </div>
+        )}
+
+        {step === 'pay' && (
+          <div className="flex-1 flex flex-col items-center justify-center px-6 gap-6">
+            <div className="w-20 h-20 rounded-3xl bg-green-50 flex items-center justify-center text-4xl">💳</div>
+            <div className="text-center">
+              <h3 className="font-bold text-xl text-slate-900 mb-2">Оплата публикации</h3>
+              <p className="text-slate-500 text-sm">После оплаты объявление сразу появится в ленте и получит значок ✅</p>
+            </div>
+            <div className="w-full bg-slate-50 rounded-3xl p-5 text-center">
+              <p className="text-4xl font-bold text-slate-900">50 ₽</p>
+              <p className="text-sm text-slate-400 mt-1">Размещение на 30 дней</p>
+            </div>
+            <button onClick={pay} disabled={saving}
+              className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold text-lg disabled:opacity-40">
+              {saving ? '...' : 'Оплатить 50 ₽'}
+            </button>
+            <p className="text-xs text-slate-400 text-center">Демо-режим: реального списания нет. Оплата через ЮKassa / СБП будет подключена позже.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Карточка объявления ───────────────────────────────────────────────────────
+function RealtyCard({ listing: l, user, onClose, onOpenChat }: { listing: RealtyListing; user: User; onClose: () => void; onOpenChat: (chatId: number, listing: RealtyListing) => void }) {
+  const [photoIdx, setPhotoIdx] = useState(0);
+  const [showPhone, setShowPhone] = useState(false);
+  const [opening, setOpening] = useState(false);
+
+  const openChat = async () => {
+    if (l.seller_id === user.id) return;
+    setOpening(true);
+    const d = await api('realty_open_chat', 'POST', { listing_id: l.id, buyer_id: user.id });
+    setOpening(false);
+    onClose();
+    onOpenChat(d.chat_id as number, l);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl w-full max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* Галерея */}
+        <div className="relative shrink-0 h-56 bg-slate-100 overflow-hidden rounded-t-3xl">
+          {l.photos && l.photos.length > 0
+            ? <img src={l.photos[photoIdx]} alt="" className="w-full h-full object-cover" />
+            : <div className="w-full h-full flex items-center justify-center text-6xl">🏠</div>
+          }
+          {l.photos && l.photos.length > 1 && (
+            <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
+              {l.photos.map((_,i) => <div key={i} onClick={e => { e.stopPropagation(); setPhotoIdx(i); }}
+                className={`w-2 h-2 rounded-full cursor-pointer ${i === photoIdx ? 'bg-white' : 'bg-white/40'}`} />)}
+            </div>
+          )}
+          <button onClick={onClose} className="absolute top-4 right-4 w-9 h-9 rounded-full bg-black/40 flex items-center justify-center">
+            <Icon name="X" size={18} className="text-white" />
+          </button>
+          {l.is_paid && <div className="absolute top-4 left-4 bg-green-500 text-white text-xs font-bold px-2.5 py-1 rounded-full">✅ Оплачено</div>}
+        </div>
+
+        <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-3xl font-bold text-slate-900">{fmtPrice(l.price)}</p>
+              {l.deal_type === 'rent' && <p className="text-sm text-slate-400">в месяц</p>}
+            </div>
+            <span className={`text-xs font-bold px-3 py-1.5 rounded-full ${l.deal_type === 'sale' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+              {l.deal_type === 'sale' ? 'Продажа' : 'Аренда'}
+            </span>
+          </div>
+
+          <div className="flex gap-3 flex-wrap">
+            {l.rooms && <div className="bg-slate-100 rounded-2xl px-3 py-2 text-sm font-semibold text-slate-700">{l.rooms} комн.</div>}
+            {l.area && <div className="bg-slate-100 rounded-2xl px-3 py-2 text-sm font-semibold text-slate-700">{l.area} м²</div>}
+          </div>
+
+          <div className="flex items-start gap-2 text-slate-600">
+            <Icon name="MapPin" size={16} className="text-blue-500 mt-0.5 shrink-0" />
+            <p className="text-sm">{[l.city, l.district, l.street].filter(Boolean).join(', ')}</p>
+          </div>
+
+          {l.description && <p className="text-sm text-slate-600 leading-relaxed">{l.description}</p>}
+
+          <div className="flex items-center gap-3 py-3 border-t border-slate-100">
+            <Avatar url={l.seller_avatar} nick={l.seller_nick} size={40} />
+            <div>
+              <p className="font-semibold text-sm text-slate-800">@{l.seller_nick}</p>
+              <p className="text-xs text-slate-400">Продавец</p>
+            </div>
+          </div>
+
+          {/* Кнопки */}
+          <div className="space-y-2 pb-4">
+            {l.phone && (
+              <button onClick={() => showPhone ? window.location.href = `tel:${l.phone}` : setShowPhone(true)}
+                className="w-full py-3.5 rounded-2xl bg-green-500 text-white font-bold flex items-center justify-center gap-2">
+                <Icon name="Phone" size={18} />
+                {showPhone ? l.phone : 'Показать номер'}
+              </button>
+            )}
+            {l.seller_id !== user.id && (
+              <button onClick={openChat} disabled={opening}
+                className="w-full py-3.5 rounded-2xl bg-blue-600 text-white font-bold flex items-center justify-center gap-2 disabled:opacity-50">
+                <Icon name="MessageCircle" size={18} />
+                {opening ? 'Открываем...' : 'Написать продавцу'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Чат по объявлению ─────────────────────────────────────────────────────────
+function RealtyChatScreen({ user, chatId, listing, onBack }: { user: User; chatId: number; listing: RealtyListing; onBack: () => void }) {
+  const [messages, setMessages] = useState<{ id: number; sender_id: number; sender_nick: string; sender_avatar?: string|null; text: string; created_at: string }[]>([]);
+  const [input, setInput] = useState('');
+  const lastIdRef = useRef(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const load = async () => {
+    const d = await api(`realty_messages&chat_id=${chatId}&after=${lastIdRef.current}`);
+    const fresh = (d.messages as typeof messages) || [];
+    if (fresh.length) { lastIdRef.current = fresh[fresh.length - 1].id; setMessages(m => [...m, ...fresh]); }
+  };
+
+  useEffect(() => {
+    load();
+    const iv = setInterval(() => { if (!document.hidden) load(); }, 2000);
+    return () => clearInterval(iv);
+  }, [chatId]);
+
+  useEffect(() => { scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight); }, [messages]);
+
+  const send = async () => {
+    const t = input.trim(); if (!t) return;
+    setInput('');
+    await api('realty_send', 'POST', { chat_id: chatId, user_id: user.id, text: t });
+    load();
+  };
+
+  return (
+    <div className="fixed inset-0 flex flex-col bg-slate-50">
+      {/* Header */}
+      <header className="shrink-0 flex items-center gap-2 px-2 bg-blue-600"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 6px)', paddingBottom: '12px', borderRadius: '0 0 18px 18px', boxShadow: '0 4px 20px rgba(37,99,235,0.35)', zIndex: 10 }}>
+        <button onClick={onBack} className="w-10 h-10 rounded-full hover:bg-white/15 flex items-center justify-center">
+          <Icon name="ArrowLeft" size={22} className="text-white" />
+        </button>
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-white text-[15px] truncate">{listing.city} · {fmtPrice(listing.price)}</p>
+          <p className="text-blue-200 text-xs truncate">{[listing.rooms ? `${listing.rooms} комн.` : null, listing.area ? `${listing.area}м²` : null].filter(Boolean).join(' · ')}</p>
+        </div>
+      </header>
+
+      {/* Сообщения */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 space-y-2">
+        {messages.length === 0 && (
+          <div className="text-center mt-12">
+            <div className="text-4xl mb-3">🏠</div>
+            <p className="text-sm text-slate-400">Начните переписку по объявлению</p>
+          </div>
+        )}
+        {messages.map(m => {
+          const mine = m.sender_id === user.id;
+          return (
+            <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[78%] px-4 py-2.5 rounded-2xl text-[15px] ${mine ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-white text-slate-800 rounded-bl-sm shadow-sm border border-slate-100'}`}>
+                {!mine && <p className="text-xs font-semibold text-blue-500 mb-1">@{m.sender_nick}</p>}
+                <p className="leading-relaxed break-words">{m.text}</p>
+                <p className={`text-[10px] mt-1 text-right ${mine ? 'text-white/60' : 'text-slate-400'}`}>{new Date(m.created_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Ввод */}
+      <div className="shrink-0 px-3 py-3 bg-white border-t border-slate-100"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}>
+        <div className="flex items-center gap-2 bg-slate-100 rounded-2xl px-4 py-2">
+          <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
+            placeholder="Написать сообщение..." className="flex-1 bg-transparent outline-none text-sm text-slate-800" />
+          <button onClick={send} disabled={!input.trim()}
+            className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center disabled:opacity-40 transition-opacity shrink-0">
+            <Icon name="Send" size={16} className="text-white" />
           </button>
         </div>
       </div>
