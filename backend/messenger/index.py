@@ -652,6 +652,26 @@ def handler(event: dict, context) -> dict:
 
             return _resp(200, {'message': msg})
 
+        # ── PRESIGNED URL ДЛЯ ПРЯМОЙ ЗАГРУЗКИ В S3 ────────
+        if action == 'get_upload_url' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            ext = (body.get('ext') or 'bin').lower()
+            media_type = body.get('media_type', 'video')
+            ct_map = {'image': f'image/{ext}', 'video': f'video/{ext}', 'audio': f'audio/{ext}', 'voice': 'audio/ogg', 'file': 'application/octet-stream'}
+            content_type = ct_map.get(media_type, 'application/octet-stream')
+            key = f"media/{uid}/{int(time.time())}_{secrets.token_hex(4)}.{ext}"
+            s3 = boto3.client('s3', endpoint_url='https://bucket.poehali.dev',
+                aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+                aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
+            upload_url = s3.generate_presigned_url(
+                'put_object',
+                Params={'Bucket': 'files', 'Key': key, 'ContentType': content_type},
+                ExpiresIn=600
+            )
+            cdn_url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
+            print(f'[PRESIGN] uid={uid} key={key} content_type={content_type}')
+            return _resp(200, {'upload_url': upload_url, 'cdn_url': cdn_url, 'media_type': media_type})
+
         # ── UPLOAD MEDIA ──────────────────────────────────
         if action == 'upload_media' and method == 'POST':
             uid = int(body.get('user_id') or 0)
