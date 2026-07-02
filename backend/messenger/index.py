@@ -348,6 +348,7 @@ def handler(event: dict, context) -> dict:
                 JOIN users u ON u.id = CASE WHEN c.user_a=%s THEN c.user_b ELSE c.user_a END
                 WHERE (c.user_a=%s OR c.user_b=%s) AND c.group_id IS NULL
                   AND c.id NOT IN (SELECT chat_id FROM hidden_chats WHERE user_id=%s)
+                  AND EXISTS (SELECT 1 FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE)
                 UNION ALL
                 SELECT c.id AS chat_id,
                        g.id AS group_id, g.name AS group_name, g.avatar_url AS group_avatar,
@@ -666,13 +667,24 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return _resp(200, {'ok': True})
 
-        # ── HIDE CHAT (только у себя) ──────────────────────
+        # ── HIDE CHAT (скрыть + удалить свои просмотры сообщений) ──
         if action == 'hide_chat' and method == 'POST':
             uid = int(body.get('user_id') or 0)
             chat_id = int(body.get('chat_id') or 0)
+            # Скрываем чат
             cur.execute(
                 "INSERT INTO hidden_chats (user_id, chat_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
                 (uid, chat_id),
+            )
+            # Помечаем все сообщения от собеседника как удалённые у себя
+            cur.execute(
+                "UPDATE messages SET removed_by_sender=TRUE WHERE chat_id=%s AND sender_id!=%s",
+                (chat_id, uid),
+            )
+            # Сбрасываем счётчик прочитанных
+            cur.execute(
+                "DELETE FROM chat_reads WHERE chat_id=%s AND user_id=%s",
+                (chat_id, uid),
             )
             conn.commit()
             return _resp(200, {'ok': True})
