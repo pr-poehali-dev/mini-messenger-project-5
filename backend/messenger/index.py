@@ -843,6 +843,13 @@ def handler(event: dict, context) -> dict:
             unread = cur.fetchone()['cnt']
             return _resp(200, {'notifications': notifs, 'unread': unread})
 
+        # ── NOTIFICATIONS CLEAR ────────────────────────────
+        if action == 'clear_notifications' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            cur.execute("UPDATE notifications SET is_read=TRUE WHERE user_id=%s", (uid,))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
         # ── NOTIFICATIONS READ ────────────────────────────
         if action == 'notifications_read' and method == 'POST':
             uid = int(body.get('user_id') or 0)

@@ -978,12 +978,23 @@ function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall }: {
     return () => { cancelled = true; clearTimeout(t); };
   }, [user.id]);
 
+  const clearAll = async () => {
+    await api('clear_notifications', 'POST', { user_id: user.id });
+    setNotifs([]);
+  };
+
   return (
     <div className="flex flex-col h-full">
-      <div className="shrink-0 px-4 pt-4 pb-3 bg-white border-b border-slate-100">
+      <div className="shrink-0 px-4 pt-4 pb-3 bg-white border-b border-slate-100 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-slate-900" style={{ letterSpacing: '-0.5px' }}>Уведомления</h1>
+        {notifs.length > 0 && (
+          <button onClick={clearAll}
+            className="text-sm text-slate-400 hover:text-red-400 transition-colors font-medium flex items-center gap-1">
+            <Icon name="Trash2" size={15} /> Очистить
+          </button>
+        )}
       </div>
-      <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-2">
+      <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-2 pt-2">
         {loading && (
           <div className="flex justify-center mt-16">
             <div className="w-7 h-7 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -999,35 +1010,48 @@ function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall }: {
         )}
         {notifs.map(n => (
           <div key={n.id}
-            className={`flex items-start gap-3 px-3 py-3.5 rounded-2xl mb-1 transition-colors ${!n.is_read ? 'bg-blue-50 border border-blue-100' : 'bg-white border border-slate-100'}`}>
-            {/* Аватар / иконка */}
-            <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 overflow-hidden
-              ${n.type === 'missed_call' ? 'bg-red-50' : n.type === 'follow' ? 'bg-green-50' : 'bg-blue-50'}`}>
-              {n.from_avatar
-                ? <img src={n.from_avatar} className="w-full h-full object-cover rounded-2xl" />
-                : <Icon name={NOTIF_ICONS[n.type] || 'Bell'} size={20}
-                    className={n.type === 'missed_call' ? 'text-red-500' : n.type === 'follow' ? 'text-green-500' : 'text-blue-500'} />
-              }
+            className={`flex items-start gap-3 px-3 py-3.5 rounded-2xl mb-2 transition-colors ${!n.is_read ? 'bg-blue-50 border border-blue-100' : 'bg-white border border-slate-100'}`}>
+            {/* Аватар с иконкой типа поверх */}
+            <div className="relative shrink-0">
+              <div className="w-12 h-12 rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center">
+                {n.from_avatar
+                  ? <img src={n.from_avatar} className="w-full h-full object-cover" />
+                  : <span className="text-xl font-bold text-slate-400">{(n.from_nick || '?')[0].toUpperCase()}</span>
+                }
+              </div>
+              <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center
+                ${n.type === 'missed_call' ? 'bg-red-500' : n.type === 'follow' ? 'bg-green-500' : 'bg-blue-500'}`}>
+                <Icon name={NOTIF_ICONS[n.type] || 'Bell'} size={11} className="text-white" />
+              </div>
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full
-                  ${n.type === 'missed_call' ? 'bg-red-100 text-red-600' : n.type === 'follow' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>
-                  {NOTIF_LABELS[n.type] || n.type}
-                </span>
+              <div className="flex items-start justify-between gap-1">
+                <div>
+                  {n.from_nick && <div className="text-sm font-bold text-slate-800">@{n.from_nick}</div>}
+                  <div className={`text-xs font-medium mt-0.5
+                    ${n.type === 'missed_call' ? 'text-red-500' : n.type === 'follow' ? 'text-green-600' : 'text-blue-600'}`}>
+                    {NOTIF_LABELS[n.type] || n.type}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-[11px] text-slate-400">{fmtTime(n.created_at)}</span>
+                  {!n.is_read && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />}
+                </div>
               </div>
-              {n.from_nick && <div className="text-sm font-semibold text-slate-700 mt-1">@{n.from_nick}</div>}
-              <div className="text-xs text-slate-400 mt-0.5">{fmtTime(n.created_at)}</div>
               <div className="flex gap-2 mt-2 flex-wrap">
                 {n.type === 'missed_call' && n.from_user_id && (
                   <>
-                    <button onClick={() => onOpenProfile(n.from_user_id!)}
-                      className="text-xs bg-slate-100 text-slate-600 rounded-xl px-3 py-1.5 font-medium flex items-center gap-1 active:bg-slate-200">
-                      <Icon name="User" size={12} /> Профиль
-                    </button>
-                    <button onClick={() => onCall(n.from_user_id!, n.from_nick || '?', n.from_avatar, (n.payload === 'video' ? 'video' : 'audio'))}
+                    <button onClick={() => onCall(n.from_user_id!, n.from_nick || '?', n.from_avatar, 'audio')}
                       className="text-xs bg-green-500 text-white rounded-xl px-3 py-1.5 font-semibold flex items-center gap-1 active:bg-green-600">
                       <Icon name="Phone" size={12} /> Перезвонить
+                    </button>
+                    <button onClick={() => onCall(n.from_user_id!, n.from_nick || '?', n.from_avatar, 'video')}
+                      className="text-xs bg-blue-500 text-white rounded-xl px-3 py-1.5 font-semibold flex items-center gap-1 active:bg-blue-600">
+                      <Icon name="Video" size={12} /> Видеозвонок
+                    </button>
+                    <button onClick={() => onOpenProfile(n.from_user_id!)}
+                      className="text-xs bg-slate-100 text-slate-600 rounded-xl px-3 py-1.5 font-medium flex items-center gap-1">
+                      <Icon name="User" size={12} /> Профиль
                     </button>
                   </>
                 )}
@@ -1045,7 +1069,6 @@ function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall }: {
                 )}
               </div>
             </div>
-            {!n.is_read && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-2" />}
           </div>
         ))}
       </div>
