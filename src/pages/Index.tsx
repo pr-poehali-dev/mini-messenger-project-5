@@ -111,6 +111,30 @@ export default function Index() {
   const push = (s: Screen) => setScreen(s);
   const back = () => setScreen(user ? { name: 'tabs', tab: 'chats' } : { name: 'login' });
 
+  // Свайп назад — edge swipe от левого края
+  useEffect(() => {
+    let startX = 0;
+    let startY = 0;
+    const onStart = (e: TouchEvent) => {
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+    };
+    const onEnd = (e: TouchEvent) => {
+      const dx = e.changedTouches[0].clientX - startX;
+      const dy = Math.abs(e.changedTouches[0].clientY - startY);
+      // Свайп вправо от левого края (первые 30px экрана), горизонтальный
+      if (startX < 30 && dx > 60 && dy < 80) {
+        back();
+      }
+    };
+    document.addEventListener('touchstart', onStart, { passive: true });
+    document.addEventListener('touchend', onEnd, { passive: true });
+    return () => {
+      document.removeEventListener('touchstart', onStart);
+      document.removeEventListener('touchend', onEnd);
+    };
+  }, [screen]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // При открытии приложения — автовход по device_id (только если не нажимали "Выйти")
   useEffect(() => {
     if (user || didLogout.current) return;
@@ -175,7 +199,14 @@ export default function Index() {
   // Останавливаем все фоновые запросы когда вкладка/экран неактивны
   const [isVisible, setIsVisible] = useState(!document.hidden);
   useEffect(() => {
-    const handler = () => setIsVisible(!document.hidden);
+    const handler = () => {
+      setIsVisible(!document.hidden);
+      if (document.hidden) {
+        // Экран скрыт — ставим офлайн
+        const u = JSON.parse(localStorage.getItem('orbit_user') || 'null');
+        if (u?.id) api('offline', 'POST', { user_id: u.id });
+      }
+    };
     document.addEventListener('visibilitychange', handler);
     return () => document.removeEventListener('visibilitychange', handler);
   }, []);
@@ -815,11 +846,14 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup }: { user: User; o
             )}
             <button
               onClick={() => swipedId === c.chat_id ? setSwipedId(null) : onOpenChat(c)}
-              onContextMenu={e => { e.preventDefault(); setSwipedId(c.chat_id); }}
-              onTouchStart={() => {
-                const t = setTimeout(() => setSwipedId(c.chat_id), 500);
-                const up = () => { clearTimeout(t); window.removeEventListener('touchend', up); };
-                window.addEventListener('touchend', up);
+              onTouchStart={e => { (e.currentTarget as HTMLButtonElement).dataset.sx = String(e.touches[0].clientX); (e.currentTarget as HTMLButtonElement).dataset.sy = String(e.touches[0].clientY); }}
+              onTouchEnd={e => {
+                const sx = Number((e.currentTarget as HTMLButtonElement).dataset.sx || 0);
+                const sy = Number((e.currentTarget as HTMLButtonElement).dataset.sy || 0);
+                const dx = e.changedTouches[0].clientX - sx;
+                const dy = Math.abs(e.changedTouches[0].clientY - sy);
+                if (dx < -50 && dy < 40) { setSwipedId(c.chat_id); return; }
+                if (dx > 30 && dy < 40) { setSwipedId(null); return; }
               }}
               className={`w-full flex items-center gap-3 px-2 py-3 rounded-2xl transition-all active:bg-blue-50 ${swipedId === c.chat_id ? 'translate-x-[-88px]' : 'translate-x-0'}`}>
               {c.kind === 'group'
@@ -1954,6 +1988,8 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
   const [recordSecs, setRecordSecs] = useState(0);
   const [inCall, setInCall] = useState<{ kind: 'audio' | 'video'; callId: string; outgoing: boolean } | null>(null);
   const [mediaView, setMediaView] = useState<{ src: string; type: 'image' | 'video' } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
   const lastIdRef = useRef(0);
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLElement>(null);
@@ -2025,13 +2061,21 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
   };
 
   const uploadFile = async (file: File, type: 'image' | 'video' | 'audio' | 'voice') => {
+    setUploading(true);
+    setUploadProgress(type === 'video' ? 'Загрузка видео...' : type === 'image' ? 'Загрузка фото...' : 'Загрузка...');
     const reader = new FileReader();
     reader.onload = async () => {
-      const [header, b64] = (reader.result as string).split(',');
-      const ext = file.name.split('.').pop() || (type === 'voice' ? 'ogg' : type === 'image' ? 'jpg' : type);
-      const d = await api('upload_media', 'POST', { user_id: user.id, data: b64, ext, media_type: type });
-      if (d.url) await send(undefined, d.url, type);
+      try {
+        const [, b64] = (reader.result as string).split(',');
+        const ext = file.name.split('.').pop() || (type === 'voice' ? 'ogg' : type === 'image' ? 'jpg' : type);
+        const d = await api('upload_media', 'POST', { user_id: user.id, data: b64, ext, media_type: type });
+        if (d.url) await send(undefined, d.url, type);
+      } finally {
+        setUploading(false);
+        setUploadProgress('');
+      }
     };
+    reader.onerror = () => { setUploading(false); setUploadProgress(''); };
     reader.readAsDataURL(file);
   };
 
@@ -2259,6 +2303,14 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
           e.target.value = '';
         }} />
 
+        {/* Индикатор загрузки файла */}
+        {uploading && (
+          <div className="flex items-center gap-3 px-4 py-3 bg-blue-50 border-t border-blue-100">
+            <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin shrink-0" />
+            <span className="text-sm text-blue-600 font-medium">{uploadProgress}</span>
+          </div>
+        )}
+
         {/* Attach menu */}
         {showAttach && !recording && (
           <div className="flex gap-2 mb-3 animate-fade-up">
@@ -2318,12 +2370,12 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
               )}
             </div>
             {input.trim()
-              ? <button key="send" onClick={() => send()}
-                  className="w-10 h-10 shrink-0 rounded-full bg-blue-600 flex items-center justify-center shadow-md shadow-blue-300/40 send-pop">
+              ? <button key="send" onClick={() => send()} disabled={uploading}
+                  className="w-10 h-10 shrink-0 rounded-full bg-blue-600 flex items-center justify-center shadow-md shadow-blue-300/40 send-pop disabled:opacity-50 disabled:cursor-not-allowed">
                   <Icon name="Send" size={18} className="text-white" />
                 </button>
-              : <button key="mic" onClick={startVoice}
-                  className="w-10 h-10 shrink-0 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100 transition-colors">
+              : <button key="mic" onClick={startVoice} disabled={uploading}
+                  className="w-10 h-10 shrink-0 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                   <Icon name="Mic" size={22} />
                 </button>
             }
