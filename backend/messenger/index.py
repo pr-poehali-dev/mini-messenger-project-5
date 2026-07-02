@@ -724,6 +724,21 @@ def handler(event: dict, context) -> dict:
             )
             return _resp(200, {'reactions': cur.fetchall()})
 
+        # ── КТО ПРОЧИТАЛ СООБЩЕНИЕ ───────────────────────
+        if action == 'msg_read_by' and method == 'GET':
+            msg_id = int(params.get('message_id') or 0)
+            chat_id_p = int(params.get('chat_id') or 0)
+            uid = int(params.get('user_id') or 0)
+            # Участники группы которые прочитали до этого сообщения (не считая отправителя)
+            cur.execute("""
+                SELECT u.id, u.nick, u.avatar_url
+                FROM t_p93658230_mini_messenger_proje.chat_reads cr
+                JOIN t_p93658230_mini_messenger_proje.users u ON u.id = cr.user_id
+                WHERE cr.chat_id = %s AND cr.last_read_id >= %s AND cr.user_id != %s
+            """, (chat_id_p, msg_id, uid))
+            readers = cur.fetchall()
+            return _resp(200, {'readers': readers})
+
         # ── DELETE MESSAGE ────────────────────────────────
         if action == 'delete_message' and method == 'POST':
             msg_id = int(body.get('message_id') or 0)
