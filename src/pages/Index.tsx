@@ -3279,27 +3279,14 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
     setUploadProgress(label);
     try {
       const ext = (file.name.split('.').pop() || (type === 'voice' ? 'ogg' : type === 'image' ? 'jpg' : type)).toLowerCase();
-      // Видео и аудио — грузим напрямую в S3 через presigned URL (без ограничения размера)
-      if (type === 'video' || type === 'audio') {
-        const d = await api('get_upload_url', 'POST', { user_id: user.id, ext, media_type: type });
-        if (!d.upload_url) throw new Error('Нет upload_url');
-        await fetch(d.upload_url, {
-          method: 'PUT',
-          body: file,
-          headers: { 'Content-Type': file.type || `${type}/${ext}` },
-        });
-        await send(undefined, d.cdn_url, type);
-      } else {
-        // Фото и прочее — через base64 как раньше
-        const b64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve((reader.result as string).split(',')[1]);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        const d = await api('upload_media', 'POST', { user_id: user.id, data: b64, ext, media_type: type });
-        if (d.url) await send(undefined, d.url, type);
-      }
+      const b64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const d = await api('upload_media', 'POST', { user_id: user.id, data: b64, ext, media_type: type });
+      if (d.url) await send(undefined, d.url, type);
     } catch (e) {
       console.error('[uploadFile]', e);
       alert('Не удалось загрузить файл. Попробуй ещё раз.');
