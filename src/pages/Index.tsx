@@ -39,16 +39,20 @@ const api = async (action: string, method = 'GET', body?: object): Promise<Recor
 const UPLOAD_API = 'https://functions.poehali.dev/3c36c336-feb4-4487-884a-5cde1fbaba5e';
 
 // Загрузка бинарного чанка через отдельную функцию
-const apiChunk = async (uid: number, upload_id: string, chunk_index: number, data: ArrayBuffer): Promise<boolean> => {
+const apiChunk = async (uid: number, upload_id: string, chunk_index: number, data: ArrayBuffer): Promise<{ok: boolean; error?: string}> => {
   try {
+    console.log(`[CHUNK] sending chunk ${chunk_index} size=${data.byteLength} to ${UPLOAD_API}`);
     const r = await fetch(`${UPLOAD_API}?action=upload_chunk&user_id=${uid}&upload_id=${upload_id}&chunk_index=${chunk_index}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: data,
     });
-    return r.ok;
-  } catch {
-    return false;
+    const text = await r.text();
+    console.log(`[CHUNK] response ${r.status}: ${text}`);
+    return { ok: r.ok, error: r.ok ? undefined : `HTTP ${r.status}: ${text}` };
+  } catch (e) {
+    console.error(`[CHUNK] fetch error:`, e);
+    return { ok: false, error: String(e) };
   }
 };
 
@@ -3318,8 +3322,8 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
           const slice = file.slice(i * CHUNK, (i + 1) * CHUNK);
           const buf = await slice.arrayBuffer();
           if (uploadCancelled.current) return;
-          const ok = await apiChunk(user.id, upload_id, i, buf);
-          if (!ok) throw new Error(`Ошибка чанка ${i}`);
+          const res = await apiChunk(user.id, upload_id, i, buf);
+          if (!res.ok) throw new Error(`Чанк ${i}: ${res.error}`);
           setUploadProgress(`${Math.round((i + 1) / total * 95)}%`);
         }
         if (uploadCancelled.current) return;
@@ -3340,7 +3344,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
       }
     } catch (e) {
       console.error('[uploadFile]', e);
-      alert('Не удалось загрузить файл. Попробуй ещё раз.');
+      alert(`Ошибка: ${e}`);
     } finally {
       setUploading(false);
       setUploadProgress('');
