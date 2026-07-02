@@ -428,6 +428,70 @@ def handler(event: dict, context) -> dict:
             return _resp(200, {'group_id': gid, 'chat_id': chat['id'], 'name': group['name']})
 
         # ── MESSAGES ──────────────────────────────────────
+        # ── CHAT POLL (messages + read_status + chat_status в одном запросе) ─
+        if action == 'chat_poll' and method == 'GET':
+            chat_id = int(params.get('chat_id') or 0)
+            after   = int(params.get('after') or 0)
+            me      = int(params.get('user_id') or 0)
+            peer_id = int(params.get('peer_id') or 0)
+            cur.execute(
+                """
+                SELECT m.id, m.sender_id, u.nick AS sender_nick, u.avatar_url AS sender_avatar,
+                       m.text, m.image_url, m.media_type, m.media_url, m.created_at,
+                       m.is_removed, m.removed_by_sender, m.is_read,
+                       COALESCE(
+                           json_agg(json_build_object('emoji', r.emoji, 'user_id', r.user_id))
+                           FILTER (WHERE r.message_id IS NOT NULL), '[]'
+                       ) AS reactions
+                FROM messages m
+                JOIN users u ON u.id = m.sender_id
+                LEFT JOIN message_reactions r ON r.message_id = m.id
+                WHERE m.chat_id=%s AND m.id>%s
+                  AND NOT (m.removed_by_sender = TRUE AND m.sender_id = %s)
+                GROUP BY m.id, u.nick, u.avatar_url
+                ORDER BY m.id ASC LIMIT 200
+                """,
+                (chat_id, after, me),
+            )
+            msgs = cur.fetchall()
+            cur.execute(
+                "UPDATE messages SET is_read=TRUE, read_at=NOW() WHERE chat_id=%s AND sender_id!=%s AND is_read=FALSE",
+                (chat_id, me),
+            )
+            if msgs:
+                max_id = max(m['id'] for m in msgs)
+                cur.execute(
+                    "INSERT INTO chat_reads (chat_id, user_id, last_read_id, updated_at) VALUES (%s, %s, %s, NOW()) ON CONFLICT (chat_id, user_id) DO UPDATE SET last_read_id=GREATEST(chat_reads.last_read_id, EXCLUDED.last_read_id), updated_at=NOW()",
+                    (chat_id, me, max_id),
+                )
+            cur.execute(
+                "SELECT MAX(id) AS read_until FROM messages WHERE chat_id=%s AND sender_id=%s AND is_read=TRUE",
+                (chat_id, me),
+            )
+            ru_row = cur.fetchone()
+            cur.execute(
+                """
+                SELECT u.nick FROM typing_status ts
+                JOIN users u ON u.id=ts.user_id
+                WHERE ts.chat_id=%s AND ts.user_id!=%s
+                  AND ts.updated_at > NOW() - INTERVAL '5 seconds'
+                """,
+                (chat_id, me),
+            )
+            typing = [r['nick'] for r in cur.fetchall()]
+            peer_online = False
+            if peer_id:
+                cur.execute("SELECT is_online FROM users WHERE id=%s", (peer_id,))
+                pr = cur.fetchone()
+                peer_online = bool(pr['is_online']) if pr else False
+            conn.commit()
+            return _resp(200, {
+                'messages':   msgs,
+                'read_until': ru_row['read_until'] if ru_row else None,
+                'typing':     typing,
+                'peer_online': peer_online,
+            })
+
         if action == 'messages' and method == 'GET':
             chat_id = int(params.get('chat_id') or 0)
             after = int(params.get('after') or 0)

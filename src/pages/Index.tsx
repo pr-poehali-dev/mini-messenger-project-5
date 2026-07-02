@@ -172,6 +172,14 @@ export default function Index() {
     setScreen({ name: 'login' });
   };
 
+  // Останавливаем все фоновые запросы когда вкладка/экран неактивны
+  const [isVisible, setIsVisible] = useState(!document.hidden);
+  useEffect(() => {
+    const handler = () => setIsVisible(!document.hidden);
+    document.addEventListener('visibilitychange', handler);
+    return () => document.removeEventListener('visibilitychange', handler);
+  }, []);
+
   // ping online every 30s
   useEffect(() => {
     if (!user) return;
@@ -212,7 +220,7 @@ export default function Index() {
       }
     };
     doPing();
-    const iv = setInterval(doPing, 30000);
+    const iv = setInterval(() => { if (!document.hidden) doPing(); }, 30000);
     const off = () => api('offline', 'POST', { user_id: user.id });
     window.addEventListener('beforeunload', off);
     return () => { clearInterval(iv); window.removeEventListener('beforeunload', off); };
@@ -243,7 +251,7 @@ export default function Index() {
       }
       if (notifs.length) lastNotifId.current = Math.max(...notifs.map(n => n.id));
     };
-    const iv = setInterval(check, 8000);
+    const iv = setInterval(() => { if (!document.hidden) check(); }, 8000);
     return () => clearInterval(iv);
   }, [user]);
 
@@ -256,6 +264,7 @@ export default function Index() {
   useEffect(() => {
     if (!user) return;
     const iv = setInterval(async () => {
+      if (document.hidden) return;
       const d = await api(`call_poll&user_id=${user.id}&after=${lastCallSigId.current}`);
       const sigs: { id: number }[] = d.signals || [];
       if (sigs.length) lastCallSigId.current = sigs[sigs.length - 1].id;
@@ -1995,24 +2004,24 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
   const cancelFlag = useRef(false);
 
   const poll = useCallback(async () => {
-    const d = await api(`messages&chat_id=${chatId}&after=${lastIdRef.current}&user_id=${user.id}`);
+    const d = await api(`chat_poll&chat_id=${chatId}&after=${lastIdRef.current}&user_id=${user.id}&peer_id=${peer?.id || 0}`);
     const fresh: MsgExt[] = d.messages || [];
     if (fresh.length) { lastIdRef.current = fresh[fresh.length - 1].id; setMessages(m => [...m, ...fresh]); }
-    // Обновляем is_read у своих отправленных — если собеседник их прочитал
-    const readData = await api(`read_status&chat_id=${chatId}&user_id=${user.id}`);
-    if (readData.read_until) {
-      const ru = readData.read_until as number;
+    if (d.read_until) {
+      const ru = d.read_until as number;
       setMessages(m => m.map(msg => msg.sender_id === user.id && msg.id <= ru ? { ...msg, is_read: true } : msg));
     }
-    const s = await api(`chat_status&chat_id=${chatId}&user_id=${user.id}`);
-    setTyping(s.typing || []);
-    if (peer) {
-      const pd = await api(`profile&user_id=${peer.id}&me=${user.id}`);
-      setPeerOnline(pd.user?.is_online || false);
-    }
+    setTyping(d.typing || []);
+    if (peer) setPeerOnline(d.peer_online || false);
   }, [chatId, user.id, peer]);
 
-  useEffect(() => { poll(); const iv = setInterval(poll, 1500); return () => clearInterval(iv); }, [poll]);
+  useEffect(() => {
+    poll();
+    const iv = setInterval(() => { if (!document.hidden) poll(); }, 1500);
+    const onVisible = () => { if (!document.hidden) poll(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(iv); document.removeEventListener('visibilitychange', onVisible); };
+  }, [poll]);
 
   // При первом открытии чата — прыгаем вниз мгновенно и помечаем "внизу"
   useEffect(() => {

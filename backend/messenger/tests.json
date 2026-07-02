@@ -50,6 +50,14 @@
       "expectedStatus": 404,
       "expectedBody": {"error": "Не найден"},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Chat poll - empty",
+      "method": "GET",
+      "path": "/?action=chat_poll&chat_id=0&after=0&user_id=0&peer_id=0",
+      "expectedStatus": 200,
+      "expectedBody": {"messages": [], "typing": []},
+      "bodyMatcher": "partial"
     }
   ]
 }
