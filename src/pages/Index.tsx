@@ -3318,15 +3318,12 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
         const upload_id = `${user.id}_${Date.now()}`;
         setUploadProgress('0%');
         for (let i = 0; i < total; i++) {
-          if (uploadCancelled.current) return;
           const slice = file.slice(i * CHUNK, (i + 1) * CHUNK);
           const buf = await slice.arrayBuffer();
-          if (uploadCancelled.current) return;
           const res = await apiChunk(user.id, upload_id, i, buf);
           if (!res.ok) throw new Error(`Чанк ${i}: ${res.error}`);
           setUploadProgress(`${Math.round((i + 1) / total * 95)}%`);
         }
-        if (uploadCancelled.current) return;
         setUploadProgress('Сборка...');
         const d = await apiAssemble({ user_id: user.id, upload_id, total_chunks: total, ext, media_type: type });
         if (d.url) { setUploadProgress('100%'); await send(undefined, d.url as string, type); }
@@ -3627,7 +3624,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
               <span className="text-sm text-blue-600 font-medium flex-1">
                 {uploadProgress === 'Сборка...' ? 'Сборка видео...' : uploadProgress === '100%' ? 'Готово!' : `Загрузка ${uploadProgress}`}
               </span>
-              <button onClick={() => { uploadCancelled.current = true; setUploading(false); setUploadProgress(''); }} className="w-6 h-6 rounded-full bg-blue-200 flex items-center justify-center hover:bg-blue-300 transition-colors shrink-0">
+              <button onClick={() => { setUploading(false); setUploadProgress(''); }} className="w-6 h-6 rounded-full bg-blue-200 flex items-center justify-center hover:bg-blue-300 transition-colors shrink-0">
                 <Icon name="X" size={14} className="text-blue-700" />
               </button>
             </div>
