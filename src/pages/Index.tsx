@@ -2363,11 +2363,14 @@ function RealtyForm({ user, onClose, onPublished }: { user: User; onClose: () =>
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const uploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || photos.length >= 5) return;
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
     e.target.value = '';
+    const canAdd = 10 - photos.length;
+    if (canAdd <= 0) return;
+    const toUpload = files.slice(0, canAdd);
     setUploadingPhoto(true);
-    await uploadRealtyPhoto(file, user.id, url => setPhotos(p => [...p, url]));
+    await Promise.all(toUpload.map(f => uploadRealtyPhoto(f, user.id, url => setPhotos(p => [...p, url]))));
     setUploadingPhoto(false);
   };
 
@@ -2411,7 +2414,7 @@ function RealtyForm({ user, onClose, onPublished }: { user: User; onClose: () =>
                     </button>
                   </div>
                 ))}
-                {photos.length < 5 && (
+                {photos.length < 10 && (
                   <button onClick={() => fileRef.current?.click()} disabled={uploadingPhoto}
                     className="w-20 h-20 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center gap-1 text-slate-400 disabled:opacity-60">
                     {uploadingPhoto
@@ -2421,7 +2424,7 @@ function RealtyForm({ user, onClose, onPublished }: { user: User; onClose: () =>
                     <span className="text-[10px]">{uploadingPhoto ? 'Загрузка...' : 'Добавить'}</span>
                   </button>
                 )}
-                <input ref={fileRef} type="file" accept="image/*" hidden onChange={uploadPhoto} />
+                <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={uploadPhoto} />
               </div>
             </div>
             {/* Тип */}
@@ -2532,11 +2535,14 @@ function RealtyEditForm({ listing, user, onClose, onSaved }: { listing: RealtyLi
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const uploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || photos.length >= 5) return;
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
     e.target.value = '';
+    const canAdd = 10 - photos.length;
+    if (canAdd <= 0) return;
+    const toUpload = files.slice(0, canAdd);
     setUploadingPhoto(true);
-    await uploadRealtyPhoto(file, user.id, url => setPhotos(p => [...p, url]));
+    await Promise.all(toUpload.map(f => uploadRealtyPhoto(f, user.id, url => setPhotos(p => [...p, url]))));
     setUploadingPhoto(false);
   };
 
@@ -2573,13 +2579,17 @@ function RealtyEditForm({ listing, user, onClose, onSaved }: { listing: RealtyLi
                   </button>
                 </div>
               ))}
-              {photos.length < 5 && (
-                <button onClick={() => fileRef.current?.click()}
-                  className="w-20 h-20 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center gap-1 text-slate-400">
-                  <Icon name="Camera" size={20} /><span className="text-[10px]">Добавить</span>
+              {photos.length < 10 && (
+                <button onClick={() => fileRef.current?.click()} disabled={uploadingPhoto}
+                  className="w-20 h-20 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center gap-1 text-slate-400 disabled:opacity-60">
+                  {uploadingPhoto
+                    ? <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                    : <Icon name="Camera" size={20} />
+                  }
+                  <span className="text-[10px]">{uploadingPhoto ? 'Загрузка...' : 'Добавить'}</span>
                 </button>
               )}
-              <input ref={fileRef} type="file" accept="image/*" hidden onChange={uploadPhoto} />
+              <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={uploadPhoto} />
             </div>
           </div>
           {/* Тип */}
