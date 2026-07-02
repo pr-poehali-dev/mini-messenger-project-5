@@ -12,19 +12,18 @@ from psycopg2.extras import RealDictCursor
 
 ONESIGNAL_APP_ID = 'b50464b8-77e0-4bef-9897-aba0433d5f06'
 
-REGRU_ENDPOINT = 'https://s3.regru.cloud'
-REGRU_BUCKET   = 'vaimessenger'
+REGRU_BUCKET = 'files'
 
 def _s3():
     return boto3.client(
         's3',
-        endpoint_url=REGRU_ENDPOINT,
-        aws_access_key_id=os.environ['REGRU_S3_ACCESS_KEY'],
-        aws_secret_access_key=os.environ['REGRU_S3_SECRET_KEY'],
+        endpoint_url='https://bucket.poehali.dev',
+        aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+        aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
     )
 
 def _s3_url(key: str) -> str:
-    return f"{REGRU_ENDPOINT}/{REGRU_BUCKET}/{key}"
+    return f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
 
 
 def _hash_pw(password: str) -> str:
