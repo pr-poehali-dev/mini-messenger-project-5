@@ -1074,9 +1074,9 @@ function UserProfileScreen({ me, userId, onBack, onOpenChat, onFollowers, onCall
 
   return (
     <div className="fixed inset-0 flex flex-col" style={{ background: '#f0f4fa' }}>
-      <header className="flex items-center gap-3 px-4 bg-blue-600 shadow-sm"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 10px)', paddingBottom: '10px' }}>
-        <button onClick={onBack} className="w-9 h-9 rounded-xl hover:bg-blue-500 flex items-center justify-center transition-colors">
+      <header className="flex items-center gap-3 px-4 bg-blue-600 shrink-0"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 6px)', paddingBottom: '12px', borderRadius: '0 0 18px 18px', boxShadow: '0 4px 20px rgba(37,99,235,0.35)', zIndex: 10 }}>
+        <button onClick={onBack} className="w-9 h-9 rounded-full hover:bg-white/15 flex items-center justify-center transition-colors">
           <Icon name="ArrowLeft" size={20} className="text-white" />
         </button>
         <span className="font-bold text-white flex-1">{profile ? `@${profile.nick}` : '...'}</span>
@@ -1163,9 +1163,9 @@ function FollowersScreen({ userId, mode, me, onBack, onOpenProfile }: { userId: 
   }, [userId, mode]);
   return (
     <div className="fixed inset-0 flex flex-col" style={{ background: '#f0f4fa' }}>
-      <header className="flex items-center gap-3 px-4 bg-blue-600 shadow-sm shrink-0"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 10px)', paddingBottom: '10px' }}>
-        <button onClick={onBack} className="w-9 h-9 rounded-xl hover:bg-blue-500 flex items-center justify-center transition-colors">
+      <header className="flex items-center gap-3 px-4 bg-blue-600 shrink-0"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 6px)', paddingBottom: '12px', borderRadius: '0 0 18px 18px', boxShadow: '0 4px 20px rgba(37,99,235,0.35)', zIndex: 10 }}>
+        <button onClick={onBack} className="w-9 h-9 rounded-full hover:bg-white/15 flex items-center justify-center transition-colors">
           <Icon name="ArrowLeft" size={20} className="text-white" />
         </button>
         <span className="font-bold text-white">{mode === 'followers' ? 'Подписчики' : 'Подписки'}</span>
@@ -2517,9 +2517,9 @@ function NewGroupScreen({ user, onBack, onCreated }: { user: User; onBack: () =>
 
   return (
     <div className="fixed inset-0 flex flex-col" style={{ background: '#f0f4fa' }}>
-      <header className="flex items-center gap-3 px-4 bg-blue-600 shadow-sm"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 10px)', paddingBottom: '10px' }}>
-        <button onClick={onBack} className="w-9 h-9 rounded-xl hover:bg-blue-500 flex items-center justify-center transition-colors">
+      <header className="flex items-center gap-3 px-4 bg-blue-600 shrink-0"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 6px)', paddingBottom: '12px', borderRadius: '0 0 18px 18px', boxShadow: '0 4px 20px rgba(37,99,235,0.35)', zIndex: 10 }}>
+        <button onClick={onBack} className="w-9 h-9 rounded-full hover:bg-white/15 flex items-center justify-center transition-colors">
           <Icon name="ArrowLeft" size={20} className="text-white" />
         </button>
         <span className="font-bold text-white flex-1">Новая группа</span>
@@ -2701,8 +2701,8 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
 
   return (
     <div className="fixed inset-0 flex flex-col" style={{ background: '#f0f4fa' }} onClick={() => { setShowPhotoMenu(false); setShowInvite(false); }}>
-      <header className="flex items-center gap-3 px-4 bg-blue-600 shadow-sm" onClick={e => e.stopPropagation()}
-        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 10px)', paddingBottom: '10px' }}>
+      <header className="flex items-center gap-3 px-4 bg-blue-600 shrink-0" onClick={e => e.stopPropagation()}
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 6px)', paddingBottom: '12px', borderRadius: '0 0 18px 18px', boxShadow: '0 4px 20px rgba(37,99,235,0.35)', zIndex: 10 }}>
         <button onClick={onBack} className="w-9 h-9 rounded-xl hover:bg-blue-500 flex items-center justify-center transition-colors">
           <Icon name="ArrowLeft" size={20} className="text-white" />
         </button>
