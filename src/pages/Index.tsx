@@ -3279,11 +3279,12 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
       const ext = (file.name.split('.').pop() || (type === 'voice' ? 'ogg' : type === 'image' ? 'jpg' : type)).toLowerCase();
 
       if (type === 'video' || type === 'audio') {
-        // Загрузка чанками по 512 КБ
-        const CHUNK = 512 * 1024;
+        const CHUNK = 2 * 1024 * 1024; // 2 МБ
         const total = Math.ceil(file.size / CHUNK);
         const upload_id = `${user.id}_${Date.now()}`;
+        setUploadProgress('0%');
         for (let i = 0; i < total; i++) {
+          if (uploadCancelled.current) return;
           const slice = file.slice(i * CHUNK, (i + 1) * CHUNK);
           const b64 = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
@@ -3291,12 +3292,14 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
             reader.onerror = reject;
             reader.readAsDataURL(slice);
           });
-          setUploadProgress(`Загрузка ${Math.round((i + 1) / total * 100)}%`);
+          if (uploadCancelled.current) return;
           await api('upload_chunk', 'POST', { user_id: user.id, upload_id, chunk_index: i, data: b64 });
+          setUploadProgress(`${Math.round((i + 1) / total * 95)}%`);
         }
-        setUploadProgress('Обработка...');
+        if (uploadCancelled.current) return;
+        setUploadProgress('Сборка...');
         const d = await api('assemble_chunks', 'POST', { user_id: user.id, upload_id, total_chunks: total, ext, media_type: type });
-        if (d.url) await send(undefined, d.url, type);
+        if (d.url) { setUploadProgress('100%'); await send(undefined, d.url, type); }
       } else {
         // Фото и голос — через base64 как раньше
         setUploadProgress(type === 'image' ? 'Загрузка фото...' : 'Загрузка...');
@@ -3588,12 +3591,20 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
 
         {/* Индикатор загрузки файла */}
         {uploading && (
-          <div className="flex items-center gap-3 px-4 py-3 bg-blue-50 border-t border-blue-100">
-            <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin shrink-0" />
-            <span className="text-sm text-blue-600 font-medium flex-1">{uploadProgress}</span>
-            <button onClick={() => { setUploading(false); setUploadProgress(''); }} className="w-6 h-6 rounded-full bg-blue-200 flex items-center justify-center hover:bg-blue-300 transition-colors shrink-0">
-              <Icon name="X" size={14} className="text-blue-700" />
-            </button>
+          <div className="px-4 py-3 bg-blue-50 border-t border-blue-100">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin shrink-0" />
+              <span className="text-sm text-blue-600 font-medium flex-1">
+                {uploadProgress === 'Сборка...' ? 'Сборка видео...' : uploadProgress === '100%' ? 'Готово!' : `Загрузка ${uploadProgress}`}
+              </span>
+              <button onClick={() => { uploadCancelled.current = true; setUploading(false); setUploadProgress(''); }} className="w-6 h-6 rounded-full bg-blue-200 flex items-center justify-center hover:bg-blue-300 transition-colors shrink-0">
+                <Icon name="X" size={14} className="text-blue-700" />
+              </button>
+            </div>
+            <div className="w-full h-1.5 bg-blue-200 rounded-full overflow-hidden">
+              <div className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                style={{ width: uploadProgress.endsWith('%') ? uploadProgress : uploadProgress === 'Сборка...' ? '97%' : '100%' }} />
+            </div>
           </div>
         )}
 
