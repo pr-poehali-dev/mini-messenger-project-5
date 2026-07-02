@@ -3188,11 +3188,17 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
   }, [chatId, user.id, peer]);
 
   useEffect(() => {
-    poll();
-    const iv = setInterval(() => { if (!document.hidden) poll(); }, 1500);
+    let active = true;
+    const loop = async () => {
+      while (active) {
+        if (!document.hidden) await poll();
+        else await new Promise(r => setTimeout(r, 2000));
+      }
+    };
+    loop();
     const onVisible = () => { if (!document.hidden) poll(); };
     document.addEventListener('visibilitychange', onVisible);
-    return () => { clearInterval(iv); document.removeEventListener('visibilitychange', onVisible); };
+    return () => { active = false; document.removeEventListener('visibilitychange', onVisible); };
   }, [poll]);
 
   // При первом открытии чата — прыгаем вниз мгновенно и помечаем "внизу"

@@ -451,30 +451,44 @@ def handler(event: dict, context) -> dict:
             after   = int(params.get('after') or 0)
             me      = int(params.get('user_id') or 0)
             peer_id = int(params.get('peer_id') or 0)
-            cur.execute(
-                """
-                SELECT m.id, m.sender_id, u.nick AS sender_nick, u.avatar_url AS sender_avatar,
-                       m.text, m.image_url, m.media_type, m.media_url, m.created_at,
-                       m.is_removed, m.removed_by_sender, m.is_read,
-                       COALESCE(
-                           json_agg(json_build_object('emoji', r.emoji, 'user_id', r.user_id))
-                           FILTER (WHERE r.message_id IS NOT NULL), '[]'
-                       ) AS reactions
-                FROM messages m
-                JOIN users u ON u.id = m.sender_id
-                LEFT JOIN message_reactions r ON r.message_id = m.id
-                WHERE m.chat_id=%s AND m.id>%s
-                  AND NOT (m.removed_by_sender = TRUE AND m.sender_id = %s)
-                  AND m.created_at > COALESCE(
-                    (SELECT hidden_at FROM hidden_chats WHERE user_id=%s AND chat_id=%s),
-                    '1970-01-01'::timestamptz
-                  )
-                GROUP BY m.id, u.nick, u.avatar_url
-                ORDER BY m.id ASC LIMIT 200
-                """,
-                (chat_id, after, me, me, chat_id),
-            )
-            msgs = cur.fetchall()
+
+            def _fetch_poll():
+                cur.execute(
+                    """
+                    SELECT m.id, m.sender_id, u.nick AS sender_nick, u.avatar_url AS sender_avatar,
+                           m.text, m.image_url, m.media_type, m.media_url, m.created_at,
+                           m.is_removed, m.removed_by_sender, m.is_read,
+                           COALESCE(
+                               json_agg(json_build_object('emoji', r.emoji, 'user_id', r.user_id))
+                               FILTER (WHERE r.message_id IS NOT NULL), '[]'
+                           ) AS reactions
+                    FROM messages m
+                    JOIN users u ON u.id = m.sender_id
+                    LEFT JOIN message_reactions r ON r.message_id = m.id
+                    WHERE m.chat_id=%s AND m.id>%s
+                      AND NOT (m.removed_by_sender = TRUE AND m.sender_id = %s)
+                      AND m.created_at > COALESCE(
+                        (SELECT hidden_at FROM hidden_chats WHERE user_id=%s AND chat_id=%s),
+                        '1970-01-01'::timestamptz
+                      )
+                    GROUP BY m.id, u.nick, u.avatar_url
+                    ORDER BY m.id ASC LIMIT 200
+                    """,
+                    (chat_id, after, me, me, chat_id),
+                )
+                return cur.fetchall()
+
+            # Long polling: ждём до 4 сек если нет новых сообщений
+            import time as _time
+            msgs = _fetch_poll()
+            if not msgs:
+                deadline = _time.time() + 4.0
+                while _time.time() < deadline:
+                    _time.sleep(0.5)
+                    msgs = _fetch_poll()
+                    if msgs:
+                        break
+
             cur.execute(
                 "UPDATE messages SET is_read=TRUE, read_at=NOW() WHERE chat_id=%s AND sender_id!=%s AND is_read=FALSE",
                 (chat_id, me),
@@ -508,7 +522,6 @@ def handler(event: dict, context) -> dict:
                 if pr:
                     peer_online = bool(pr['is_online'])
                     peer_last_seen = pr['last_seen'].isoformat() if pr['last_seen'] else None
-            # Обновления: удалённые сообщения + свежие реакции (за последние 30 сек)
             cur.execute(
                 """
                 SELECT m.id, m.is_removed,
