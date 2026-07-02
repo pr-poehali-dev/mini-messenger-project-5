@@ -1353,6 +1353,58 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return _resp(200, {'ok': True})
 
+        # ── Избранное: добавить/убрать (toggle) ──────────
+        if action == 'realty_fav_toggle' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            lid = int(body.get('listing_id') or 0)
+            cur.execute("SELECT 1 FROM realty_favorites WHERE user_id=%s AND listing_id=%s", (uid, lid))
+            if cur.fetchone():
+                cur.execute("UPDATE realty_favorites SET created_at=NOW() WHERE user_id=%s AND listing_id=%s", (uid, lid))
+                # реально удаляем через обходной путь — обновление не работает как удаление,
+                # поэтому вставим маркер в отдельный флаг и вернём статус
+                cur.execute("DELETE FROM realty_favorites WHERE user_id=%s AND listing_id=%s", (uid, lid))
+                conn.commit()
+                return _resp(200, {'saved': False})
+            else:
+                cur.execute("INSERT INTO realty_favorites (user_id, listing_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (uid, lid))
+                conn.commit()
+                return _resp(200, {'saved': True})
+
+        # ── Избранное: список ─────────────────────────────
+        if action == 'realty_favorites' and method == 'GET':
+            uid = int(params.get('user_id') or 0)
+            cur.execute("""
+                SELECT l.id, l.deal_type, l.city, l.district, l.street,
+                       l.rooms, l.area, l.price, l.description, l.phone, l.photos,
+                       l.is_paid, l.is_blocked, l.created_at,
+                       u.id AS seller_id, u.nick AS seller_nick, u.avatar_url AS seller_avatar
+                FROM realty_favorites f
+                JOIN realty_listings l ON l.id = f.listing_id
+                JOIN users u ON u.id = l.user_id
+                WHERE f.user_id=%s AND l.is_blocked=FALSE
+                ORDER BY f.created_at DESC
+            """, (uid,))
+            return _resp(200, {'listings': cur.fetchall()})
+
+        # ── Избранное: проверить статус одного ───────────
+        if action == 'realty_fav_check' and method == 'GET':
+            uid = int(params.get('user_id') or 0)
+            lid = int(params.get('listing_id') or 0)
+            cur.execute("SELECT 1 FROM realty_favorites WHERE user_id=%s AND listing_id=%s", (uid, lid))
+            return _resp(200, {'saved': bool(cur.fetchone())})
+
+        # ── Удалить объявление (только владелец) ──────────
+        if action == 'realty_delete' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            lid = int(body.get('listing_id') or 0)
+            cur.execute("SELECT user_id FROM realty_listings WHERE id=%s", (lid,))
+            row = cur.fetchone()
+            if not row: return _resp(404, {'error': 'Не найдено'})
+            if row['user_id'] != uid: return _resp(403, {'error': 'Нет доступа'})
+            cur.execute("UPDATE realty_listings SET is_blocked=TRUE WHERE id=%s", (lid,))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
         return _resp(404, {'error': 'Неизвестное действие'})
     finally:
         conn.close()

@@ -2130,11 +2130,13 @@ function RealtyChatsInline({ user, onOpen }: { user: User; onOpen: (chatId: numb
 
 function RealtyTab({ user, onOpenChat }: { user: User; onOpenChat: (chatId: number, listing: RealtyListing) => void }) {
   const [listings, setListings] = useState<RealtyListing[]>([]);
+  const [favorites, setFavorites] = useState<RealtyListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [selectedListing, setSelectedListing] = useState<RealtyListing | null>(null);
+  const [activeTab, setActiveTab] = useState<'feed'|'favorites'>('feed');
   const [filters, setFilters] = useState({ deal_type: '', city: '', district: '', rooms: '', price_min: '', price_max: '' });
 
   const load = async (f = filters, search = q) => {
@@ -2145,7 +2147,14 @@ function RealtyTab({ user, onOpenChat }: { user: User; onOpenChat: (chatId: numb
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  const loadFavorites = async () => {
+    const d = await api(`realty_favorites&user_id=${user.id}`);
+    setFavorites((d.listings as RealtyListing[]) || []);
+  };
+
+  useEffect(() => { load(); loadFavorites(); }, []);
+
+  const displayedListings = activeTab === 'favorites' ? favorites : listings;
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
@@ -2158,7 +2167,18 @@ function RealtyTab({ user, onOpenChat }: { user: User; onOpenChat: (chatId: numb
             <Icon name="Plus" size={16} /> Подать
           </button>
         </div>
-        <div className="flex gap-2">
+        {/* Вкладки */}
+        <div className="flex gap-1 mb-3">
+          <button onClick={() => setActiveTab('feed')}
+            className={`flex-1 py-2 rounded-2xl text-sm font-semibold transition-colors ${activeTab === 'feed' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+            Лента
+          </button>
+          <button onClick={() => { setActiveTab('favorites'); loadFavorites(); }}
+            className={`flex-1 py-2 rounded-2xl text-sm font-semibold transition-colors flex items-center justify-center gap-1.5 ${activeTab === 'favorites' ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
+            ❤️ Избранное {favorites.length > 0 && <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${activeTab === 'favorites' ? 'bg-white/25 text-white' : 'bg-red-100 text-red-600'}`}>{favorites.length}</span>}
+          </button>
+        </div>
+        {activeTab === 'feed' && <div className="flex gap-2">
           <div className="relative flex-1">
             <Icon name="Search" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && load(filters, q)}
@@ -2169,20 +2189,20 @@ function RealtyTab({ user, onOpenChat }: { user: User; onOpenChat: (chatId: numb
             className="px-3 py-2.5 rounded-2xl bg-slate-100 flex items-center gap-1.5 text-sm font-medium text-slate-600">
             <Icon name="SlidersHorizontal" size={15} /> Фильтры
           </button>
-        </div>
+        </div>}
       </div>
 
-      {/* Лента */}
+      {/* Лента / Избранное */}
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
-        {loading && <div className="flex justify-center mt-16"><div className="w-7 h-7 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>}
-        {!loading && listings.length === 0 && (
+        {loading && activeTab === 'feed' && <div className="flex justify-center mt-16"><div className="w-7 h-7 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>}
+        {!loading && displayedListings.length === 0 && (
           <div className="flex flex-col items-center mt-20 gap-3">
-            <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center text-3xl">🏠</div>
-            <p className="text-slate-500 text-sm font-medium">Объявлений пока нет</p>
-            <button onClick={() => setShowForm(true)} className="text-blue-600 text-sm font-semibold">Подать первое →</button>
+            <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center text-3xl">{activeTab === 'favorites' ? '❤️' : '🏠'}</div>
+            <p className="text-slate-500 text-sm font-medium">{activeTab === 'favorites' ? 'Нет избранных объявлений' : 'Объявлений пока нет'}</p>
+            {activeTab === 'feed' && <button onClick={() => setShowForm(true)} className="text-blue-600 text-sm font-semibold">Подать первое →</button>}
           </div>
         )}
-        {listings.map(l => (
+        {displayedListings.map(l => (
           <button key={l.id} onClick={() => setSelectedListing(l)}
             className="w-full bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm active:scale-[0.99] transition-transform text-left">
             {l.photos && l.photos.length > 0
@@ -2215,7 +2235,10 @@ function RealtyTab({ user, onOpenChat }: { user: User; onOpenChat: (chatId: numb
       {showForm && <RealtyForm user={user} onClose={() => setShowForm(false)} onPublished={() => { setShowForm(false); load(); }} />}
 
       {/* Карточка объявления */}
-      {selectedListing && <RealtyCard listing={selectedListing} user={user} onClose={() => setSelectedListing(null)} onOpenChat={onOpenChat} />}
+      {selectedListing && <RealtyCard listing={selectedListing} user={user}
+        onClose={() => setSelectedListing(null)}
+        onOpenChat={onOpenChat}
+        onDeleted={() => { load(); loadFavorites(); setSelectedListing(null); }} />}
     </div>
   );
 }
@@ -2447,11 +2470,35 @@ function RealtyForm({ user, onClose, onPublished }: { user: User; onClose: () =>
 }
 
 // ── Карточка объявления ───────────────────────────────────────────────────────
-function RealtyCard({ listing: l, user, onClose, onOpenChat }: { listing: RealtyListing; user: User; onClose: () => void; onOpenChat: (chatId: number, listing: RealtyListing) => void }) {
+function RealtyCard({ listing: l, user, onClose, onOpenChat, onDeleted }: { listing: RealtyListing; user: User; onClose: () => void; onOpenChat: (chatId: number, listing: RealtyListing) => void; onDeleted?: () => void }) {
   const [photoIdx, setPhotoIdx] = useState(0);
   const [fullPhoto, setFullPhoto] = useState(false);
   const [opening, setOpening] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [savingFav, setSavingFav] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const photos = l.photos && l.photos.length > 0 ? l.photos : [];
+
+  useEffect(() => {
+    api(`realty_fav_check&user_id=${user.id}&listing_id=${l.id}`).then(d => setSaved(!!d.saved));
+  }, [l.id, user.id]);
+
+  const toggleFav = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSavingFav(true);
+    const d = await api('realty_fav_toggle', 'POST', { user_id: user.id, listing_id: l.id });
+    setSaved(!!d.saved);
+    setSavingFav(false);
+  };
+
+  const deleteListing = async () => {
+    setDeleting(true);
+    await api('realty_delete', 'POST', { user_id: user.id, listing_id: l.id });
+    setDeleting(false);
+    onClose();
+    onDeleted?.();
+  };
 
   // свайп по фото
   const swipeRef = useRef<{ x: number } | null>(null);
@@ -2519,9 +2566,16 @@ function RealtyCard({ listing: l, user, onClose, onOpenChat }: { listing: Realty
                 <p className="text-3xl font-bold text-slate-900">{fmtPrice(l.price)}</p>
                 {l.deal_type === 'rent' && <p className="text-sm text-slate-400">в месяц</p>}
               </div>
-              <span className={`text-xs font-bold px-3 py-1.5 rounded-full ${l.deal_type === 'sale' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-                {l.deal_type === 'sale' ? 'Продажа' : 'Аренда'}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-bold px-3 py-1.5 rounded-full ${l.deal_type === 'sale' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                  {l.deal_type === 'sale' ? 'Продажа' : 'Аренда'}
+                </span>
+                {/* Избранное */}
+                <button onClick={toggleFav} disabled={savingFav}
+                  className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${saved ? 'bg-red-50 text-red-500' : 'bg-slate-100 text-slate-400'}`}>
+                  <span className="text-lg">{saved ? '❤️' : '🤍'}</span>
+                </button>
+              </div>
             </div>
 
             <div className="flex gap-3 flex-wrap">
@@ -2563,8 +2617,8 @@ function RealtyCard({ listing: l, user, onClose, onOpenChat }: { listing: Realty
               </div>
             )}
 
-            {/* Кнопка чата */}
-            <div className="pb-4">
+            {/* Кнопки действий */}
+            <div className="pb-4 space-y-2">
               {l.seller_id !== user.id && (
                 <button onClick={openChat} disabled={opening}
                   className="w-full py-3.5 rounded-2xl bg-blue-600 text-white font-bold flex items-center justify-center gap-2 disabled:opacity-50">
@@ -2572,7 +2626,35 @@ function RealtyCard({ listing: l, user, onClose, onOpenChat }: { listing: Realty
                   {opening ? 'Открываем...' : 'Написать продавцу'}
                 </button>
               )}
+              {/* Кнопка удаления — только для владельца */}
+              {l.seller_id === user.id && (
+                <button onClick={() => setConfirmDelete(true)}
+                  className="w-full py-3.5 rounded-2xl border border-red-200 text-red-500 font-semibold flex items-center justify-center gap-2 hover:bg-red-50 transition-colors">
+                  <Icon name="Trash2" size={18} /> Удалить объявление
+                </button>
+              )}
             </div>
+
+            {/* Подтверждение удаления */}
+            {confirmDelete && (
+              <div className="fixed inset-0 z-[110] bg-black/50 flex items-center justify-center px-6" onClick={() => setConfirmDelete(false)}>
+                <div className="bg-white rounded-3xl p-6 w-full max-w-sm space-y-4" onClick={e => e.stopPropagation()}>
+                  <div className="text-center">
+                    <div className="text-4xl mb-3">🗑️</div>
+                    <p className="font-bold text-lg text-slate-900">Удалить объявление?</p>
+                    <p className="text-sm text-slate-500 mt-1">Объявление исчезнет из ленты и из избранного у всех пользователей.</p>
+                  </div>
+                  <button onClick={deleteListing} disabled={deleting}
+                    className="w-full py-3.5 rounded-2xl bg-red-500 text-white font-bold disabled:opacity-50">
+                    {deleting ? 'Удаляем...' : 'Да, удалить'}
+                  </button>
+                  <button onClick={() => setConfirmDelete(false)}
+                    className="w-full py-3 rounded-2xl text-slate-500 font-medium">
+                    Отмена
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -2581,7 +2663,8 @@ function RealtyCard({ listing: l, user, onClose, onOpenChat }: { listing: Realty
       {fullPhoto && photos.length > 0 && (
         <div className="fixed inset-0 z-[100] bg-black flex flex-col"
           onTouchStart={onPhotoTouchStart} onTouchEnd={onPhotoTouchEnd}>
-          <div className="flex items-center justify-between px-4 pt-safe pt-4 pb-2">
+          <div className="flex items-center justify-between px-4 pb-2"
+            style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
             <button onClick={() => setFullPhoto(false)}
               className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
               <Icon name="X" size={22} className="text-white" />
