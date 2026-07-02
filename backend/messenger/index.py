@@ -368,7 +368,7 @@ def handler(event: dict, context) -> dict:
                   )
                 UNION ALL
                 SELECT c.id AS chat_id,
-                       g.id AS group_id, g.name AS group_name, g.avatar_url AS group_avatar,
+                       g.id AS group_id, g.name AS group_name, COALESCE(g.photo_url, g.avatar_url) AS group_avatar,
                        NULL, NULL, NULL, NULL,
                        (SELECT text FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE ORDER BY m.id DESC LIMIT 1) AS last_text,
                        (SELECT created_at FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE ORDER BY m.id DESC LIMIT 1) AS last_at,
