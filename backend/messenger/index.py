@@ -731,14 +731,33 @@ def handler(event: dict, context) -> dict:
 
         # ── PING / OFFLINE ───────────────────────────────
         if action == 'ping' and method == 'POST':
-            uid = int(body.get('user_id') or 0)
+            uid       = int(body.get('user_id') or 0)
+            after_sig = int(body.get('after_sig') or 0)
+            after_not = int(body.get('after_not') or 0)
             cur.execute("SELECT id FROM users WHERE id=%s", (uid,))
             if not cur.fetchone():
-                # Пользователь удалён — сообщаем фронтенду разлогиниться
                 return _resp(200, {'deleted': True})
             cur.execute("UPDATE users SET is_online=TRUE, last_seen=NOW() WHERE id=%s", (uid,))
+            # Входящий звонок
+            cur.execute(
+                "SELECT ac.call_id, ac.caller_id, ac.kind, u.nick, u.avatar_url FROM active_calls ac JOIN users u ON u.id=ac.caller_id WHERE ac.callee_id=%s AND ac.status='ringing' ORDER BY ac.created_at DESC LIMIT 1",
+                (uid,)
+            )
+            incoming = cur.fetchone()
+            # Новые сигналы звонка
+            cur.execute(
+                "SELECT id, call_id, from_user_id, type, payload FROM call_signals WHERE to_user_id=%s AND id>%s ORDER BY id ASC LIMIT 10",
+                (uid, after_sig)
+            )
+            signals = cur.fetchall()
+            # Новые уведомления
+            cur.execute(
+                "SELECT n.id, n.type, u.nick AS from_nick FROM notifications n LEFT JOIN users u ON u.id=n.from_user_id WHERE n.user_id=%s AND n.id>%s AND n.is_read=FALSE ORDER BY n.id DESC LIMIT 10",
+                (uid, after_not)
+            )
+            notifs = cur.fetchall()
             conn.commit()
-            return _resp(200, {'ok': True})
+            return _resp(200, {'ok': True, 'incoming': incoming, 'signals': signals, 'notifs': notifs})
 
         if action == 'offline' and method == 'POST':
             uid = int(body.get('user_id') or 0)

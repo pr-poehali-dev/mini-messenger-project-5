@@ -180,101 +180,65 @@ export default function Index() {
     return () => document.removeEventListener('visibilitychange', handler);
   }, []);
 
-  // ping online every 30s
-  useEffect(() => {
-    if (!user) return;
-
-    // Передаём userId в Service Worker для фоновых уведомлений
-    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-      navigator.serviceWorker.controller.postMessage({ type: 'SET_USER', userId: user.id });
-    }
-
-    // OneSignal — привязываем пользователя и запрашиваем разрешение на push
-    if (window.OneSignalDeferred) {
-      window.OneSignalDeferred.push(async (OneSignal) => {
-        try {
-          // Привязываем external user ID — чтобы слать push конкретному юзеру
-          await OneSignal.login(String(user.id));
-          // Запрашиваем разрешение если ещё не давали
-          if (OneSignal.Notifications.permissionNative === 'default') {
-            await OneSignal.Notifications.requestPermission();
-          }
-          // Подписываемся на push
-          await OneSignal.User.PushSubscription.optIn();
-        } catch (_e) { /* push не поддерживается на этом устройстве */ }
-      });
-    }
-
-    // Скрываем splash screen
-    if (typeof window.__hideSplash === 'function') window.__hideSplash();
-
-    const doPing = async () => {
-      const d = await api('ping', 'POST', { user_id: user.id });
-      if (d.deleted) {
-        // Аккаунт удалён администратором — принудительно выходим
-        localStorage.removeItem('orbit_user');
-        didLogout.current = true;
-        setUser(null);
-        setScreen({ name: 'login' });
-        setLoginError('Ваш аккаунт был удалён.');
-      }
-    };
-    doPing();
-    const iv = setInterval(() => { if (!document.hidden) doPing(); }, 30000);
-    const off = () => api('offline', 'POST', { user_id: user.id });
-    window.addEventListener('beforeunload', off);
-    return () => { clearInterval(iv); window.removeEventListener('beforeunload', off); };
-  }, [user]);
-
-  // Показываем браузерные уведомления когда приходят сообщения (приложение открыто)
-  const lastNotifId = useRef(0);
-  useEffect(() => {
-    if (!user) return;
-    if (Notification.permission !== 'granted') return;
-    const check = async () => {
-      const d = await api(`notifications&user_id=${user.id}`);
-      const notifs = (d.notifications as Array<{id: number; type: string; from_nick?: string; is_read: boolean}>) || [];
-      const newOnes = notifs.filter(n => !n.is_read && n.id > lastNotifId.current);
-      if (newOnes.length && lastNotifId.current > 0) {
-        newOnes.forEach(n => {
-          const labels: Record<string, string> = {
-            new_message: '💬 Новое сообщение',
-            missed_call: '📞 Пропущенный звонок',
-            follow: '👤 Новый подписчик',
-            group_invite: '👥 Приглашение в группу',
-          };
-          const sw = navigator.serviceWorker.controller;
-          if (sw) {
-            sw.postMessage({ type: 'SHOW_NOTIFICATION', title: labels[n.type] || 'Вай Мессенджер', body: n.from_nick ? `@${n.from_nick}` : '' });
-          }
-        });
-      }
-      if (notifs.length) lastNotifId.current = Math.max(...notifs.map(n => n.id));
-    };
-    const iv = setInterval(() => { if (!document.hidden) check(); }, 8000);
-    return () => clearInterval(iv);
-  }, [user]);
-
-  // Входящие звонки — глобальный polling
+  // Входящие звонки и уведомления — state
   const [incomingCall, setIncomingCall] = useState<{ callId: string; kind: string; nick: string; avatar_url?: string | null; callerId: number } | null>(null);
   const [globalCall, setGlobalCall] = useState<{ kind: 'audio' | 'video'; callId: string; peer: User; outgoing?: boolean } | null>(null);
   const lastCallSigId = useRef(0);
+  const lastNotifId = useRef(0);
   const [pendingCall, setPendingCall] = useState<{ kind: 'audio' | 'video' } | null>(null);
+  const globalCallRef = useRef(globalCall);
+  const incomingCallRef = useRef(incomingCall);
+  useEffect(() => { globalCallRef.current = globalCall; }, [globalCall]);
+  useEffect(() => { incomingCallRef.current = incomingCall; }, [incomingCall]);
 
+  // Единый ping: онлайн + звонки + уведомления — 1 запрос вместо 3, каждые 8 сек
   useEffect(() => {
     if (!user) return;
-    const iv = setInterval(async () => {
+
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: 'SET_USER', userId: user.id });
+    }
+    if (window.OneSignalDeferred) {
+      window.OneSignalDeferred.push(async (OneSignal) => {
+        try {
+          await OneSignal.login(String(user.id));
+          if (OneSignal.Notifications.permissionNative === 'default') await OneSignal.Notifications.requestPermission();
+          await OneSignal.User.PushSubscription.optIn();
+        } catch (_ignored) { /* push не поддерживается */ }
+      });
+    }
+    if (typeof window.__hideSplash === 'function') window.__hideSplash();
+
+    const doPing = async () => {
       if (document.hidden) return;
-      const d = await api(`call_poll&user_id=${user.id}&after=${lastCallSigId.current}`);
+      const d = await api('ping', 'POST', { user_id: user.id, after_sig: lastCallSigId.current, after_not: lastNotifId.current });
+      if (d.deleted) {
+        localStorage.removeItem('orbit_user');
+        didLogout.current = true;
+        setUser(null); setScreen({ name: 'login' }); setLoginError('Ваш аккаунт был удалён.');
+        return;
+      }
       const sigs: { id: number }[] = d.signals || [];
       if (sigs.length) lastCallSigId.current = sigs[sigs.length - 1].id;
       const inc = d.incoming as { call_id: string; kind: string; nick: string; avatar_url?: string | null; caller_id: number } | null;
-      if (inc && !globalCall && !incomingCall) {
+      if (inc && !globalCallRef.current && !incomingCallRef.current) {
         setIncomingCall({ callId: inc.call_id, kind: inc.kind, nick: inc.nick, avatar_url: inc.avatar_url, callerId: inc.caller_id });
       }
-    }, 2000);
-    return () => clearInterval(iv);
-  }, [user, globalCall, incomingCall]);  
+      const notifs = (d.notifs as Array<{ id: number; type: string; from_nick?: string }>) || [];
+      if (notifs.length && lastNotifId.current > 0) {
+        const labels: Record<string, string> = { new_message: '💬 Новое сообщение', missed_call: '📞 Пропущенный звонок', follow: '👤 Новый подписчик', group_invite: '👥 Приглашение в группу' };
+        const sw = navigator.serviceWorker?.controller;
+        notifs.forEach(n => { if (sw) sw.postMessage({ type: 'SHOW_NOTIFICATION', title: labels[n.type] || 'Вай Мессенджер', body: n.from_nick ? `@${n.from_nick}` : '' }); });
+      }
+      if (notifs.length) lastNotifId.current = Math.max(...notifs.map(n => n.id));
+    };
+
+    doPing();
+    const iv = setInterval(doPing, 8000);
+    const off = () => api('offline', 'POST', { user_id: user.id });
+    window.addEventListener('beforeunload', off);
+    return () => { clearInterval(iv); window.removeEventListener('beforeunload', off); };
+  }, [user]);  
 
   if (screen.name === 'login' || !user) return <LoginScreen onRegister={login} onLogin={loginByNick} error={loginError} setError={setLoginError} />;
   if (screen.name === 'setup') return <SetupScreen user={user} onDone={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); push({ name: 'tabs', tab: 'chats' }); }} />;
