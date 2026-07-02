@@ -2387,6 +2387,24 @@ function RealtyFilters({ filters, onApply, onClose }: { filters: Record<string,s
   );
 }
 
+// ── Общая функция загрузки фото объявления ───────────────────────────────────
+async function uploadRealtyPhoto(file: File, userId: number, onDone: (url: string) => void, onError?: () => void) {
+  return new Promise<void>((resolve) => {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const b64 = (reader.result as string).split(',')[1];
+        const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+        const d = await api('realty_upload_photo', 'POST', { user_id: userId, data: b64, ext });
+        if (d.url) onDone(d.url as string);
+      } catch { onError?.(); }
+      resolve();
+    };
+    reader.onerror = () => { onError?.(); resolve(); };
+    reader.readAsDataURL(file);
+  });
+}
+
 // ── Форма публикации ──────────────────────────────────────────────────────────
 function RealtyForm({ user, onClose, onPublished }: { user: User; onClose: () => void; onPublished: () => void }) {
   const [step, setStep] = useState<'form'|'pay'>('form');
@@ -2397,17 +2415,15 @@ function RealtyForm({ user, onClose, onPublished }: { user: User; onClose: () =>
   const fileRef = useRef<HTMLInputElement>(null);
   const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
 
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
   const uploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file || photos.length >= 5) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const [, b64] = (reader.result as string).split(',');
-      const ext = file.name.split('.').pop() || 'jpg';
-      const d = await api('realty_upload_photo', 'POST', { user_id: user.id, data: b64, ext });
-      if (d.url) setPhotos(p => [...p, d.url as string]);
-    };
-    reader.readAsDataURL(file);
+    const file = e.target.files?.[0];
+    if (!file || photos.length >= 5) return;
     e.target.value = '';
+    setUploadingPhoto(true);
+    await uploadRealtyPhoto(file, user.id, url => setPhotos(p => [...p, url]));
+    setUploadingPhoto(false);
   };
 
   const submit = async () => {
@@ -2451,10 +2467,13 @@ function RealtyForm({ user, onClose, onPublished }: { user: User; onClose: () =>
                   </div>
                 ))}
                 {photos.length < 5 && (
-                  <button onClick={() => fileRef.current?.click()}
-                    className="w-20 h-20 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center gap-1 text-slate-400">
-                    <Icon name="Camera" size={20} />
-                    <span className="text-[10px]">Добавить</span>
+                  <button onClick={() => fileRef.current?.click()} disabled={uploadingPhoto}
+                    className="w-20 h-20 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center gap-1 text-slate-400 disabled:opacity-60">
+                    {uploadingPhoto
+                      ? <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                      : <Icon name="Camera" size={20} />
+                    }
+                    <span className="text-[10px]">{uploadingPhoto ? 'Загрузка...' : 'Добавить'}</span>
                   </button>
                 )}
                 <input ref={fileRef} type="file" accept="image/*" hidden onChange={uploadPhoto} />
@@ -2565,18 +2584,15 @@ function RealtyEditForm({ listing, user, onClose, onSaved }: { listing: RealtyLi
   });
   const fileRef = useRef<HTMLInputElement>(null);
   const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const uploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file || photos.length >= 5) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const [, b64] = (reader.result as string).split(',');
-      const ext = file.name.split('.').pop() || 'jpg';
-      const d = await api('realty_upload_photo', 'POST', { user_id: user.id, data: b64, ext });
-      if (d.url) setPhotos(p => [...p, d.url as string]);
-    };
-    reader.readAsDataURL(file);
+    const file = e.target.files?.[0];
+    if (!file || photos.length >= 5) return;
     e.target.value = '';
+    setUploadingPhoto(true);
+    await uploadRealtyPhoto(file, user.id, url => setPhotos(p => [...p, url]));
+    setUploadingPhoto(false);
   };
 
   const save = async () => {
@@ -3198,20 +3214,15 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
     if (el) el.scrollTop = el.scrollHeight;
   }, [chatId]);
 
-  // При новых сообщениях — скроллим если пользователь внизу или пришло своё сообщение
+  // При новых сообщениях — скроллим только если пользователь УЖЕ внизу
+  // Если листает вверх — НЕ трогаем позицию
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     if (isAtBottomRef.current) {
       el.scrollTop = el.scrollHeight;
-    } else {
-      // Если последнее сообщение моё — всегда скроллим вниз
-      const last = messages[messages.length - 1];
-      if (last && last.sender_id === user.id) {
-        el.scrollTop = el.scrollHeight;
-        isAtBottomRef.current = true;
-      }
     }
+    // Если отправил сам — скроллим вниз только после отправки (через send)
   }, [messages]);
 
   // Автозвонок при открытии чата из профиля
@@ -3235,6 +3246,12 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
     if (!text) setInput('');
     if (typingTimer.current) clearTimeout(typingTimer.current);
     await api('send', 'POST', { chat_id: chatId, user_id: user.id, text: t || null, media_url: media_url || null, media_type: media_type || null });
+    // После отправки своего сообщения — всегда скроллим вниз
+    isAtBottomRef.current = true;
+    setTimeout(() => {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    }, 50);
   };
 
   const openForward = async (msg: MsgExt) => {
