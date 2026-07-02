@@ -243,8 +243,6 @@ def handler(event: dict, context) -> dict:
 
         # ── UPLOAD AVATAR ─────────────────────────────────
         if action == 'upload_avatar' and method == 'POST':
-            import base64
-            import boto3
             uid = int(body.get('user_id') or 0)
             data_b64 = body.get('data', '')
             ext = (body.get('ext') or 'jpg').lower()
@@ -656,7 +654,6 @@ def handler(event: dict, context) -> dict:
 
         # ── UPLOAD MEDIA ──────────────────────────────────
         if action == 'upload_media' and method == 'POST':
-            import base64, boto3
             uid = int(body.get('user_id') or 0)
             data_b64 = body.get('data', '')
             ext = (body.get('ext') or 'jpg').lower()
@@ -1059,7 +1056,6 @@ def handler(event: dict, context) -> dict:
 
         # ── UPLOAD GROUP PHOTO ────────────────────────────
         if action == 'upload_group_photo' and method == 'POST':
-            import base64, boto3, time
             gid = int(body.get('group_id') or 0)
             uid = int(body.get('user_id') or 0)
             cur.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s", (gid, uid))

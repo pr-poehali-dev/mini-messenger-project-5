@@ -2405,7 +2405,7 @@ function RealtyForm({ user, onClose, onPublished }: { user: User; onClose: () =>
           <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
             {/* Фото */}
             <div>
-              <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Фото (до 5 шт.)</p>
+              <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Фото (до 10 шт.)</p>
               <div className="flex gap-2 flex-wrap">
                 {photos.map((p, i) => (
                   <div key={i} className="relative w-20 h-20 rounded-2xl overflow-hidden">
