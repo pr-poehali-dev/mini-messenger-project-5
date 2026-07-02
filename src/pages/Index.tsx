@@ -962,10 +962,13 @@ function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall }: {
   const [notifs, setNotifs] = useState<Notif[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const clearedKey = `notif_cleared_${user.id}`;
+
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const d = await api(`notifications&user_id=${user.id}`);
+      const afterTs = localStorage.getItem(clearedKey) || '1970-01-01';
+      const d = await api(`notifications&user_id=${user.id}&after_ts=${encodeURIComponent(afterTs)}`);
       if (cancelled) return;
       setNotifs((d.notifications as Notif[]) || []);
       setLoading(false);
@@ -980,97 +983,126 @@ function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall }: {
 
   const clearAll = async () => {
     await api('clear_notifications', 'POST', { user_id: user.id });
+    localStorage.setItem(clearedKey, new Date().toISOString());
     setNotifs([]);
+  };
+
+  const [tab, setTab] = useState<'notifs' | 'calls'>('notifs');
+  const [calls, setCalls] = useState<{call_id:string;kind:string;status:string;created_at:string;caller_id:number;callee_id:number;caller_nick:string;caller_avatar:string|null;callee_nick:string;callee_avatar:string|null}[]>([]);
+  const [callsLoading, setCallsLoading] = useState(false);
+
+  const loadCalls = async () => {
+    setCallsLoading(true);
+    const d = await api(`call_history&user_id=${user.id}`);
+    setCalls(d.calls || []);
+    setCallsLoading(false);
   };
 
   return (
     <div className="flex flex-col h-full">
-      <div className="shrink-0 px-4 pt-4 pb-3 bg-white border-b border-slate-100 flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900" style={{ letterSpacing: '-0.5px' }}>Уведомления</h1>
-        {notifs.length > 0 && (
-          <button onClick={clearAll}
-            className="text-sm text-slate-400 hover:text-red-400 transition-colors font-medium flex items-center gap-1">
-            <Icon name="Trash2" size={15} /> Очистить
+      {/* Заголовок + вкладки */}
+      <div className="shrink-0 px-4 pt-4 pb-0 bg-white border-b border-slate-100">
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-2xl font-bold text-slate-900" style={{ letterSpacing: '-0.5px' }}>Уведомления</h1>
+          {tab === 'notifs' && notifs.length > 0 && (
+            <button onClick={clearAll} className="text-sm text-slate-400 hover:text-red-400 transition-colors font-medium flex items-center gap-1">
+              <Icon name="Trash2" size={15} /> Очистить
+            </button>
+          )}
+        </div>
+        <div className="flex gap-1 mb-0">
+          <button onClick={() => setTab('notifs')}
+            className={`flex-1 py-2 text-sm font-semibold rounded-t-xl transition-colors ${tab === 'notifs' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400'}`}>
+            Уведомления
           </button>
-        )}
+          <button onClick={() => { setTab('calls'); if (!calls.length) loadCalls(); }}
+            className={`flex-1 py-2 text-sm font-semibold rounded-t-xl transition-colors ${tab === 'calls' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400'}`}>
+            Звонки
+          </button>
+        </div>
       </div>
+
       <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-2 pt-2">
-        {loading && (
-          <div className="flex justify-center mt-16">
-            <div className="w-7 h-7 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          </div>
-        )}
-        {!loading && notifs.length === 0 && (
-          <div className="flex flex-col items-center justify-center mt-24 gap-3">
-            <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center">
-              <Icon name="Bell" size={30} className="text-blue-300" />
+        {/* Вкладка уведомлений */}
+        {tab === 'notifs' && <>
+          {loading && <div className="flex justify-center mt-16"><div className="w-7 h-7 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>}
+          {!loading && notifs.length === 0 && (
+            <div className="flex flex-col items-center justify-center mt-24 gap-3">
+              <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center"><Icon name="Bell" size={30} className="text-blue-300" /></div>
+              <p className="font-semibold text-slate-500 text-sm">Нет уведомлений</p>
             </div>
-            <p className="font-semibold text-slate-500 text-sm">Нет уведомлений</p>
-          </div>
-        )}
-        {notifs.map(n => (
-          <div key={n.id}
-            className={`flex items-start gap-3 px-3 py-3.5 rounded-2xl mb-2 transition-colors ${!n.is_read ? 'bg-blue-50 border border-blue-100' : 'bg-white border border-slate-100'}`}>
-            {/* Аватар с иконкой типа поверх */}
-            <div className="relative shrink-0">
-              <div className="w-12 h-12 rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center">
-                {n.from_avatar
-                  ? <img src={n.from_avatar} className="w-full h-full object-cover" />
-                  : <span className="text-xl font-bold text-slate-400">{(n.from_nick || '?')[0].toUpperCase()}</span>
-                }
+          )}
+          {notifs.map(n => (
+            <div key={n.id} className={`flex items-start gap-3 px-3 py-3.5 rounded-2xl mb-2 transition-colors ${!n.is_read ? 'bg-blue-50 border border-blue-100' : 'bg-white border border-slate-100'}`}>
+              <div className="relative shrink-0">
+                <div className="w-12 h-12 rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center">
+                  {n.from_avatar ? <img src={n.from_avatar} className="w-full h-full object-cover" /> : <span className="text-xl font-bold text-slate-400">{(n.from_nick || '?')[0].toUpperCase()}</span>}
+                </div>
+                <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center ${n.type === 'missed_call' ? 'bg-red-500' : n.type === 'follow' ? 'bg-green-500' : 'bg-blue-500'}`}>
+                  <Icon name={NOTIF_ICONS[n.type] || 'Bell'} size={11} className="text-white" />
+                </div>
               </div>
-              <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center
-                ${n.type === 'missed_call' ? 'bg-red-500' : n.type === 'follow' ? 'bg-green-500' : 'bg-blue-500'}`}>
-                <Icon name={NOTIF_ICONS[n.type] || 'Bell'} size={11} className="text-white" />
-              </div>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between gap-1">
-                <div>
-                  {n.from_nick && <div className="text-sm font-bold text-slate-800">@{n.from_nick}</div>}
-                  <div className={`text-xs font-medium mt-0.5
-                    ${n.type === 'missed_call' ? 'text-red-500' : n.type === 'follow' ? 'text-green-600' : 'text-blue-600'}`}>
-                    {NOTIF_LABELS[n.type] || n.type}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-1">
+                  <div>
+                    {n.from_nick && <div className="text-sm font-bold text-slate-800">@{n.from_nick}</div>}
+                    <div className={`text-xs font-medium mt-0.5 ${n.type === 'missed_call' ? 'text-red-500' : n.type === 'follow' ? 'text-green-600' : 'text-blue-600'}`}>{NOTIF_LABELS[n.type] || n.type}</div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[11px] text-slate-400">{fmtTime(n.created_at)}</span>
+                    {!n.is_read && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />}
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <span className="text-[11px] text-slate-400">{fmtTime(n.created_at)}</span>
-                  {!n.is_read && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />}
+                <div className="flex gap-2 mt-2 flex-wrap">
+                  {n.type === 'missed_call' && n.from_user_id && (<>
+                    <button onClick={() => onCall(n.from_user_id!, n.from_nick || '?', n.from_avatar, 'audio')} className="text-xs bg-green-500 text-white rounded-xl px-3 py-1.5 font-semibold flex items-center gap-1"><Icon name="Phone" size={12} /> Перезвонить</button>
+                    <button onClick={() => onCall(n.from_user_id!, n.from_nick || '?', n.from_avatar, 'video')} className="text-xs bg-blue-500 text-white rounded-xl px-3 py-1.5 font-semibold flex items-center gap-1"><Icon name="Video" size={12} /> Видео</button>
+                    <button onClick={() => onOpenProfile(n.from_user_id!)} className="text-xs bg-slate-100 text-slate-600 rounded-xl px-3 py-1.5 font-medium flex items-center gap-1"><Icon name="User" size={12} /> Профиль</button>
+                  </>)}
+                  {n.type === 'follow' && n.from_user_id && <button onClick={() => onOpenProfile(n.from_user_id!)} className="text-xs bg-blue-600 text-white rounded-xl px-3 py-1.5 font-semibold flex items-center gap-1"><Icon name="UserPlus" size={12} /> Профиль</button>}
+                  {(n.type === 'new_message' || n.type === 'group_invite') && n.chat_id && <button onClick={() => onOpenChat(n.chat_id!)} className="text-xs bg-blue-600 text-white rounded-xl px-3 py-1.5 font-semibold flex items-center gap-1"><Icon name="MessageCircle" size={12} /> Открыть чат</button>}
                 </div>
               </div>
-              <div className="flex gap-2 mt-2 flex-wrap">
-                {n.type === 'missed_call' && n.from_user_id && (
-                  <>
-                    <button onClick={() => onCall(n.from_user_id!, n.from_nick || '?', n.from_avatar, 'audio')}
-                      className="text-xs bg-green-500 text-white rounded-xl px-3 py-1.5 font-semibold flex items-center gap-1 active:bg-green-600">
-                      <Icon name="Phone" size={12} /> Перезвонить
-                    </button>
-                    <button onClick={() => onCall(n.from_user_id!, n.from_nick || '?', n.from_avatar, 'video')}
-                      className="text-xs bg-blue-500 text-white rounded-xl px-3 py-1.5 font-semibold flex items-center gap-1 active:bg-blue-600">
-                      <Icon name="Video" size={12} /> Видеозвонок
-                    </button>
-                    <button onClick={() => onOpenProfile(n.from_user_id!)}
-                      className="text-xs bg-slate-100 text-slate-600 rounded-xl px-3 py-1.5 font-medium flex items-center gap-1">
-                      <Icon name="User" size={12} /> Профиль
-                    </button>
-                  </>
-                )}
-                {n.type === 'follow' && n.from_user_id && (
-                  <button onClick={() => onOpenProfile(n.from_user_id!)}
-                    className="text-xs bg-blue-600 text-white rounded-xl px-3 py-1.5 font-semibold flex items-center gap-1 active:bg-blue-700">
-                    <Icon name="UserPlus" size={12} /> Посмотреть профиль
-                  </button>
-                )}
-                {(n.type === 'new_message' || n.type === 'group_invite') && n.chat_id && (
-                  <button onClick={() => onOpenChat(n.chat_id!)}
-                    className="text-xs bg-blue-600 text-white rounded-xl px-3 py-1.5 font-semibold flex items-center gap-1 active:bg-blue-700">
-                    <Icon name="MessageCircle" size={12} /> Открыть чат
-                  </button>
-                )}
-              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </>}
+
+        {/* Вкладка звонков */}
+        {tab === 'calls' && <>
+          {callsLoading && <div className="flex justify-center mt-16"><div className="w-7 h-7 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>}
+          {!callsLoading && calls.length === 0 && (
+            <div className="flex flex-col items-center justify-center mt-24 gap-3">
+              <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center"><Icon name="Phone" size={30} className="text-slate-300" /></div>
+              <p className="font-semibold text-slate-500 text-sm">Нет звонков</p>
+            </div>
+          )}
+          {calls.map(c => {
+            const isOutgoing = c.caller_id === user.id;
+            const peerNick = isOutgoing ? c.callee_nick : c.caller_nick;
+            const peerAvatar = isOutgoing ? c.callee_avatar : c.caller_avatar;
+            const peerId = isOutgoing ? c.callee_id : c.caller_id;
+            const missed = !isOutgoing && c.status !== 'active' && c.status !== 'ended';
+            return (
+              <div key={c.call_id} className="flex items-center gap-3 px-3 py-3.5 bg-white rounded-2xl mb-2 border border-slate-100">
+                <div className="w-12 h-12 rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center shrink-0">
+                  {peerAvatar ? <img src={peerAvatar} className="w-full h-full object-cover" /> : <span className="text-xl font-bold text-slate-400">{(peerNick || '?')[0].toUpperCase()}</span>}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-slate-800 text-sm">@{peerNick}</div>
+                  <div className={`text-xs flex items-center gap-1 mt-0.5 ${missed ? 'text-red-500' : isOutgoing ? 'text-blue-500' : 'text-green-600'}`}>
+                    <Icon name={isOutgoing ? 'PhoneOutgoing' : missed ? 'PhoneMissed' : 'PhoneIncoming'} size={11} />
+                    {isOutgoing ? 'Исходящий' : missed ? 'Пропущенный' : 'Входящий'} · {c.kind === 'video' ? 'видео' : 'аудио'}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">{fmtTime(c.created_at)}</div>
+                </div>
+                <div className="flex gap-1.5 shrink-0">
+                  <button onClick={() => onCall(peerId, peerNick, peerAvatar, 'audio')} className="w-9 h-9 rounded-full bg-green-50 flex items-center justify-center"><Icon name="Phone" size={16} className="text-green-500" /></button>
+                  <button onClick={() => onCall(peerId, peerNick, peerAvatar, 'video')} className="w-9 h-9 rounded-full bg-blue-50 flex items-center justify-center"><Icon name="Video" size={16} className="text-blue-500" /></button>
+                </div>
+              </div>
+            );
+          })}
+        </>}
       </div>
     </div>
   );

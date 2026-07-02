@@ -826,6 +826,7 @@ def handler(event: dict, context) -> dict:
         # ── NOTIFICATIONS GET ─────────────────────────────
         if action == 'notifications' and method == 'GET':
             uid = int(params.get('user_id') or 0)
+            after_ts = params.get('after_ts', '1970-01-01')  # показывать только после этой даты
             cur.execute(
                 """
                 SELECT n.id, n.type, n.from_user_id, n.chat_id, n.group_id,
@@ -833,13 +834,13 @@ def handler(event: dict, context) -> dict:
                        u.nick AS from_nick, u.avatar_url AS from_avatar
                 FROM notifications n
                 LEFT JOIN users u ON u.id = n.from_user_id
-                WHERE n.user_id = %s
+                WHERE n.user_id = %s AND n.created_at > %s::timestamptz
                 ORDER BY n.created_at DESC LIMIT 50
                 """,
-                (uid,),
+                (uid, after_ts),
             )
             notifs = cur.fetchall()
-            cur.execute("SELECT COUNT(*) AS cnt FROM notifications WHERE user_id=%s AND is_read=FALSE", (uid,))
+            cur.execute("SELECT COUNT(*) AS cnt FROM notifications WHERE user_id=%s AND is_read=FALSE AND created_at > %s::timestamptz", (uid, after_ts))
             unread = cur.fetchone()['cnt']
             return _resp(200, {'notifications': notifs, 'unread': unread})
 
@@ -848,7 +849,7 @@ def handler(event: dict, context) -> dict:
             uid = int(body.get('user_id') or 0)
             cur.execute("UPDATE notifications SET is_read=TRUE WHERE user_id=%s", (uid,))
             conn.commit()
-            return _resp(200, {'ok': True})
+            return _resp(200, {'ok': True, 'cleared_at': 'now'})
 
         # ── NOTIFICATIONS READ ────────────────────────────
         if action == 'notifications_read' and method == 'POST':
@@ -882,6 +883,26 @@ def handler(event: dict, context) -> dict:
             icon = '📹' if call_type == 'video' else '📞'
             _push([to_uid], f'{icon} Пропущенный звонок', f'@{caller_nick} звонил вам', '/')
             return _resp(200, {'ok': True})
+
+        # ── CALL HISTORY ──────────────────────────────────
+        if action == 'call_history' and method == 'GET':
+            uid = int(params.get('user_id') or 0)
+            cur.execute(
+                """
+                SELECT ac.call_id, ac.kind, ac.status, ac.created_at,
+                       ac.caller_id, ac.callee_id,
+                       u1.nick AS caller_nick, u1.avatar_url AS caller_avatar,
+                       u2.nick AS callee_nick, u2.avatar_url AS callee_avatar
+                FROM active_calls ac
+                JOIN users u1 ON u1.id = ac.caller_id
+                JOIN users u2 ON u2.id = ac.callee_id
+                WHERE (ac.caller_id=%s OR ac.callee_id=%s)
+                ORDER BY ac.created_at DESC LIMIT 50
+                """,
+                (uid, uid),
+            )
+            calls = cur.fetchall()
+            return _resp(200, {'calls': calls})
 
         # ── GROUP INFO ────────────────────────────────────
         if action == 'group_info' and method == 'GET':
