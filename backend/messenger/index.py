@@ -489,16 +489,20 @@ def handler(event: dict, context) -> dict:
             )
             typing = [r['nick'] for r in cur.fetchall()]
             peer_online = False
+            peer_last_seen = None
             if peer_id:
-                cur.execute("SELECT is_online FROM users WHERE id=%s", (peer_id,))
+                cur.execute("SELECT is_online, last_seen FROM users WHERE id=%s", (peer_id,))
                 pr = cur.fetchone()
-                peer_online = bool(pr['is_online']) if pr else False
+                if pr:
+                    peer_online = bool(pr['is_online'])
+                    peer_last_seen = pr['last_seen'].isoformat() if pr['last_seen'] else None
             conn.commit()
             return _resp(200, {
-                'messages':   msgs,
-                'read_until': ru_row['read_until'] if ru_row else None,
-                'typing':     typing,
-                'peer_online': peer_online,
+                'messages':      msgs,
+                'read_until':    ru_row['read_until'] if ru_row else None,
+                'typing':        typing,
+                'peer_online':   peer_online,
+                'peer_last_seen': peer_last_seen,
             })
 
         if action == 'messages' and method == 'GET':

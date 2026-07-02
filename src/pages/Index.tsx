@@ -1995,6 +1995,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
   const [input, setInput] = useState('');
   const [typing, setTyping] = useState<string[]>([]);
   const [peerOnline, setPeerOnline] = useState(false);
+  const [peerLastSeen, setPeerLastSeen] = useState<string | null>(null);
   const [selectedMsg, setSelectedMsg] = useState<number | null>(null);
   const [emojiTarget, setEmojiTarget] = useState<number | null>(null);
   const [showAttach, setShowAttach] = useState(false);
@@ -2029,7 +2030,10 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
       setMessages(m => m.map(msg => msg.sender_id === user.id && msg.id <= ru ? { ...msg, is_read: true } : msg));
     }
     setTyping(d.typing || []);
-    if (peer) setPeerOnline(d.peer_online || false);
+    if (peer) {
+      setPeerOnline(d.peer_online || false);
+      if (d.peer_last_seen) setPeerLastSeen(d.peer_last_seen as string);
+    }
   }, [chatId, user.id, peer]);
 
   useEffect(() => {
@@ -2185,8 +2189,13 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
   };
 
   const title = groupName || (peer ? `@${peer.nick}` : '');
-  const subtitle = typing.length > 0 ? 'печатает...' : groupName ? 'Группа' : peerOnline ? 'в сети' : '';
-  const subtitleColor = typing.length > 0 ? 'text-blue-200' : peerOnline && !groupName ? 'text-green-300' : 'text-blue-200';
+  const subtitle = typing.length > 0
+    ? null  // рендерим анимацию отдельно
+    : groupName ? 'Группа'
+    : peerOnline ? 'в сети'
+    : peerLastSeen ? fmtLastSeen(peerLastSeen)
+    : '';
+  const subtitleColor = peerOnline && !groupName && typing.length === 0 ? 'text-green-300' : 'text-blue-200';
 
   return (
     <div className="fixed inset-0 flex flex-col" style={{ background: 'var(--chat-bg, #e8eef7)' }} onClick={() => { setSelectedMsg(null); setEmojiTarget(null); setShowAttach(false); }}>
@@ -2211,7 +2220,19 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
           }
           <div className="min-w-0 flex-1">
             <div className="font-bold text-white text-[16px] truncate leading-tight">{title}</div>
-            {subtitle && <div className={`text-[12px] truncate mt-[1px] ${subtitleColor}`}>{subtitle}</div>}
+            {typing.length > 0
+              ? <div className="flex items-center gap-1 mt-[2px]">
+                  <span className="text-[12px] text-blue-200">печатает</span>
+                  <span className="flex gap-[3px] items-end pb-[1px]">
+                    <span className="w-[3px] h-[3px] rounded-full bg-blue-200 animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-[3px] h-[3px] rounded-full bg-blue-200 animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-[3px] h-[3px] rounded-full bg-blue-200 animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </span>
+                </div>
+              : subtitle
+                ? <div className={`text-[12px] truncate mt-[1px] ${subtitleColor}`}>{subtitle}</div>
+                : null
+            }
           </div>
         </button>
         {peer && <>
