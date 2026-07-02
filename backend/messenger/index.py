@@ -98,6 +98,24 @@ def handler(event: dict, context) -> dict:
     action = params.get('action', '')
     method = event.get('httpMethod', 'GET')
 
+    # ── UPLOAD CHUNK — обрабатываем ДО json парсинга (raw binary) ──
+    if action == 'upload_chunk' and method == 'POST':
+        uid       = int(params.get('user_id') or 0)
+        upload_id = params.get('upload_id', '')
+        chunk_idx = int(params.get('chunk_index') or 0)
+        raw_b = event.get('body') or ''
+        if not upload_id or not raw_b:
+            return _resp(400, {'error': 'Нет данных'})
+        if event.get('isBase64Encoded'):
+            raw = base64.b64decode(raw_b)
+        else:
+            raw = raw_b.encode('latin-1') if isinstance(raw_b, str) else raw_b
+        key = f"chunks/{uid}/{upload_id}/{chunk_idx:05d}"
+        s3 = _s3()
+        s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw)
+        print(f'[CHUNK] uid={uid} upload_id={upload_id} chunk={chunk_idx} size={len(raw)}')
+        return _resp(200, {'ok': True})
+
     try:
         raw_body = event.get('body') or '{}'
         if event.get('isBase64Encoded'):
