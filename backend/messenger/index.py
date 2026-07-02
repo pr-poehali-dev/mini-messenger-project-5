@@ -1,5 +1,7 @@
 import json
 import os
+import re
+import time
 import secrets
 import hashlib
 import base64
@@ -171,7 +173,6 @@ def handler(event: dict, context) -> dict:
                 return _resp(200, {'available': False, 'error': 'Минимум 2 символа'})
             if len(nick) > 30:
                 return _resp(200, {'available': False, 'error': 'Максимум 30 символов'})
-            import re
             if not re.match(r'^[a-z0-9_]+$', nick):
                 return _resp(200, {'available': False, 'error': 'Только латиница, цифры и _'})
             cur.execute("SELECT id FROM users WHERE nick = %s AND id != %s", (nick, me))
@@ -188,7 +189,6 @@ def handler(event: dict, context) -> dict:
                 return _resp(400, {'error': 'Ник минимум 2 символа'})
             if len(new_nick) > 30:
                 return _resp(400, {'error': 'Ник максимум 30 символов'})
-            import re
             if not re.match(r'^[a-z0-9_]+$', new_nick):
                 return _resp(400, {'error': 'Только латиница, цифры и _'})
             cur.execute("SELECT id FROM users WHERE nick = %s AND id != %s", (new_nick, uid))
@@ -658,15 +658,23 @@ def handler(event: dict, context) -> dict:
             data_b64 = body.get('data', '')
             ext = (body.get('ext') or 'jpg').lower()
             media_type = body.get('media_type', 'image')
-            raw = base64.b64decode(data_b64)
-            import time
+            print(f'[MEDIA] uid={uid} media_type={media_type} ext={ext} data_len={len(data_b64)}')
+            if not data_b64:
+                return _resp(400, {'error': 'Нет данных'})
+            try:
+                raw = base64.b64decode(data_b64)
+            except Exception as e:
+                print(f'[MEDIA] base64 error: {e}')
+                return _resp(400, {'error': 'Ошибка декодирования'})
             key = f"media/{uid}/{int(time.time())}.{ext}"
-            ct_map = {'image': f'image/{ext}', 'video': f'video/{ext}', 'audio': f'audio/{ext}', 'voice': 'audio/ogg'}
+            ct_map = {'image': f'image/{ext}', 'video': f'video/{ext}', 'audio': f'audio/{ext}', 'voice': 'audio/ogg', 'file': 'application/octet-stream'}
+            content_type = ct_map.get(media_type, 'application/octet-stream')
             s3 = boto3.client('s3', endpoint_url='https://bucket.poehali.dev',
                 aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
                 aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
-            s3.put_object(Bucket='files', Key=key, Body=raw, ContentType=ct_map.get(media_type, 'application/octet-stream'))
+            s3.put_object(Bucket='files', Key=key, Body=raw, ContentType=content_type)
             url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
+            print(f'[MEDIA] OK url={url}')
             return _resp(200, {'url': url, 'media_type': media_type})
 
         # ── REACT ─────────────────────────────────────────

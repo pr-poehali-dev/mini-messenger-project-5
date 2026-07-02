@@ -3262,22 +3262,33 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
   };
 
   const uploadFile = async (file: File, type: 'image' | 'video' | 'audio' | 'voice') => {
+    const maxMb = type === 'video' ? 50 : 20;
+    if (file.size > maxMb * 1024 * 1024) {
+      alert(`Файл слишком большой. Максимум ${maxMb} МБ.`);
+      return;
+    }
     setUploading(true);
-    setUploadProgress(type === 'video' ? 'Загрузка видео...' : type === 'image' ? 'Загрузка фото...' : 'Загрузка...');
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const [, b64] = (reader.result as string).split(',');
-        const ext = file.name.split('.').pop() || (type === 'voice' ? 'ogg' : type === 'image' ? 'jpg' : type);
-        const d = await api('upload_media', 'POST', { user_id: user.id, data: b64, ext, media_type: type });
-        if (d.url) await send(undefined, d.url, type);
-      } finally {
-        setUploading(false);
-        setUploadProgress('');
-      }
-    };
-    reader.onerror = () => { setUploading(false); setUploadProgress(''); };
-    reader.readAsDataURL(file);
+    setUploadProgress(type === 'video' ? 'Загрузка видео...' : type === 'audio' ? 'Загрузка аудио...' : type === 'image' ? 'Загрузка фото...' : 'Загрузка...');
+    try {
+      const b64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          resolve(result.split(',')[1]);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const ext = file.name.split('.').pop() || (type === 'voice' ? 'ogg' : type === 'image' ? 'jpg' : type);
+      const d = await api('upload_media', 'POST', { user_id: user.id, data: b64, ext, media_type: type });
+      if (d.url) await send(undefined, d.url, type);
+    } catch (e) {
+      console.error('[uploadFile]', e);
+      alert('Не удалось загрузить файл. Попробуй ещё раз.');
+    } finally {
+      setUploading(false);
+      setUploadProgress('');
+    }
   };
 
   const pickFile = (type: 'image' | 'video' | 'audio') => {
