@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "Unknown action",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 404,
+      "bodyMatcher": "partial",
+      "expectedBody": {"error": "string"}
+    }
+  ]
+}

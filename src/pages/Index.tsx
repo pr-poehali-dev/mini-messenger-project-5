@@ -36,10 +36,12 @@ const api = async (action: string, method = 'GET', body?: object): Promise<Recor
   }
 };
 
-// Загрузка бинарного чанка напрямую без base64
+const UPLOAD_API = 'https://functions.poehali.dev/3c36c336-feb4-4487-884a-5cde1fbaba5e';
+
+// Загрузка бинарного чанка через отдельную функцию
 const apiChunk = async (uid: number, upload_id: string, chunk_index: number, data: ArrayBuffer): Promise<boolean> => {
   try {
-    const r = await fetch(`${API}?action=upload_chunk&user_id=${uid}&upload_id=${upload_id}&chunk_index=${chunk_index}`, {
+    const r = await fetch(`${UPLOAD_API}?action=upload_chunk&user_id=${uid}&upload_id=${upload_id}&chunk_index=${chunk_index}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: data,
@@ -47,6 +49,20 @@ const apiChunk = async (uid: number, upload_id: string, chunk_index: number, dat
     return r.ok;
   } catch {
     return false;
+  }
+};
+
+// Сборка чанков через отдельную функцию
+const apiAssemble = async (body: object): Promise<Record<string, unknown>> => {
+  try {
+    const r = await fetch(`${UPLOAD_API}?action=assemble_chunks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return await r.json();
+  } catch {
+    return { error: 'Ошибка сборки' };
   }
 };
 const fmtTime = (iso: string | null) => {
@@ -3308,8 +3324,8 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
         }
         if (uploadCancelled.current) return;
         setUploadProgress('Сборка...');
-        const d = await api('assemble_chunks', 'POST', { user_id: user.id, upload_id, total_chunks: total, ext, media_type: type });
-        if (d.url) { setUploadProgress('100%'); await send(undefined, d.url, type); }
+        const d = await apiAssemble({ user_id: user.id, upload_id, total_chunks: total, ext, media_type: type });
+        if (d.url) { setUploadProgress('100%'); await send(undefined, d.url as string, type); }
       } else {
         // Фото и голос — через base64 как раньше
         setUploadProgress(type === 'image' ? 'Загрузка фото...' : 'Загрузка...');
