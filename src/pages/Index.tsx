@@ -2190,20 +2190,28 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
 
   return (
     <div className="fixed inset-0 flex flex-col" style={{ background: 'var(--chat-bg, #e8eef7)' }} onClick={() => { setSelectedMsg(null); setEmojiTarget(null); setShowAttach(false); }}>
-      {/* Header — фиксированный, как Telegram */}
-      <header className="shrink-0 flex items-center gap-2 px-2 bg-blue-600 shadow-md"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 8px)', paddingBottom: '10px' }}
+      {/* Header — Telegram стиль: скруглён снизу, тень */}
+      <header className="shrink-0 flex items-center gap-1 px-1 bg-blue-600"
+        style={{
+          paddingTop: 'calc(env(safe-area-inset-top) + 6px)',
+          paddingBottom: '12px',
+          borderRadius: '0 0 18px 18px',
+          boxShadow: '0 4px 20px rgba(37,99,235,0.35)',
+          zIndex: 10,
+        }}
         onClick={e => e.stopPropagation()}>
         <button onClick={onBack} className="w-10 h-10 rounded-full hover:bg-white/15 flex items-center justify-center transition-colors shrink-0">
           <Icon name="ArrowLeft" size={22} className="text-white" />
         </button>
-        <button className="flex items-center gap-3 flex-1 text-left min-w-0"
+        <button className="flex items-center gap-2.5 flex-1 text-left min-w-0 active:opacity-70 transition-opacity"
           onClick={() => peer ? onOpenProfile(peer.id) : groupId && onOpenGroup(groupId, chatId)}>
-          {peer ? <Avatar url={peer.avatar_url} nick={peer.nick} size={40} online={peerOnline} />
-            : <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center shrink-0"><Icon name="Users" size={18} className="text-white" /></div>}
+          {peer
+            ? <Avatar url={peer.avatar_url} nick={peer.nick} size={42} online={peerOnline} />
+            : <div className="w-[42px] h-[42px] rounded-full bg-white/20 flex items-center justify-center shrink-0"><Icon name="Users" size={20} className="text-white" /></div>
+          }
           <div className="min-w-0 flex-1">
-            <div className="font-semibold text-white text-base truncate leading-tight">{title}</div>
-            {subtitle && <div className={`text-xs truncate mt-0.5 ${subtitleColor}`}>{subtitle}</div>}
+            <div className="font-bold text-white text-[16px] truncate leading-tight">{title}</div>
+            {subtitle && <div className={`text-[12px] truncate mt-[1px] ${subtitleColor}`}>{subtitle}</div>}
           </div>
         </button>
         {peer && <>
