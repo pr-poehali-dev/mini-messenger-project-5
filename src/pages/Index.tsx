@@ -2310,21 +2310,44 @@ function RealtyFilters({ filters, onApply, onClose }: { filters: Record<string,s
 }
 
 // ── Общая функция загрузки фото объявления ───────────────────────────────────
-async function uploadRealtyPhoto(file: File, userId: number, onDone: (url: string) => void, onError?: () => void) {
-  return new Promise<void>((resolve) => {
+// Сжимает фото через Canvas до maxSize px и качества quality
+function compressImage(file: File, maxSize = 1200, quality = 0.82): Promise<string> {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const b64 = (reader.result as string).split(',')[1];
-        const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-        const d = await api('realty_upload_photo', 'POST', { user_id: userId, data: b64, ext });
-        if (d.url) onDone(d.url as string);
-      } catch { onError?.(); }
-      resolve();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        // Вычисляем новый размер с сохранением пропорций
+        let { width, height } = img;
+        if (width > maxSize || height > maxSize) {
+          if (width > height) { height = Math.round(height * maxSize / width); width = maxSize; }
+          else { width = Math.round(width * maxSize / height); height = maxSize; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('no ctx')); return; }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = reader.result as string;
     };
-    reader.onerror = () => { onError?.(); resolve(); };
     reader.readAsDataURL(file);
   });
+}
+
+async function uploadRealtyPhoto(file: File, userId: number, onDone: (url: string) => void, onError?: () => void) {
+  try {
+    // Сжимаем до 1200px — с 5-8 МБ до ~200 КБ
+    const compressed = await compressImage(file, 1200, 0.82);
+    const b64 = compressed.split(',')[1];
+    const d = await api('realty_upload_photo', 'POST', { user_id: userId, data: b64, ext: 'jpg' });
+    if (d.url) onDone(d.url as string);
+    else onError?.();
+  } catch { onError?.(); }
 }
 
 // ── Форма публикации ──────────────────────────────────────────────────────────

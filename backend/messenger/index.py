@@ -2,8 +2,10 @@ import json
 import os
 import secrets
 import hashlib
+import base64
 import urllib.request
 import psycopg2
+import boto3
 from psycopg2.extras import RealDictCursor
 
 ONESIGNAL_APP_ID = 'b50464b8-77e0-4bef-9897-aba0433d5f06'
@@ -1249,13 +1251,12 @@ def handler(event: dict, context) -> dict:
             uid  = int(body.get('user_id') or 0)
             data = body.get('data', '')
             ext  = body.get('ext', 'jpg')
-            import base64, boto3
             s3 = boto3.client('s3', endpoint_url='https://bucket.poehali.dev',
                               aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
                               aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
             key = f"realty/{uid}_{secrets.token_hex(8)}.{ext}"
             s3.put_object(Bucket='files', Key=key, Body=base64.b64decode(data),
-                          ContentType=f'image/{ext}')
+                          ContentType='image/jpeg')
             url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
             return _resp(200, {'url': url})
 
