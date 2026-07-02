@@ -3957,34 +3957,41 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
 
         {/* ── Шапка: фото + название + описание ── */}
         <div className="flex flex-col items-center pt-6 pb-2 px-4">
-          <input ref={fileRef} type="file" accept="image/*" hidden onChange={uploadPhoto} />
 
           {/* Фото группы */}
-          <div className="relative" onClick={e => { e.stopPropagation(); if (isAdmin) { if (group.photo_url) setShowPhotoMenu(v => !v); else fileRef.current?.click(); } }}>
-            <div className="w-24 h-24 rounded-full overflow-hidden cursor-pointer">
-              {group.photo_url
-                ? <img src={group.photo_url} className="w-full h-full object-cover" />
-                : <div className="w-full h-full bg-blue-600 flex items-center justify-center">
-                    <Icon name="Users" size={36} className="text-white" />
-                  </div>}
-            </div>
-            {isAdmin && (
-              <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center shadow-md cursor-pointer">
-                <Icon name="Camera" size={14} className="text-white" />
+          <div className="relative" onClick={e => e.stopPropagation()}>
+            {/* label напрямую триггерит input — работает на iOS */}
+            <label htmlFor="group-photo-input" className="cursor-pointer block">
+              <div className="w-24 h-24 rounded-full overflow-hidden">
+                {group.photo_url
+                  ? <img src={group.photo_url} className="w-full h-full object-cover" />
+                  : <div className="w-full h-full bg-blue-600 flex items-center justify-center">
+                      <Icon name="Users" size={36} className="text-white" />
+                    </div>}
               </div>
-            )}
-            {/* Меню фото (только если фото уже есть — можно сменить или удалить) */}
-            {showPhotoMenu && (
-              <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-white rounded-2xl p-1 z-50 w-48 shadow-xl border border-slate-100" onClick={e => e.stopPropagation()}>
-                <button onClick={() => { setShowPhotoMenu(false); fileRef.current?.click(); }}
-                  className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl hover:bg-slate-50 text-sm text-slate-700">
-                  <Icon name="Camera" size={15} className="text-blue-500" /> Изменить фото
-                </button>
-                <button onClick={removePhoto}
-                  className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl hover:bg-destructive/10 text-sm text-destructive">
-                  <Icon name="Trash2" size={15} /> Удалить фото
-                </button>
-              </div>
+              {isAdmin && (
+                <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center shadow-md">
+                  <Icon name="Camera" size={14} className="text-white" />
+                </div>
+              )}
+            </label>
+            <input
+              id="group-photo-input"
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              disabled={!isAdmin}
+              onChange={uploadPhoto}
+            />
+            {/* Меню удаления (если фото уже есть) */}
+            {isAdmin && group.photo_url && (
+              <button
+                onClick={e => { e.stopPropagation(); removePhoto(); }}
+                className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-red-500 flex items-center justify-center shadow-md"
+              >
+                <Icon name="X" size={12} className="text-white" />
+              </button>
             )}
           </div>
 
