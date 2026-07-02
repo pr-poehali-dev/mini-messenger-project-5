@@ -1853,20 +1853,34 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
 
   // Перетаскивание маленького видео
   const [pipPos, setPipPos] = useState({ x: -1, y: -1 }); // -1 = дефолт (правый нижний угол)
-  const pipDrag = useRef<{ startX: number; startY: number; ox: number; oy: number } | null>(null);
+  const pipDrag = useRef<{ startX: number; startY: number; ox: number; oy: number; moved: boolean } | null>(null);
 
   const onPipTouchStart = (e: React.TouchEvent) => {
+    e.stopPropagation();
     const t = e.touches[0];
-    pipDrag.current = { startX: t.clientX, startY: t.clientY, ox: pipPos.x, oy: pipPos.y };
+    const ox = pipPos.x === -1 ? window.innerWidth - 136 : pipPos.x;
+    const oy = pipPos.y === -1 ? window.innerHeight - 285 : pipPos.y;
+    pipDrag.current = { startX: t.clientX, startY: t.clientY, ox, oy, moved: false };
   };
   const onPipTouchMove = (e: React.TouchEvent) => {
     if (!pipDrag.current) return;
+    e.stopPropagation();
     const t = e.touches[0];
     const dx = t.clientX - pipDrag.current.startX;
     const dy = t.clientY - pipDrag.current.startY;
-    setPipPos({ x: pipDrag.current.ox + dx, y: pipDrag.current.oy + dy });
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) pipDrag.current.moved = true;
+    const newX = Math.max(8, Math.min(window.innerWidth - 128, pipDrag.current.ox + dx));
+    const newY = Math.max(8, Math.min(window.innerHeight - 185, pipDrag.current.oy + dy));
+    setPipPos({ x: newX, y: newY });
   };
-  const onPipTouchEnd = () => { pipDrag.current = null; };
+  const onPipTouchEnd = (e: React.TouchEvent) => {
+    e.stopPropagation();
+    // Тап без движения — увеличить своё видео на весь экран
+    if (pipDrag.current && !pipDrag.current.moved) {
+      setSelfBig(v => !v);
+    }
+    pipDrag.current = null;
+  };
 
   const pipStyle: React.CSSProperties = pipPos.x === -1
     ? { bottom: 120, right: 16 }
@@ -1878,62 +1892,71 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
 
       {kind === 'video' ? (
         <div className="relative flex-1 overflow-hidden bg-black">
-          {/* Большое видео — собеседник (или я если selfBig) */}
-          {selfBig ? (
-            <video ref={localRef} autoPlay playsInline muted
-              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', transform: localMirror }} />
-          ) : (
-            <video ref={remoteRef} autoPlay playsInline
-              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-          )}
+          {/* ── Оба video всегда в DOM — только CSS меняет кто большой ── */}
 
-          {/* Заголовок — имя + таймер/статус */}
+          {/* Видео собеседника */}
+          <video ref={remoteRef} autoPlay playsInline
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%',
+              objectFit: 'cover', display: 'block',
+              zIndex: selfBig ? 1 : 2 }} />
+
+          {/* Моё видео — большое если selfBig, иначе PiP */}
+          <div
+            onTouchStart={onPipTouchStart}
+            onTouchMove={onPipTouchMove}
+            onTouchEnd={onPipTouchEnd}
+            style={selfBig ? {
+              position: 'absolute', inset: 0, zIndex: 3, touchAction: 'none'
+            } : {
+              position: 'absolute', ...pipStyle, zIndex: 30,
+              width: 120, height: 165, borderRadius: 18, overflow: 'hidden',
+              border: '2.5px solid rgba(255,255,255,0.3)',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.6)', touchAction: 'none',
+              transition: 'border-radius 0.3s, box-shadow 0.2s'
+            }}>
+            <video ref={localRef} autoPlay playsInline muted
+              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block',
+                transform: localMirror, borderRadius: selfBig ? 0 : 16 }} />
+            {/* Подсказка внизу PiP */}
+            {!selfBig && (
+              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0,
+                background: 'linear-gradient(transparent, rgba(0,0,0,0.5))',
+                padding: '12px 4px 4px', textAlign: 'center', pointerEvents: 'none' }}>
+                <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.7)' }}>я</span>
+              </div>
+            )}
+            {/* Кнопка flip камеры внутри selfBig */}
+            {selfBig && (
+              <button onClick={e => { e.stopPropagation(); flipCamera(); }}
+                style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top) + 12px)', right: 14,
+                  width: 46, height: 46, borderRadius: '50%', background: 'rgba(60,60,60,0.85)',
+                  border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 5 }}>
+                <Icon name="RefreshCw" size={20} className="text-white" />
+              </button>
+            )}
+          </div>
+
+          {/* Заголовок — всегда поверх */}
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20,
             paddingTop: 'calc(env(safe-area-inset-top) + 12px)',
             paddingBottom: 8, paddingLeft: 60, paddingRight: 60,
             background: 'linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, transparent 100%)',
-            textAlign: 'center' }}>
+            textAlign: 'center', pointerEvents: 'none' }}>
             <p style={{ color: '#fff', fontWeight: 700, fontSize: 18, margin: 0 }}>{peer.nick}</p>
             <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, margin: '2px 0 0' }}>
               {status === 'active' ? fmt(duration) : outgoing ? 'Звонок...' : 'Соединение...'}
             </p>
           </div>
 
-          {/* Кнопки справа */}
-          <div style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top) + 12px)', right: 14, zIndex: 20,
-            display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {/* Кнопка flip когда собеседник большой */}
+          {!selfBig && (
             <button onClick={flipCamera}
-              style={{ width: 46, height: 46, borderRadius: '50%', background: 'rgba(60,60,60,0.85)',
+              style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top) + 12px)', right: 14, zIndex: 20,
+                width: 46, height: 46, borderRadius: '50%', background: 'rgba(60,60,60,0.85)',
                 border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Icon name="RefreshCw" size={20} className="text-white" />
             </button>
-          </div>
-
-          {/* Маленькое видео PiP — перетаскиваемое */}
-          <div
-            onTouchStart={onPipTouchStart}
-            onTouchMove={onPipTouchMove}
-            onTouchEnd={onPipTouchEnd}
-            onClick={() => { if (!pipDrag.current) setSelfBig(v => !v); }}
-            style={{ position: 'absolute', ...pipStyle,
-              width: 120, height: 165, borderRadius: 18, overflow: 'hidden',
-              border: '2.5px solid rgba(255,255,255,0.25)', zIndex: 30,
-              boxShadow: '0 8px 32px rgba(0,0,0,0.6)', cursor: 'pointer', touchAction: 'none' }}>
-            {selfBig ? (
-              <video ref={remoteRef} autoPlay playsInline
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            ) : (
-              <video ref={localRef} autoPlay playsInline muted
-                style={{ width: '100%', height: '100%', objectFit: 'cover', transform: localMirror }} />
-            )}
-            {/* Кнопки внутри PiP */}
-            <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(40,40,40,0.8)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="RefreshCw" size={13} className="text-white" />
-              </div>
-            </div>
-          </div>
+          )}
 
           {/* Оверлей ожидания */}
           {status !== 'active' && (
