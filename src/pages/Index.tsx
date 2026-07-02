@@ -3279,7 +3279,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
       const ext = (file.name.split('.').pop() || (type === 'voice' ? 'ogg' : type === 'image' ? 'jpg' : type)).toLowerCase();
 
       if (type === 'video' || type === 'audio') {
-        const CHUNK = 2 * 1024 * 1024; // 2 МБ
+        const CHUNK = 300 * 1024; // 300 КБ — надёжно укладывается в таймаут
         const total = Math.ceil(file.size / CHUNK);
         const upload_id = `${user.id}_${Date.now()}`;
         setUploadProgress('0%');

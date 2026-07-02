@@ -707,26 +707,27 @@ def handler(event: dict, context) -> dict:
             content_type = ct_map.get(media_type, 'application/octet-stream')
             s3 = _s3()
             final_key = f"media/{uid}/{upload_id}.{ext}"
-            # Начинаем multipart upload
             mpu = s3.create_multipart_upload(Bucket=REGRU_BUCKET, Key=final_key, ContentType=content_type)
             mp_id = mpu['UploadId']
             parts = []
             buf = b''
-            MIN_PART = 5 * 1024 * 1024  # минимум 5 МБ для каждой части кроме последней
+            MIN_PART = 6 * 1024 * 1024  # 6 МБ — минимальный размер multipart части
             part_num = 1
             try:
                 for i in range(total):
                     chunk_key = f"chunks/{uid}/{upload_id}/{i:05d}"
                     obj = s3.get_object(Bucket=REGRU_BUCKET, Key=chunk_key)
                     buf += obj['Body'].read()
-                    s3.delete_object(Bucket=REGRU_BUCKET, Key=chunk_key)
-                    # Отправляем часть когда накопили достаточно или это последний чанк
                     if len(buf) >= MIN_PART or i == total - 1:
                         resp = s3.upload_part(Bucket=REGRU_BUCKET, Key=final_key, UploadId=mp_id, PartNumber=part_num, Body=buf)
                         parts.append({'PartNumber': part_num, 'ETag': resp['ETag']})
                         part_num += 1
                         buf = b''
                 s3.complete_multipart_upload(Bucket=REGRU_BUCKET, Key=final_key, UploadId=mp_id, MultipartUpload={'Parts': parts})
+                # Удаляем чанки после успешной сборки
+                for i in range(total):
+                    try: s3.delete_object(Bucket=REGRU_BUCKET, Key=f"chunks/{uid}/{upload_id}/{i:05d}")
+                    except: pass
             except Exception as e:
                 s3.abort_multipart_upload(Bucket=REGRU_BUCKET, Key=final_key, UploadId=mp_id)
                 print(f'[ASSEMBLE] error: {e}')
