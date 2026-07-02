@@ -1947,6 +1947,19 @@ function VoicePlayer({ src, mine }: { src: string; mine: boolean }) {
   );
 }
 
+// ── RENDER TEXT WITH LINKS ────────────────────────────────────────────────────
+function renderTextWithLinks(text: string, mine: boolean) {
+  const urlRegex = new RegExp('(https?:\\/\\/[^\\s]+)', 'g');
+  const parts = text.split(urlRegex);
+  return parts.map((part, i) =>
+    new RegExp('^https?:\\/\\/[^\\s]+$').test(part)
+      ? <a key={i} href={part} target="_blank" rel="noopener noreferrer"
+          className={`underline underline-offset-2 break-all ${mine ? 'text-white/90' : 'text-blue-600'}`}
+          onClick={e => e.stopPropagation()}>{part}</a>
+      : <span key={i}>{part}</span>
+  );
+}
+
 // ── MEDIA VIEWER ─────────────────────────────────────────────────────────────
 function MediaViewer({ src, type, onClose }: { src: string; type: 'image' | 'video'; onClose: () => void }) {
   return (
@@ -1988,6 +2001,9 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
   const [recordSecs, setRecordSecs] = useState(0);
   const [inCall, setInCall] = useState<{ kind: 'audio' | 'video'; callId: string; outgoing: boolean } | null>(null);
   const [mediaView, setMediaView] = useState<{ src: string; type: 'image' | 'video' } | null>(null);
+  const [forwardMsg, setForwardMsg] = useState<MsgExt | null>(null);
+  const [forwardChats, setForwardChats] = useState<ChatItem[]>([]);
+  const [showForward, setShowForward] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
   const lastIdRef = useRef(0);
@@ -2030,11 +2046,20 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
     if (el) el.scrollTop = el.scrollHeight;
   }, [chatId]);
 
-  // При новых сообщениях — скроллим ТОЛЬКО если пользователь и так внизу
+  // При новых сообщениях — скроллим если пользователь внизу или пришло своё сообщение
   useEffect(() => {
-    if (!isAtBottomRef.current) return;
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    if (isAtBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    } else {
+      // Если последнее сообщение моё — всегда скроллим вниз
+      const last = messages[messages.length - 1];
+      if (last && last.sender_id === user.id) {
+        el.scrollTop = el.scrollHeight;
+        isAtBottomRef.current = true;
+      }
+    }
   }, [messages]);
 
   // Автозвонок при открытии чата из профиля
@@ -2058,6 +2083,26 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
     if (!text) setInput('');
     if (typingTimer.current) clearTimeout(typingTimer.current);
     await api('send', 'POST', { chat_id: chatId, user_id: user.id, text: t || null, media_url: media_url || null, media_type: media_type || null });
+  };
+
+  const openForward = async (msg: MsgExt) => {
+    setForwardMsg(msg);
+    const d = await api(`chats&user_id=${user.id}`);
+    setForwardChats(d.chats || []);
+    setShowForward(true);
+  };
+
+  const doForward = async (targetChatId: number) => {
+    if (!forwardMsg) return;
+    await api('send', 'POST', {
+      chat_id: targetChatId,
+      user_id: user.id,
+      text: forwardMsg.text || null,
+      media_url: forwardMsg.media_url || forwardMsg.image_url || null,
+      media_type: forwardMsg.media_type || (forwardMsg.image_url ? 'image' : null),
+    });
+    setShowForward(false);
+    setForwardMsg(null);
   };
 
   const uploadFile = async (file: File, type: 'image' | 'video' | 'audio' | 'voice') => {
@@ -2221,9 +2266,9 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
                               ? <a href={m.media_url || ''} target="_blank" rel="noopener noreferrer"
                                   className={`flex items-center gap-2 py-0.5 ${mine ? 'text-white' : 'text-foreground'}`}>
                                   <Icon name="FileText" size={20} className={mine ? 'text-white/80' : 'text-accent'} />
-                                  <span className="text-sm underline underline-offset-2 break-all">{m.text || 'Файл'}</span>
+                                  <span className="text-[15px] underline underline-offset-2 break-all">{m.text || 'Файл'}</span>
                                 </a>
-                              : <p className="leading-relaxed break-words text-sm">{m.text}</p>
+                              : <p className="leading-relaxed break-words text-[15px]">{renderTextWithLinks(m.text || '', mine)}</p>
                     }
                     <span className={`flex items-center justify-end gap-0.5 text-[10px] mt-0.5 ${mine ? 'text-white/60' : 'text-muted-foreground'}`}>
                       {fmtTime(m.created_at)}
@@ -2265,6 +2310,10 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
                   <button onClick={() => { setEmojiTarget(m.id); setSelectedMsg(null); }}
                     className="glass rounded-full px-3 py-1.5 text-xs flex items-center gap-1 hover:bg-secondary/80">
                     😊 Реакция
+                  </button>
+                  <button onClick={() => { openForward(m); setSelectedMsg(null); }}
+                    className="glass rounded-full px-3 py-1.5 text-xs flex items-center gap-1 hover:bg-secondary/80">
+                    <Icon name="Forward" size={12} /> Переслать
                   </button>
                   {mine && (
                     <>
@@ -2396,6 +2445,32 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
       )}
       {/* Fullscreen media viewer */}
       {mediaView && <MediaViewer src={mediaView.src} type={mediaView.type} onClose={() => setMediaView(null)} />}
+
+      {/* Модал пересылки */}
+      {showForward && (
+        <div className="fixed inset-0 z-[60] bg-black/50 flex items-end" onClick={() => setShowForward(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-t-3xl w-full max-h-[70vh] flex flex-col"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="font-bold text-slate-800 dark:text-white">Переслать в чат</h3>
+              <button onClick={() => setShowForward(false)}>
+                <Icon name="X" size={20} className="text-slate-400" />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 py-2">
+              {forwardChats.map(c => (
+                <button key={c.chat_id} onClick={() => doForward(c.chat_id)}
+                  className="w-full flex items-center gap-3 px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                  <Avatar url={c.peer_avatar ?? c.group_avatar} nick={c.peer_nick || c.group_name || '?'} size={44} />
+                  <span className="font-semibold text-slate-800 dark:text-white text-sm">
+                    {c.kind === 'group' ? c.group_name : `@${c.peer_nick}`}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
