@@ -84,8 +84,12 @@ def handler(event: dict, context) -> dict:
     method = event.get('httpMethod', 'GET')
 
     try:
-        body = json.loads(event.get('body') or '{}')
-    except Exception:
+        raw_body = event.get('body') or '{}'
+        if event.get('isBase64Encoded'):
+            raw_body = base64.b64decode(raw_body).decode('utf-8')
+        body = json.loads(raw_body)
+    except Exception as e:
+        print(f'[BODY PARSE ERROR] {e}')
         body = {}
 
     conn = _conn()
@@ -1251,13 +1255,22 @@ def handler(event: dict, context) -> dict:
             uid  = int(body.get('user_id') or 0)
             data = body.get('data', '')
             ext  = body.get('ext', 'jpg')
+            print(f'[PHOTO] uid={uid} data_len={len(data)} ext={ext}')
+            if not data:
+                print('[PHOTO] data пустой!')
+                return _resp(400, {'error': 'Нет данных фото'})
+            try:
+                img_bytes = base64.b64decode(data)
+            except Exception as e:
+                print(f'[PHOTO] base64 decode error: {e}')
+                return _resp(400, {'error': 'Ошибка декодирования фото'})
             s3 = boto3.client('s3', endpoint_url='https://bucket.poehali.dev',
                               aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
                               aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
-            key = f"realty/{uid}_{secrets.token_hex(8)}.{ext}"
-            s3.put_object(Bucket='files', Key=key, Body=base64.b64decode(data),
-                          ContentType='image/jpeg')
+            key = f"realty/{uid}_{secrets.token_hex(8)}.jpg"
+            s3.put_object(Bucket='files', Key=key, Body=img_bytes, ContentType='image/jpeg')
             url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
+            print(f'[PHOTO] OK url={url}')
             return _resp(200, {'url': url})
 
         # ── Чат по объявлению: открыть/получить ──────────

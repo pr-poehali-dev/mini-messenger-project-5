@@ -2339,15 +2339,13 @@ function compressImage(file: File, maxSize = 1200, quality = 0.82): Promise<stri
   });
 }
 
-async function uploadRealtyPhoto(file: File, userId: number, onDone: (url: string) => void, onError?: () => void) {
+async function uploadRealtyPhoto(file: File, userId: number): Promise<string | null> {
   try {
-    // Сжимаем до 1200px — с 5-8 МБ до ~200 КБ
     const compressed = await compressImage(file, 1200, 0.82);
     const b64 = compressed.split(',')[1];
     const d = await api('realty_upload_photo', 'POST', { user_id: userId, data: b64, ext: 'jpg' });
-    if (d.url) onDone(d.url as string);
-    else onError?.();
-  } catch { onError?.(); }
+    return d.url ? (d.url as string) : null;
+  } catch { return null; }
 }
 
 // ── Форма публикации ──────────────────────────────────────────────────────────
@@ -2361,16 +2359,20 @@ function RealtyForm({ user, onClose, onPublished }: { user: User; onClose: () =>
   const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
 
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photosRef = useRef<string[]>([]);
+  photosRef.current = photos;
 
   const uploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    if (!files.length) return;
     e.target.value = '';
-    const canAdd = 10 - photos.length;
+    if (!files.length) return;
+    const canAdd = 10 - photosRef.current.length;
     if (canAdd <= 0) return;
-    const toUpload = files.slice(0, canAdd);
     setUploadingPhoto(true);
-    await Promise.all(toUpload.map(f => uploadRealtyPhoto(f, user.id, url => setPhotos(p => [...p, url]))));
+    for (const f of files.slice(0, canAdd)) {
+      const url = await uploadRealtyPhoto(f, user.id);
+      if (url) setPhotos(p => [...p, url]);
+    }
     setUploadingPhoto(false);
   };
 
@@ -2533,16 +2535,20 @@ function RealtyEditForm({ listing, user, onClose, onSaved }: { listing: RealtyLi
   const fileRef = useRef<HTMLInputElement>(null);
   const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photosRef = useRef<string[]>([]);
+  photosRef.current = photos;
 
   const uploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    if (!files.length) return;
     e.target.value = '';
-    const canAdd = 10 - photos.length;
+    if (!files.length) return;
+    const canAdd = 10 - photosRef.current.length;
     if (canAdd <= 0) return;
-    const toUpload = files.slice(0, canAdd);
     setUploadingPhoto(true);
-    await Promise.all(toUpload.map(f => uploadRealtyPhoto(f, user.id, url => setPhotos(p => [...p, url]))));
+    for (const f of files.slice(0, canAdd)) {
+      const url = await uploadRealtyPhoto(f, user.id);
+      if (url) setPhotos(p => [...p, url]);
+    }
     setUploadingPhoto(false);
   };
 
