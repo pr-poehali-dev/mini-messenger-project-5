@@ -1026,6 +1026,19 @@ def handler(event: dict, context) -> dict:
                        ON CONFLICT (call_id) DO UPDATE SET status='ringing', updated_at=NOW()""",
                     (call_id, from_uid, to_uid, kind)
                 )
+                # Push-уведомление о входящем звонке
+                cur.execute("SELECT nick FROM users WHERE id=%s", (from_uid,))
+                caller = cur.fetchone()
+                caller_nick = caller['nick'] if caller else 'Кто-то'
+                kind_label = '📹 Видеозвонок' if kind == 'video' else '📞 Голосовой звонок'
+                conn.commit()
+                _push(
+                    [to_uid],
+                    f'{kind_label} от @{caller_nick}',
+                    'Нажмите чтобы ответить',
+                    '/',
+                )
+                return _resp(200, {'ok': True})
             elif sig_type in ('answer',):
                 cur.execute("UPDATE active_calls SET status='active', updated_at=NOW() WHERE call_id=%s", (call_id,))
             elif sig_type in ('end', 'reject'):

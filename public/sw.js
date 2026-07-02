@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vai-messenger-v12';
+const CACHE_NAME = 'vai-messenger-v13';
 const ICON_URL = 'https://cdn.poehali.dev/projects/59076a76-2862-4ba6-9c95-c02c43e87c88/files/d13675c5-0092-4683-9d21-a86c2a22bd22.jpg';
 
 // ── Установка ─────────────────────────────────────────────────────────────────
@@ -53,20 +53,29 @@ self.addEventListener('push', (event) => {
     if (event.data) data = { ...data, ...event.data.json() };
   } catch {}
 
+  const isCall = data.title && (data.title.includes('📞') || data.title.includes('📹'));
+
   event.waitUntil(
     self.registration.showNotification(data.title, {
       body: data.body,
       icon: ICON_URL,
       badge: ICON_URL,
-      tag: data.tag || 'vai-msg',
+      tag: isCall ? 'vai-call' : (data.tag || 'vai-msg'),
       renotify: true,
-      vibrate: [200, 100, 200],
-      sound: '/notification.mp3',
+      requireInteraction: isCall,
+      vibrate: isCall
+        ? [500, 200, 500, 200, 500, 200, 500]
+        : [200, 100, 200],
       data: { url: data.url || '/' },
-      actions: [
-        { action: 'open', title: 'Открыть' },
-        { action: 'close', title: 'Закрыть' }
-      ]
+      actions: isCall
+        ? [
+            { action: 'open', title: '✅ Ответить' },
+            { action: 'close', title: '❌ Отклонить' }
+          ]
+        : [
+            { action: 'open', title: 'Открыть' },
+            { action: 'close', title: 'Закрыть' }
+          ]
     })
   );
 });
