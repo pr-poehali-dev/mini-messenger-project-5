@@ -263,7 +263,7 @@ def handler(event: dict, context) -> dict:
             raw = base64.b64decode(data_b64)
             key = f"avatars/{uid}.{ext}"
             s3 = _s3()
-            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw, ContentType=f'image/{ext}')
+            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw, ContentType=f'image/{ext}', ACL='public-read')
             url = _s3_url(key)
             cur.execute("UPDATE users SET avatar_url=%s, profile_complete=TRUE WHERE id=%s", (url, uid))
             conn.commit()
@@ -697,7 +697,7 @@ def handler(event: dict, context) -> dict:
             ct_map = {'image': f'image/{ext}', 'video': f'video/{ext}', 'audio': f'audio/{ext}', 'voice': 'audio/ogg', 'file': 'application/octet-stream'}
             content_type = ct_map.get(media_type, 'application/octet-stream')
             s3 = _s3()
-            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw, ContentType=content_type)
+            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw, ContentType=content_type, ACL='public-read')
             url = _s3_url(key)
             print(f'[MEDIA] OK url={url}')
             return _resp(200, {'url': url, 'media_type': media_type})
@@ -1106,19 +1106,34 @@ def handler(event: dict, context) -> dict:
         if action == 'upload_group_photo' and method == 'POST':
             gid = int(body.get('group_id') or 0)
             uid = int(body.get('user_id') or 0)
+            print(f'[GROUP_PHOTO] gid={gid} uid={uid}')
             cur.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s", (gid, uid))
             r = cur.fetchone()
             if not r or r['role'] not in ('admin', 'owner'):
+                print(f'[GROUP_PHOTO] нет прав: role={r}')
                 return _resp(403, {'error': 'Нет прав'})
             data_b64 = body.get('data', '')
             ext = (body.get('ext') or 'jpg').lower()
-            raw = base64.b64decode(data_b64)
+            print(f'[GROUP_PHOTO] data_len={len(data_b64)} ext={ext}')
+            if not data_b64:
+                return _resp(400, {'error': 'Нет данных фото'})
+            try:
+                raw = base64.b64decode(data_b64)
+            except Exception as e:
+                print(f'[GROUP_PHOTO] base64 error: {e}')
+                return _resp(400, {'error': 'Ошибка декодирования'})
             key = f"groups/{gid}/photo.{ext}"
-            s3 = _s3()
-            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw, ContentType=f'image/{ext}')
+            try:
+                s3 = _s3()
+                s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw, ContentType=f'image/{ext}', ACL='public-read')
+                print(f'[GROUP_PHOTO] S3 upload OK key={key}')
+            except Exception as e:
+                print(f'[GROUP_PHOTO] S3 error: {e}')
+                return _resp(500, {'error': f'Ошибка загрузки: {e}'})
             url = _s3_url(key) + f"?t={int(time.time())}"
             cur.execute("UPDATE groups SET photo_url=%s WHERE id=%s", (url, gid))
             conn.commit()
+            print(f'[GROUP_PHOTO] OK url={url}')
             return _resp(200, {'url': url})
 
         # ── CALL: начать звонок / отправить сигнал ────────
@@ -1308,7 +1323,7 @@ def handler(event: dict, context) -> dict:
                 return _resp(400, {'error': 'Ошибка декодирования фото'})
             s3 = _s3()
             key = f"realty/{uid}_{secrets.token_hex(8)}.jpg"
-            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=img_bytes, ContentType='image/jpeg')
+            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=img_bytes, ContentType='image/jpeg', ACL='public-read')
             url = _s3_url(key)
             print(f'[PHOTO] OK url={url}')
             return _resp(200, {'url': url})
