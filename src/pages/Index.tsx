@@ -35,6 +35,20 @@ const api = async (action: string, method = 'GET', body?: object): Promise<Recor
     return { error: 'Нет соединения. Проверь интернет и попробуй снова.' };
   }
 };
+
+// Загрузка бинарного чанка напрямую без base64
+const apiChunk = async (uid: number, upload_id: string, chunk_index: number, data: ArrayBuffer): Promise<boolean> => {
+  try {
+    const r = await fetch(`${API}?action=upload_chunk&user_id=${uid}&upload_id=${upload_id}&chunk_index=${chunk_index}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: data,
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+};
 const fmtTime = (iso: string | null) => {
   if (!iso) return '';
   const d = new Date(iso);
@@ -3279,21 +3293,17 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
       const ext = (file.name.split('.').pop() || (type === 'voice' ? 'ogg' : type === 'image' ? 'jpg' : type)).toLowerCase();
 
       if (type === 'video' || type === 'audio') {
-        const CHUNK = 300 * 1024; // 300 КБ — надёжно укладывается в таймаут
+        const CHUNK = 512 * 1024; // 512 КБ — binary без base64 накладных расходов
         const total = Math.ceil(file.size / CHUNK);
         const upload_id = `${user.id}_${Date.now()}`;
         setUploadProgress('0%');
         for (let i = 0; i < total; i++) {
           if (uploadCancelled.current) return;
           const slice = file.slice(i * CHUNK, (i + 1) * CHUNK);
-          const b64 = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve((reader.result as string).split(',')[1]);
-            reader.onerror = reject;
-            reader.readAsDataURL(slice);
-          });
+          const buf = await slice.arrayBuffer();
           if (uploadCancelled.current) return;
-          await api('upload_chunk', 'POST', { user_id: user.id, upload_id, chunk_index: i, data: b64 });
+          const ok = await apiChunk(user.id, upload_id, i, buf);
+          if (!ok) throw new Error(`Ошибка чанка ${i}`);
           setUploadProgress(`${Math.round((i + 1) / total * 95)}%`);
         }
         if (uploadCancelled.current) return;

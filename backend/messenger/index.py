@@ -677,16 +677,20 @@ def handler(event: dict, context) -> dict:
         if action == 'get_upload_url' and method == 'POST':
             return _resp(400, {'error': 'Используй upload_chunk'})
 
-        # ── UPLOAD CHUNK (загрузка кусочка файла) ─────────
+        # ── UPLOAD CHUNK (загрузка кусочка файла — raw binary) ─────────
         if action == 'upload_chunk' and method == 'POST':
-            """Принимает кусочек файла и сохраняет в S3"""
-            uid       = int(body.get('user_id') or 0)
-            upload_id = body.get('upload_id', '')
-            chunk_idx = int(body.get('chunk_index') or 0)
-            data_b64  = body.get('data', '')
-            if not upload_id or not data_b64:
+            """Принимает кусочек файла как raw binary и сохраняет в S3"""
+            uid       = int(params.get('user_id') or 0)
+            upload_id = params.get('upload_id', '')
+            chunk_idx = int(params.get('chunk_index') or 0)
+            raw_b = event.get('body') or ''
+            if not upload_id or not raw_b:
                 return _resp(400, {'error': 'Нет данных'})
-            raw = base64.b64decode(data_b64)
+            # Тело приходит как base64 (платформа всегда кодирует binary)
+            if event.get('isBase64Encoded'):
+                raw = base64.b64decode(raw_b)
+            else:
+                raw = raw_b.encode('latin-1') if isinstance(raw_b, str) else raw_b
             key = f"chunks/{uid}/{upload_id}/{chunk_idx:05d}"
             s3 = _s3()
             s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw)
