@@ -1285,6 +1285,8 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onDelet
 
   // заблокированные
   const [showBlocked, setShowBlocked] = useState(false);
+  // документы
+  const [showDoc, setShowDoc] = useState<'privacy'|'terms'|'security'|null>(null);
   const [blocked, setBlocked] = useState<User[]>([]);
 
   const loadBlocked = async () => {
@@ -1494,6 +1496,26 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onDelet
             </div>
           </div>
 
+          {/* О приложении / Документы */}
+          <div className="bg-white rounded-3xl p-5 space-y-1 border border-slate-100">
+            <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-3 px-1">О приложении</p>
+            {[
+              { label: 'Политика конфиденциальности', icon: 'Shield', doc: 'privacy' },
+              { label: 'Пользовательское соглашение', icon: 'FileText', doc: 'terms' },
+              { label: 'Шифрование и безопасность', icon: 'Lock', doc: 'security' },
+            ].map(item => (
+              <button key={item.doc} onClick={() => setShowDoc(item.doc as 'privacy'|'terms'|'security')}
+                className="w-full flex items-center gap-3 py-3 px-1 hover:bg-slate-50 transition-colors rounded-xl">
+                <Icon name={item.icon as 'Shield'} size={18} className="text-blue-500" />
+                <span className="text-sm text-slate-700 flex-1 text-left">{item.label}</span>
+                <Icon name="ChevronRight" size={16} className="text-slate-300" />
+              </button>
+            ))}
+            <div className="pt-2 px-1">
+              <p className="text-xs text-slate-400">Вай Мессенджер v1.0 · Соответствует ФЗ-152</p>
+            </div>
+          </div>
+
           {/* Аккаунт */}
           <div className="bg-white rounded-3xl p-5 space-y-1 border border-slate-100">
             <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-3 px-1">Аккаунт</p>
@@ -1549,6 +1571,61 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onDelet
                 </div>
               ))
             }
+          </div>
+        </div>
+      )}
+
+      {/* Модальное окно документов */}
+      {showDoc && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={() => setShowDoc(null)}>
+          <div className="bg-white rounded-t-3xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 shrink-0">
+              <h3 className="font-bold text-slate-800 text-lg">
+                {showDoc === 'privacy' ? 'Политика конфиденциальности'
+                  : showDoc === 'terms' ? 'Пользовательское соглашение'
+                  : 'Шифрование и безопасность'}
+              </h3>
+              <button onClick={() => setShowDoc(null)}><Icon name="X" size={20} className="text-slate-400" /></button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4 text-sm text-slate-700 leading-relaxed">
+              {showDoc === 'privacy' && <>
+                <p className="font-bold text-slate-900">Политика конфиденциальности Вай Мессенджер</p>
+                <p className="text-xs text-slate-400">Редакция от 01.07.2026. Соответствует требованиям ФЗ-152 «О персональных данных».</p>
+                <p><span className="font-semibold">1. Оператор персональных данных.</span> Вай Мессенджер является оператором персональных данных в соответствии с Федеральным законом № 152-ФЗ «О персональных данных».</p>
+                <p><span className="font-semibold">2. Какие данные мы собираем.</span> При регистрации: имя пользователя (никнейм), пароль в зашифрованном виде (SHA-256). Дополнительно по желанию: город, дата рождения, фотография профиля, информация «О себе».</p>
+                <p><span className="font-semibold">3. Сообщения.</span> Текстовые сообщения, фото, видео, аудио и файлы хранятся на серверах для обеспечения доставки. Удалённые вами сообщения физически помечаются как удалённые и не отображаются ни одной из сторон.</p>
+                <p><span className="font-semibold">4. Как мы используем данные.</span> Данные используются исключительно для обеспечения работы мессенджера: авторизации, отправки сообщений, звонков и уведомлений. Данные не передаются третьим лицам и не используются в рекламных целях.</p>
+                <p><span className="font-semibold">5. Хранение данных.</span> Данные хранятся на серверах, расположенных на территории Российской Федерации, в соответствии с требованиями ст. 18 ФЗ-152.</p>
+                <p><span className="font-semibold">6. Права пользователя.</span> Вы вправе: получить доступ к своим данным; исправить неточные данные; удалить аккаунт и все связанные данные (кнопка «Удалить аккаунт» в профиле); отозвать согласие на обработку персональных данных.</p>
+                <p><span className="font-semibold">7. Удаление аккаунта.</span> При удалении аккаунта все персональные данные, сообщения и медиафайлы пользователя удаляются безвозвратно в течение 30 дней.</p>
+                <p><span className="font-semibold">8. Уведомления.</span> Push-уведомления отправляются через сервис OneSignal. Вы можете отключить их в настройках устройства в любое время.</p>
+                <p><span className="font-semibold">9. Возраст.</span> Сервис предназначен для лиц старше 14 лет. Регистрация лиц младше 14 лет допускается только с согласия родителей или законных представителей.</p>
+                <p><span className="font-semibold">10. Контакты.</span> По вопросам обработки персональных данных: поддержка доступна через раздел помощи в приложении.</p>
+              </>}
+              {showDoc === 'terms' && <>
+                <p className="font-bold text-slate-900">Пользовательское соглашение Вай Мессенджер</p>
+                <p className="text-xs text-slate-400">Редакция от 01.07.2026.</p>
+                <p><span className="font-semibold">1. Принятие условий.</span> Регистрируясь в Вай Мессенджер, вы соглашаетесь с настоящим соглашением и Политикой конфиденциальности.</p>
+                <p><span className="font-semibold">2. Регистрация.</span> При регистрации вы обязуетесь предоставить достоверные данные. Один пользователь — один аккаунт. Запрещается создавать аккаунты от имени других лиц.</p>
+                <p><span className="font-semibold">3. Правила использования.</span> Запрещается: распространять незаконный контент; осуществлять спам-рассылки; использовать сервис для мошенничества; нарушать права других пользователей; распространять вирусы и вредоносное ПО.</p>
+                <p><span className="font-semibold">4. Контент пользователей.</span> Вы несёте ответственность за все сообщения и медиафайлы, отправленные через сервис. Контент, нарушающий законодательство РФ, может быть удалён.</p>
+                <p><span className="font-semibold">5. Звонки.</span> Голосовые и видеозвонки осуществляются через технологию WebRTC напрямую между устройствами (peer-to-peer) там, где это возможно. Запись звонков без согласия собеседника запрещена и является нарушением ст. 138 УК РФ.</p>
+                <p><span className="font-semibold">6. Блокировка.</span> Администрация вправе заблокировать аккаунт при нарушении настоящего соглашения или законодательства РФ.</p>
+                <p><span className="font-semibold">7. Ответственность.</span> Сервис предоставляется «как есть». Мы не несём ответственности за содержание переписки между пользователями.</p>
+                <p><span className="font-semibold">8. Применимое право.</span> Настоящее соглашение регулируется законодательством Российской Федерации.</p>
+              </>}
+              {showDoc === 'security' && <>
+                <p className="font-bold text-slate-900">Шифрование и безопасность</p>
+                <p><span className="font-semibold">Пароли.</span> Пароли хранятся в виде хэша SHA-256. Оригинальный пароль нигде не сохраняется и не может быть восстановлен.</p>
+                <p><span className="font-semibold">Передача данных.</span> Все соединения между приложением и сервером защищены протоколом HTTPS/TLS 1.3. Данные передаются в зашифрованном виде.</p>
+                <p><span className="font-semibold">Звонки (WebRTC).</span> Голосовые и видеозвонки используют технологию WebRTC со встроенным шифрованием DTLS-SRTP. Медиапоток шифруется на уровне протокола между устройствами участников звонка.</p>
+                <p><span className="font-semibold">Медиафайлы.</span> Фотографии, видео, аудио и файлы хранятся в защищённом S3-совместимом хранилище с доступом по уникальным ссылкам.</p>
+                <p><span className="font-semibold">Уведомления.</span> Push-уведомления содержат минимум данных (ник отправителя, тип события) и не включают содержимое сообщений.</p>
+                <p><span className="font-semibold">Серверы.</span> Серверная инфраструктура расположена на территории РФ в соответствии с требованиями ФЗ-152 о локализации персональных данных.</p>
+                <p><span className="font-semibold">Сессии.</span> Ваш сеанс хранится локально на устройстве. При выходе из аккаунта сессия завершается и статус «онлайн» сбрасывается.</p>
+                <p className="text-xs text-slate-400 pt-2">Если вы обнаружили уязвимость — сообщите нам через поддержку в приложении.</p>
+              </>}
+            </div>
           </div>
         </div>
       )}
