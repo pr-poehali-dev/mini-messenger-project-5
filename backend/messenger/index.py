@@ -1196,7 +1196,7 @@ def handler(event: dict, context) -> dict:
             where = ' AND '.join(conditions)
             cur.execute(f"""
                 SELECT l.id, l.deal_type, l.city, l.district, l.street,
-                       l.rooms, l.area, l.price, l.description, l.photos,
+                       l.rooms, l.area, l.price, l.description, l.phone, l.photos,
                        l.is_paid, l.created_at,
                        u.id AS seller_id, u.nick AS seller_nick, u.avatar_url AS seller_avatar
                 FROM realty_listings l JOIN users u ON u.id=l.user_id

@@ -2449,8 +2449,20 @@ function RealtyForm({ user, onClose, onPublished }: { user: User; onClose: () =>
 // ── Карточка объявления ───────────────────────────────────────────────────────
 function RealtyCard({ listing: l, user, onClose, onOpenChat }: { listing: RealtyListing; user: User; onClose: () => void; onOpenChat: (chatId: number, listing: RealtyListing) => void }) {
   const [photoIdx, setPhotoIdx] = useState(0);
-  const [showPhone, setShowPhone] = useState(false);
+  const [fullPhoto, setFullPhoto] = useState(false);
   const [opening, setOpening] = useState(false);
+  const photos = l.photos && l.photos.length > 0 ? l.photos : [];
+
+  // свайп по фото
+  const swipeRef = useRef<{ x: number } | null>(null);
+  const onPhotoTouchStart = (e: React.TouchEvent) => { swipeRef.current = { x: e.touches[0].clientX }; };
+  const onPhotoTouchEnd = (e: React.TouchEvent) => {
+    if (!swipeRef.current) return;
+    const dx = e.changedTouches[0].clientX - swipeRef.current.x;
+    if (dx < -40 && photoIdx < photos.length - 1) setPhotoIdx(i => i + 1);
+    if (dx > 40 && photoIdx > 0) setPhotoIdx(i => i - 1);
+    swipeRef.current = null;
+  };
 
   const openChat = async () => {
     if (l.seller_id === user.id) return;
@@ -2462,77 +2474,147 @@ function RealtyCard({ listing: l, user, onClose, onOpenChat }: { listing: Realty
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={onClose}>
-      <div className="bg-white rounded-t-3xl w-full max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        {/* Галерея */}
-        <div className="relative shrink-0 h-56 bg-slate-100 overflow-hidden rounded-t-3xl">
-          {l.photos && l.photos.length > 0
-            ? <img src={l.photos[photoIdx]} alt="" className="w-full h-full object-cover" />
-            : <div className="w-full h-full flex items-center justify-center text-6xl">🏠</div>
-          }
-          {l.photos && l.photos.length > 1 && (
-            <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
-              {l.photos.map((_,i) => <div key={i} onClick={e => { e.stopPropagation(); setPhotoIdx(i); }}
-                className={`w-2 h-2 rounded-full cursor-pointer ${i === photoIdx ? 'bg-white' : 'bg-white/40'}`} />)}
+    <>
+      <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={onClose}>
+        <div className="bg-white rounded-t-3xl w-full max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+
+          {/* Галерея со свайпом */}
+          <div className="relative shrink-0 h-60 bg-slate-100 overflow-hidden rounded-t-3xl cursor-pointer"
+            onTouchStart={onPhotoTouchStart} onTouchEnd={onPhotoTouchEnd}
+            onClick={() => photos.length > 0 && setFullPhoto(true)}>
+            {photos.length > 0
+              ? <img src={photos[photoIdx]} alt="" className="w-full h-full object-cover" />
+              : <div className="w-full h-full flex items-center justify-center text-6xl">🏠</div>
+            }
+            {/* Счётчик фото */}
+            {photos.length > 1 && (
+              <div className="absolute top-4 right-14 bg-black/50 text-white text-xs font-semibold px-2.5 py-1 rounded-full">
+                {photoIdx + 1}/{photos.length}
+              </div>
+            )}
+            {/* Точки */}
+            {photos.length > 1 && (
+              <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
+                {photos.map((_,i) => (
+                  <div key={i} onClick={e => { e.stopPropagation(); setPhotoIdx(i); }}
+                    className={`w-2 h-2 rounded-full transition-all ${i === photoIdx ? 'bg-white scale-125' : 'bg-white/50'}`} />
+                ))}
+              </div>
+            )}
+            <button onClick={e => { e.stopPropagation(); onClose(); }}
+              className="absolute top-4 right-4 w-9 h-9 rounded-full bg-black/40 flex items-center justify-center">
+              <Icon name="X" size={18} className="text-white" />
+            </button>
+            {l.is_paid && <div className="absolute top-4 left-4 bg-green-500 text-white text-xs font-bold px-2.5 py-1 rounded-full">✅ Оплачено</div>}
+            {photos.length > 0 && (
+              <div className="absolute bottom-8 right-4 w-8 h-8 rounded-full bg-black/40 flex items-center justify-center">
+                <Icon name="Maximize2" size={14} className="text-white" />
+              </div>
+            )}
+          </div>
+
+          <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-3xl font-bold text-slate-900">{fmtPrice(l.price)}</p>
+                {l.deal_type === 'rent' && <p className="text-sm text-slate-400">в месяц</p>}
+              </div>
+              <span className={`text-xs font-bold px-3 py-1.5 rounded-full ${l.deal_type === 'sale' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                {l.deal_type === 'sale' ? 'Продажа' : 'Аренда'}
+              </span>
             </div>
-          )}
-          <button onClick={onClose} className="absolute top-4 right-4 w-9 h-9 rounded-full bg-black/40 flex items-center justify-center">
-            <Icon name="X" size={18} className="text-white" />
-          </button>
-          {l.is_paid && <div className="absolute top-4 left-4 bg-green-500 text-white text-xs font-bold px-2.5 py-1 rounded-full">✅ Оплачено</div>}
-        </div>
 
-        <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <p className="text-3xl font-bold text-slate-900">{fmtPrice(l.price)}</p>
-              {l.deal_type === 'rent' && <p className="text-sm text-slate-400">в месяц</p>}
+            <div className="flex gap-3 flex-wrap">
+              {l.rooms && <div className="bg-slate-100 rounded-2xl px-3 py-2 text-sm font-semibold text-slate-700">{l.rooms} комн.</div>}
+              {l.area && <div className="bg-slate-100 rounded-2xl px-3 py-2 text-sm font-semibold text-slate-700">{l.area} м²</div>}
             </div>
-            <span className={`text-xs font-bold px-3 py-1.5 rounded-full ${l.deal_type === 'sale' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-              {l.deal_type === 'sale' ? 'Продажа' : 'Аренда'}
-            </span>
-          </div>
 
-          <div className="flex gap-3 flex-wrap">
-            {l.rooms && <div className="bg-slate-100 rounded-2xl px-3 py-2 text-sm font-semibold text-slate-700">{l.rooms} комн.</div>}
-            {l.area && <div className="bg-slate-100 rounded-2xl px-3 py-2 text-sm font-semibold text-slate-700">{l.area} м²</div>}
-          </div>
-
-          <div className="flex items-start gap-2 text-slate-600">
-            <Icon name="MapPin" size={16} className="text-blue-500 mt-0.5 shrink-0" />
-            <p className="text-sm">{[l.city, l.district, l.street].filter(Boolean).join(', ')}</p>
-          </div>
-
-          {l.description && <p className="text-sm text-slate-600 leading-relaxed">{l.description}</p>}
-
-          <div className="flex items-center gap-3 py-3 border-t border-slate-100">
-            <Avatar url={l.seller_avatar} nick={l.seller_nick} size={40} />
-            <div>
-              <p className="font-semibold text-sm text-slate-800">@{l.seller_nick}</p>
-              <p className="text-xs text-slate-400">Продавец</p>
+            <div className="flex items-start gap-2 text-slate-600">
+              <Icon name="MapPin" size={16} className="text-blue-500 mt-0.5 shrink-0" />
+              <p className="text-sm">{[l.city, l.district, l.street].filter(Boolean).join(', ')}</p>
             </div>
-          </div>
 
-          {/* Кнопки */}
-          <div className="space-y-2 pb-4">
+            {l.description && <p className="text-sm text-slate-600 leading-relaxed">{l.description}</p>}
+
+            <div className="flex items-center gap-3 py-3 border-t border-slate-100">
+              <Avatar url={l.seller_avatar} nick={l.seller_nick} size={40} />
+              <div>
+                <p className="font-semibold text-sm text-slate-800">@{l.seller_nick}</p>
+                <p className="text-xs text-slate-400">Продавец</p>
+              </div>
+            </div>
+
+            {/* Телефон — всегда виден если есть */}
             {l.phone && (
-              <button onClick={() => showPhone ? window.location.href = `tel:${l.phone}` : setShowPhone(true)}
-                className="w-full py-3.5 rounded-2xl bg-green-500 text-white font-bold flex items-center justify-center gap-2">
-                <Icon name="Phone" size={18} />
-                {showPhone ? l.phone : 'Показать номер'}
-              </button>
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                    <Icon name="Phone" size={18} className="text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400 mb-0.5">Телефон продавца</p>
+                    <p className="font-bold text-slate-900 text-base">{l.phone}</p>
+                  </div>
+                </div>
+                <a href={`tel:${l.phone}`} onClick={e => e.stopPropagation()}
+                  className="bg-green-500 text-white text-sm font-semibold px-4 py-2 rounded-xl flex items-center gap-1.5 active:bg-green-600">
+                  <Icon name="Phone" size={14} /> Позвонить
+                </a>
+              </div>
             )}
-            {l.seller_id !== user.id && (
-              <button onClick={openChat} disabled={opening}
-                className="w-full py-3.5 rounded-2xl bg-blue-600 text-white font-bold flex items-center justify-center gap-2 disabled:opacity-50">
-                <Icon name="MessageCircle" size={18} />
-                {opening ? 'Открываем...' : 'Написать продавцу'}
-              </button>
-            )}
+
+            {/* Кнопка чата */}
+            <div className="pb-4">
+              {l.seller_id !== user.id && (
+                <button onClick={openChat} disabled={opening}
+                  className="w-full py-3.5 rounded-2xl bg-blue-600 text-white font-bold flex items-center justify-center gap-2 disabled:opacity-50">
+                  <Icon name="MessageCircle" size={18} />
+                  {opening ? 'Открываем...' : 'Написать продавцу'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+
+      {/* Полноэкранный просмотр фото */}
+      {fullPhoto && photos.length > 0 && (
+        <div className="fixed inset-0 z-[100] bg-black flex flex-col"
+          onTouchStart={onPhotoTouchStart} onTouchEnd={onPhotoTouchEnd}>
+          <div className="flex items-center justify-between px-4 pt-safe pt-4 pb-2">
+            <button onClick={() => setFullPhoto(false)}
+              className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+              <Icon name="X" size={22} className="text-white" />
+            </button>
+            <span className="text-white font-semibold">{photoIdx + 1} / {photos.length}</span>
+            <div className="w-10" />
+          </div>
+          <div className="flex-1 flex items-center justify-center px-2">
+            <img src={photos[photoIdx]} alt="" className="max-w-full max-h-full object-contain rounded-xl" />
+          </div>
+          {/* Стрелки */}
+          <div className="flex justify-between px-4 py-6 gap-4">
+            <button onClick={() => setPhotoIdx(i => Math.max(0, i-1))} disabled={photoIdx === 0}
+              className="flex-1 py-3 rounded-2xl bg-white/15 text-white font-semibold disabled:opacity-30 flex items-center justify-center gap-2">
+              <Icon name="ChevronLeft" size={20} /> Пред.
+            </button>
+            <button onClick={() => setPhotoIdx(i => Math.min(photos.length-1, i+1))} disabled={photoIdx === photos.length-1}
+              className="flex-1 py-3 rounded-2xl bg-white/15 text-white font-semibold disabled:opacity-30 flex items-center justify-center gap-2">
+              След. <Icon name="ChevronRight" size={20} />
+            </button>
+          </div>
+          {/* Точки */}
+          {photos.length > 1 && (
+            <div className="flex justify-center gap-2 pb-8">
+              {photos.map((_,i) => (
+                <button key={i} onClick={() => setPhotoIdx(i)}
+                  className={`w-2.5 h-2.5 rounded-full transition-all ${i === photoIdx ? 'bg-white scale-125' : 'bg-white/40'}`} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 
