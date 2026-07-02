@@ -25,7 +25,8 @@ def _resp(status, body_dict=None, *, body_str=None):
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, X-User-Id',
+            'Access-Control-Allow-Headers': 'Content-Type, X-User-Id, X-Auth-Token',
+            'Access-Control-Max-Age': '86400',
         },
         'isBase64Encoded': False,
         'body': body_str if body_str is not None else json.dumps(body_dict or {}, default=str),
@@ -34,7 +35,16 @@ def _resp(status, body_dict=None, *, body_str=None):
 def handler(event: dict, context) -> dict:
     """Загрузка медиафайлов (видео/аудио) чанками в S3"""
     if event.get('httpMethod') == 'OPTIONS':
-        return _resp(200, {})
+        return {
+            'statusCode': 200,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, X-User-Id, X-Auth-Token',
+                'Access-Control-Max-Age': '86400',
+            },
+            'body': '',
+        }
 
     params = event.get('queryStringParameters') or {}
     action = params.get('action', '')
