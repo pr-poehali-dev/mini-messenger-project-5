@@ -2136,17 +2136,8 @@ function RealtyTab({ user, onOpenChat }: { user: User; onOpenChat: (chatId: numb
   const [showFilters, setShowFilters] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [selectedListing, setSelectedListing] = useState<RealtyListing | null>(null);
-  const [activeTab, setActiveTab] = useState<'feed'|'favorites'|'admin'>('feed');
-  const [adminListings, setAdminListings] = useState<(RealtyListing & { is_blocked?: boolean })[]>([]);
-  const [adminStats, setAdminStats] = useState<{ total: number; paid: number } | null>(null);
-  const ADMIN_NICK = 'murat_dzaurov';
+  const [activeTab, setActiveTab] = useState<'feed'|'favorites'>('feed');
   const [filters, setFilters] = useState({ deal_type: '', city: '', district: '', rooms: '', price_min: '', price_max: '' });
-
-  const loadAdmin = async () => {
-    const d = await api('realty_admin_list');
-    setAdminListings((d.listings as (RealtyListing & { is_blocked?: boolean })[]) || []);
-    setAdminStats(d.stats as { total: number; paid: number } | null);
-  };
 
   const load = async (f = filters, search = q) => {
     setLoading(true);
@@ -2163,7 +2154,7 @@ function RealtyTab({ user, onOpenChat }: { user: User; onOpenChat: (chatId: numb
 
   useEffect(() => { load(); loadFavorites(); }, []);
 
-  const displayedListings = activeTab === 'favorites' ? favorites : activeTab === 'admin' ? [] : listings;
+  const displayedListings = activeTab === 'favorites' ? favorites : listings;
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
@@ -2186,12 +2177,7 @@ function RealtyTab({ user, onOpenChat }: { user: User; onOpenChat: (chatId: numb
             className={`flex-1 py-2 rounded-2xl text-sm font-semibold transition-colors flex items-center justify-center gap-1.5 ${activeTab === 'favorites' ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
             ❤️ {favorites.length > 0 && <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${activeTab === 'favorites' ? 'bg-white/25 text-white' : 'bg-red-100 text-red-600'}`}>{favorites.length}</span>}
           </button>
-          {user.nick === ADMIN_NICK && (
-            <button onClick={() => { setActiveTab('admin'); loadAdmin(); }}
-              className={`flex-1 py-2 rounded-2xl text-sm font-semibold transition-colors ${activeTab === 'admin' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'}`}>
-              ⚙️ Админ
-            </button>
-          )}
+
         </div>
         {activeTab === 'feed' && <div className="flex gap-2">
           <div className="relative flex-1">
@@ -2242,70 +2228,6 @@ function RealtyTab({ user, onOpenChat }: { user: User; onOpenChat: (chatId: numb
           </button>
         ))}
       </div>
-
-      {/* Админ-панель недвижимости */}
-      {activeTab === 'admin' && (
-        <div className="fixed inset-0 z-50 bg-slate-900 flex flex-col" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
-          <div className="flex items-center gap-3 px-4 py-4 border-b border-slate-700">
-            <button onClick={() => setActiveTab('feed')} className="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center">
-              <Icon name="ArrowLeft" size={18} className="text-white" />
-            </button>
-            <h2 className="font-bold text-white text-lg flex-1">Управление объявлениями</h2>
-          </div>
-          {adminStats && (
-            <div className="flex gap-3 px-4 py-3">
-              <div className="flex-1 bg-slate-800 rounded-2xl p-3 text-center">
-                <p className="text-2xl font-bold text-white">{adminStats.total}</p>
-                <p className="text-xs text-slate-400 mt-0.5">Всего</p>
-              </div>
-              <div className="flex-1 bg-green-900/50 rounded-2xl p-3 text-center">
-                <p className="text-2xl font-bold text-green-400">{adminStats.paid}</p>
-                <p className="text-xs text-slate-400 mt-0.5">Оплачено</p>
-              </div>
-              <div className="flex-1 bg-slate-800 rounded-2xl p-3 text-center">
-                <p className="text-2xl font-bold text-slate-300">{adminStats.total - adminStats.paid}</p>
-                <p className="text-xs text-slate-400 mt-0.5">Ожидают</p>
-              </div>
-            </div>
-          )}
-          <div className="flex-1 overflow-y-auto px-4 py-2 space-y-3">
-            {adminListings.map(l => (
-              <div key={l.id} className={`bg-slate-800 rounded-2xl p-4 ${l.is_blocked ? 'opacity-50' : ''}`}>
-                <div className="flex items-start gap-3">
-                  {l.photos && l.photos[0]
-                    ? <img src={l.photos[0]} className="w-16 h-16 rounded-xl object-cover shrink-0" />
-                    : <div className="w-16 h-16 rounded-xl bg-slate-700 flex items-center justify-center text-2xl shrink-0">🏠</div>
-                  }
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-white text-sm">{fmtPrice(l.price)}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">{l.city}{l.district ? `, ${l.district}` : ''}</p>
-                    <p className="text-xs text-blue-400 mt-0.5">@{l.seller_nick}</p>
-                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                      {l.is_paid && <span className="text-[10px] bg-green-900/70 text-green-400 px-2 py-0.5 rounded-full font-semibold">✅ Оплачено</span>}
-                      {l.is_blocked && <span className="text-[10px] bg-red-900/70 text-red-400 px-2 py-0.5 rounded-full font-semibold">🚫 Заблокировано</span>}
-                      <span className="text-[10px] text-slate-500">{l.deal_type === 'sale' ? 'Продажа' : 'Аренда'}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex gap-2 mt-3">
-                  <button onClick={async () => {
-                    await api('realty_admin_action', 'POST', { listing_id: l.id, admin_action: l.is_blocked ? 'unblock' : 'block' });
-                    loadAdmin();
-                  }} className={`flex-1 py-2 rounded-xl text-xs font-semibold ${l.is_blocked ? 'bg-green-600 text-white' : 'bg-yellow-600 text-white'}`}>
-                    {l.is_blocked ? '✅ Разблокировать' : '🚫 Заблокировать'}
-                  </button>
-                  <button onClick={async () => {
-                    await api('realty_admin_action', 'POST', { listing_id: l.id, admin_action: 'delete' });
-                    loadAdmin();
-                  }} className="flex-1 py-2 rounded-xl text-xs font-semibold bg-red-700 text-white">
-                    🗑️ Удалить
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Фильтры */}
       {showFilters && <RealtyFilters filters={filters} onApply={f => { setFilters(f); setShowFilters(false); load(f, q); }} onClose={() => setShowFilters(false)} />}
@@ -2940,6 +2862,7 @@ function RealtyCard({ listing: l, user, onClose, onOpenChat, onDeleted }: { list
 function RealtyChatScreen({ user, chatId, listing, onBack }: { user: User; chatId: number; listing: RealtyListing; onBack: () => void }) {
   const [messages, setMessages] = useState<{ id: number; sender_id: number; sender_nick: string; sender_avatar?: string|null; text: string; created_at: string }[]>([]);
   const [input, setInput] = useState('');
+  const [confirmDeleteChat, setConfirmDeleteChat] = useState(false);
   const lastIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -2976,6 +2899,10 @@ function RealtyChatScreen({ user, chatId, listing, onBack }: { user: User; chatI
           <p className="font-bold text-white text-[15px] truncate">{listing.city} · {fmtPrice(listing.price)}</p>
           <p className="text-blue-200 text-xs truncate">{[listing.rooms ? `${listing.rooms} комн.` : null, listing.area ? `${listing.area}м²` : null].filter(Boolean).join(' · ')}</p>
         </div>
+        <button onClick={() => setConfirmDeleteChat(true)}
+          className="w-10 h-10 rounded-full hover:bg-white/15 flex items-center justify-center">
+          <Icon name="Trash2" size={18} className="text-white/70" />
+        </button>
       </header>
 
       {/* Сообщения */}
@@ -3012,6 +2939,27 @@ function RealtyChatScreen({ user, chatId, listing, onBack }: { user: User; chatI
           </button>
         </div>
       </div>
+
+      {/* Подтверждение удаления чата */}
+      {confirmDeleteChat && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-6">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-sm space-y-4">
+            <div className="text-center">
+              <div className="text-4xl mb-3">🗑️</div>
+              <p className="font-bold text-lg text-slate-900">Удалить чат?</p>
+              <p className="text-sm text-slate-500 mt-1">История переписки по этому объявлению исчезнет у тебя.</p>
+            </div>
+            <button onClick={async () => { await api('realty_delete_chat', 'POST', { chat_id: chatId, user_id: user.id }); onBack(); }}
+              className="w-full py-3.5 rounded-2xl bg-red-500 text-white font-bold">
+              Да, удалить
+            </button>
+            <button onClick={() => setConfirmDeleteChat(false)}
+              className="w-full py-3 rounded-2xl text-slate-500 font-medium">
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

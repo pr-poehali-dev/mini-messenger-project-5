@@ -25,7 +25,38 @@ export default function Admin() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
-  const [tab, setTab] = useState<'stats' | 'users' | 'broadcast' | 'ad'>('stats');
+  const [tab, setTab] = useState<'stats' | 'users' | 'broadcast' | 'ad' | 'realty'>('stats');
+
+  // Недвижимость
+  const MESSENGER_API = 'https://functions.poehali.dev/b927178a-1937-4d4d-8fd6-2a1ffe4d52be';
+  const apiM = async (action: string, method = 'GET', body?: object) => {
+    try {
+      const r = await fetch(`${MESSENGER_API}?action=${action}`, {
+        method, headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      return r.json();
+    } catch { return { error: 'Нет соединения' }; }
+  };
+  type RealtyItem = { id: number; deal_type: string; city: string; district?: string; rooms?: number; price: number; photos?: string[]; is_paid: boolean; is_blocked: boolean; created_at: string; seller_nick: string; seller_avatar?: string };
+  const [realtyListings, setRealtyListings] = useState<RealtyItem[]>([]);
+  const [realtyStats, setRealtyStats] = useState<{ total: number; paid: number } | null>(null);
+  const [realtyLoading, setRealtyLoading] = useState(false);
+
+  const fmtPrice = (p: number) => p >= 1_000_000 ? (p/1_000_000).toFixed(1).replace(/\.0$/,'') + ' млн ₽' : p >= 1_000 ? Math.round(p/1_000) + ' тыс ₽' : p + ' ₽';
+
+  const loadRealty = async () => {
+    setRealtyLoading(true);
+    const d = await apiM('realty_admin_list');
+    setRealtyListings((d.listings as RealtyItem[]) || []);
+    setRealtyStats(d.stats as { total: number; paid: number } || null);
+    setRealtyLoading(false);
+  };
+
+  useEffect(() => {
+    if (isAuth && tab === 'realty') loadRealty();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuth, tab]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [usersTotal, setUsersTotal] = useState(0);
@@ -182,6 +213,7 @@ export default function Admin() {
           {tabBtn('users', 'Users', 'Пользователи')}
           {tabBtn('broadcast', 'Send', 'Рассылка')}
           {tabBtn('ad', 'Megaphone', 'Реклама')}
+          {tabBtn('realty', 'Home', 'Недвижимость')}
         </div>
 
         {/* ── СТАТИСТИКА ── */}
@@ -355,6 +387,86 @@ export default function Admin() {
                 {adSending ? 'Отправляю...' : 'Отправить рекламу всем'}
               </button>
             </div>
+          </div>
+        )}
+
+        {/* ── НЕДВИЖИМОСТЬ ── */}
+        {tab === 'realty' && (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-xl text-slate-800">Объявления недвижимости</h2>
+              <button onClick={loadRealty} className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors">
+                <Icon name="RefreshCw" size={14} /> Обновить
+              </button>
+            </div>
+
+            {/* Статистика */}
+            {realtyStats && (
+              <div className="grid grid-cols-3 gap-3 mb-5">
+                {[
+                  { label: 'Всего', value: realtyStats.total, color: 'bg-blue-500' },
+                  { label: 'Оплачено', value: realtyStats.paid, color: 'bg-green-500' },
+                  { label: 'Ожидают', value: realtyStats.total - realtyStats.paid, color: 'bg-orange-500' },
+                ].map(s => (
+                  <div key={s.label} className="bg-white rounded-2xl p-4 border border-slate-100 text-center shadow-sm">
+                    <div className={`w-8 h-8 ${s.color} rounded-xl flex items-center justify-center mx-auto mb-2`}>
+                      <Icon name="Home" size={14} className="text-white" />
+                    </div>
+                    <p className="font-bold text-2xl text-slate-800">{s.value}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Список */}
+            {realtyLoading ? (
+              <div className="flex justify-center py-12"><div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
+            ) : realtyListings.length === 0 ? (
+              <div className="bg-white rounded-2xl p-12 text-center border border-slate-100">
+                <p className="text-slate-400">Объявлений нет</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {realtyListings.map(l => (
+                  <div key={l.id} className={`bg-white rounded-2xl p-4 border shadow-sm flex items-start gap-4 ${l.is_blocked ? 'border-red-100 opacity-70' : 'border-slate-100'}`}>
+                    {l.photos && l.photos[0]
+                      ? <img src={l.photos[0]} className="w-20 h-20 rounded-xl object-cover shrink-0" />
+                      : <div className="w-20 h-20 rounded-xl bg-slate-100 flex items-center justify-center text-3xl shrink-0">🏠</div>
+                    }
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                        <div>
+                          <p className="font-bold text-slate-800">{fmtPrice(l.price)}</p>
+                          <p className="text-sm text-slate-500 mt-0.5">{l.city}{l.district ? `, ${l.district}` : ''}{l.rooms ? ` · ${l.rooms} комн.` : ''}</p>
+                          <p className="text-xs text-blue-600 mt-0.5">@{l.seller_nick}</p>
+                        </div>
+                        <div className="flex flex-col gap-1 items-end shrink-0">
+                          {l.is_paid && <span className="text-[11px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold">✅ Оплачено</span>}
+                          {l.is_blocked && <span className="text-[11px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold">🚫 Заблок.</span>}
+                          <span className="text-[11px] text-slate-400">{l.deal_type === 'sale' ? 'Продажа' : 'Аренда'}</span>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 mt-3">
+                        <button onClick={async () => {
+                          await apiM('realty_admin_action', 'POST', { listing_id: l.id, admin_action: l.is_blocked ? 'unblock' : 'block' });
+                          loadRealty();
+                        }} className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition-colors ${l.is_blocked ? 'border-green-200 text-green-700 hover:bg-green-50' : 'border-orange-200 text-orange-700 hover:bg-orange-50'}`}>
+                          {l.is_blocked ? '✅ Разблокировать' : '🚫 Заблокировать'}
+                        </button>
+                        <button onClick={async () => {
+                          if (!confirm('Удалить объявление?')) return;
+                          await apiM('realty_admin_action', 'POST', { listing_id: l.id, admin_action: 'delete' });
+                          loadRealty();
+                        }} className="flex-1 py-2 rounded-xl text-xs font-semibold border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
+                          🗑️ Удалить
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -1431,6 +1431,16 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return _resp(200, {'ok': True})
 
+        # ── Удалить чат по объявлению ─────────────────────
+        if action == 'realty_delete_chat' and method == 'POST':
+            cid = int(body.get('chat_id') or 0)
+            uid = int(body.get('user_id') or 0)
+            cur.execute("SELECT id FROM realty_chats WHERE id=%s AND (buyer_id=%s OR seller_id=%s)", (cid, uid, uid))
+            if not cur.fetchone(): return _resp(403, {'error': 'Нет доступа'})
+            cur.execute("UPDATE realty_chats SET buyer_id=CASE WHEN buyer_id=%s THEN 0 ELSE buyer_id END, seller_id=CASE WHEN seller_id=%s THEN 0 ELSE seller_id END WHERE id=%s", (uid, uid, cid))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
         return _resp(404, {'error': 'Неизвестное действие'})
     finally:
         conn.close()

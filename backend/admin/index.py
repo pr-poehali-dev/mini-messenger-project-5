@@ -231,7 +231,7 @@ def handler(event: dict, context) -> dict:
 
             conn.commit()
 
-            # Создаём уведомления в таблице notifications для каждого
+            # Создаём уведомления и отправляем push всем
             bot_user_id = bot_id
             user_ids = [u['id'] for u in all_users]
             for uid in user_ids:
@@ -240,6 +240,10 @@ def handler(event: dict, context) -> dict:
                     (uid, bot_user_id, text or '')
                 )
             conn.commit()
+
+            # Push-уведомление всем через OneSignal
+            push_title = '📢 ВайМессенджер Реклама' if is_ad else '📢 ВайМессенджер'
+            _push(user_ids, push_title, text or '📸 Новое сообщение', '/')
 
             return _resp(200, {'ok': True, 'sent': sent})
 
