@@ -347,8 +347,13 @@ def handler(event: dict, context) -> dict:
                 FROM chats c
                 JOIN users u ON u.id = CASE WHEN c.user_a=%s THEN c.user_b ELSE c.user_a END
                 WHERE (c.user_a=%s OR c.user_b=%s) AND c.group_id IS NULL
-                  AND c.id NOT IN (SELECT chat_id FROM hidden_chats WHERE user_id=%s)
-                  AND EXISTS (SELECT 1 FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE)
+                  AND EXISTS (
+                    SELECT 1 FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE
+                    AND m.created_at > COALESCE(
+                      (SELECT hidden_at FROM hidden_chats WHERE user_id=%s AND chat_id=c.id),
+                      '1970-01-01'::timestamptz
+                    )
+                  )
                 UNION ALL
                 SELECT c.id AS chat_id,
                        g.id AS group_id, g.name AS group_name, g.avatar_url AS group_avatar,
@@ -379,8 +384,7 @@ def handler(event: dict, context) -> dict:
             if not row:
                 cur.execute("INSERT INTO chats (user_a, user_b) VALUES (%s, %s) RETURNING id", (a, b))
                 row = cur.fetchone()
-            # Убираем из скрытых — если раньше удалял, теперь открывает снова
-            cur.execute("DELETE FROM hidden_chats WHERE user_id=%s AND chat_id=%s", (me, row['id']))
+            # НЕ удаляем hidden_chats — hidden_at остаётся как граница очистки переписки
             conn.commit()
             cur.execute("SELECT id, nick, avatar_url, is_online, last_seen FROM users WHERE id=%s", (peer,))
             peer_user = cur.fetchone()
@@ -449,10 +453,14 @@ def handler(event: dict, context) -> dict:
                 LEFT JOIN message_reactions r ON r.message_id = m.id
                 WHERE m.chat_id=%s AND m.id>%s
                   AND NOT (m.removed_by_sender = TRUE AND m.sender_id = %s)
+                  AND m.created_at > COALESCE(
+                    (SELECT hidden_at FROM hidden_chats WHERE user_id=%s AND chat_id=%s),
+                    '1970-01-01'::timestamptz
+                  )
                 GROUP BY m.id, u.nick, u.avatar_url
                 ORDER BY m.id ASC LIMIT 200
                 """,
-                (chat_id, after, me),
+                (chat_id, after, me, me, chat_id),
             )
             msgs = cur.fetchall()
             cur.execute(
@@ -667,24 +675,14 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return _resp(200, {'ok': True})
 
-        # ── HIDE CHAT (скрыть + удалить свои просмотры сообщений) ──
+        # ── HIDE CHAT (скрыть + запомнить время удаления) ──
         if action == 'hide_chat' and method == 'POST':
             uid = int(body.get('user_id') or 0)
             chat_id = int(body.get('chat_id') or 0)
-            # Скрываем чат
+            # Скрываем чат с текущим временем — hidden_at используется как граница очистки
             cur.execute(
-                "INSERT INTO hidden_chats (user_id, chat_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                "INSERT INTO hidden_chats (user_id, chat_id, hidden_at) VALUES (%s, %s, NOW()) ON CONFLICT (user_id, chat_id) DO UPDATE SET hidden_at=NOW()",
                 (uid, chat_id),
-            )
-            # Помечаем все сообщения от собеседника как удалённые у себя
-            cur.execute(
-                "UPDATE messages SET removed_by_sender=TRUE WHERE chat_id=%s AND sender_id!=%s",
-                (chat_id, uid),
-            )
-            # Сбрасываем счётчик прочитанных
-            cur.execute(
-                "DELETE FROM chat_reads WHERE chat_id=%s AND user_id=%s",
-                (chat_id, uid),
             )
             conn.commit()
             return _resp(200, {'ok': True})
