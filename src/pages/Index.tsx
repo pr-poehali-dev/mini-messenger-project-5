@@ -307,9 +307,11 @@ export default function Index() {
         {tab === 'notifications' && <NotificationsTab user={user}
           onOpenChat={(chatId) => push({ name: 'chat', chatId })}
           onOpenProfile={(id) => push({ name: 'user_profile', userId: id })}
-          onCall={(peerId, peerNick, peerAvatar, kind) => {
+          onCall={async (peerId, peerNick, peerAvatar, kind) => {
+            const d = await api('open_chat', 'POST', { user_id: user.id, peer_id: peerId });
             const callId = `call_${Date.now()}`;
             setGlobalCall({ kind, callId, outgoing: true, peer: { id: peerId, nick: peerNick, avatar_url: peerAvatar } });
+            push({ name: 'chat', chatId: d.chat_id as number, peer: (d.peer as User) || { id: peerId, nick: peerNick, avatar_url: peerAvatar } });
           }} />}
         {tab === 'profile' && <ProfileTab user={user} onLogout={logout} onUpdate={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); }} onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} lightTheme={lightTheme} onDeleteAccount={deleteAccount} />}
       </TabsShell>
@@ -991,11 +993,19 @@ function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall }: {
   const [calls, setCalls] = useState<{call_id:string;kind:string;status:string;created_at:string;caller_id:number;callee_id:number;caller_nick:string;caller_avatar:string|null;callee_nick:string;callee_avatar:string|null}[]>([]);
   const [callsLoading, setCallsLoading] = useState(false);
 
+  const callsClearedKey = `calls_cleared_${user.id}`;
+
   const loadCalls = async () => {
     setCallsLoading(true);
-    const d = await api(`call_history&user_id=${user.id}`);
+    const afterTs = localStorage.getItem(callsClearedKey) || '1970-01-01';
+    const d = await api(`call_history&user_id=${user.id}&after_ts=${encodeURIComponent(afterTs)}`);
     setCalls(d.calls || []);
     setCallsLoading(false);
+  };
+
+  const clearCalls = () => {
+    localStorage.setItem(callsClearedKey, new Date().toISOString());
+    setCalls([]);
   };
 
   return (
@@ -1006,6 +1016,11 @@ function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall }: {
           <h1 className="text-2xl font-bold text-slate-900" style={{ letterSpacing: '-0.5px' }}>Уведомления</h1>
           {tab === 'notifs' && notifs.length > 0 && (
             <button onClick={clearAll} className="text-sm text-slate-400 hover:text-red-400 transition-colors font-medium flex items-center gap-1">
+              <Icon name="Trash2" size={15} /> Очистить
+            </button>
+          )}
+          {tab === 'calls' && calls.length > 0 && (
+            <button onClick={clearCalls} className="text-sm text-slate-400 hover:text-red-400 transition-colors font-medium flex items-center gap-1">
               <Icon name="Trash2" size={15} /> Очистить
             </button>
           )}

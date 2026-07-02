@@ -887,6 +887,7 @@ def handler(event: dict, context) -> dict:
         # ── CALL HISTORY ──────────────────────────────────
         if action == 'call_history' and method == 'GET':
             uid = int(params.get('user_id') or 0)
+            after_ts = params.get('after_ts', '1970-01-01')
             cur.execute(
                 """
                 SELECT ac.call_id, ac.kind, ac.status, ac.created_at,
@@ -897,9 +898,10 @@ def handler(event: dict, context) -> dict:
                 JOIN users u1 ON u1.id = ac.caller_id
                 JOIN users u2 ON u2.id = ac.callee_id
                 WHERE (ac.caller_id=%s OR ac.callee_id=%s)
+                  AND ac.created_at > %s::timestamptz
                 ORDER BY ac.created_at DESC LIMIT 50
                 """,
-                (uid, uid),
+                (uid, uid, after_ts),
             )
             calls = cur.fetchall()
             return _resp(200, {'calls': calls})
