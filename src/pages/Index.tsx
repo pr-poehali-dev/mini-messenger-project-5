@@ -827,14 +827,14 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup }: { user: User; o
               </div>
             )}
             {deleteConfirm === c.chat_id && (
-              <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4"
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6"
                 onClick={() => setDeleteConfirm(null)}>
-                <div className="bg-white rounded-3xl p-5 w-full max-w-sm space-y-3 animate-fade-up shadow-xl"
+                <div className="bg-white rounded-3xl p-6 w-full max-w-sm space-y-3 shadow-2xl"
                   onClick={e => e.stopPropagation()}>
-                  <p className="font-bold text-center text-slate-800">Удалить чат?</p>
-                  <p className="text-xs text-slate-500 text-center">Чат исчезнет только у тебя. Собеседник его не потеряет.</p>
+                  <p className="font-bold text-center text-slate-800 text-lg">Удалить чат?</p>
+                  <p className="text-sm text-slate-500 text-center">Чат исчезнет только у тебя. Собеседник его не потеряет.</p>
                   <button onClick={() => hideChat(c.chat_id, false)}
-                    className="w-full py-3 rounded-2xl bg-red-500 text-white text-sm font-bold">
+                    className="w-full py-3.5 rounded-2xl bg-red-500 text-white text-sm font-bold mt-2">
                     Удалить у меня
                   </button>
                   <button onClick={() => setDeleteConfirm(null)}
@@ -1162,8 +1162,9 @@ function FollowersScreen({ userId, mode, me, onBack, onOpenProfile }: { userId: 
     api(`${mode}&user_id=${userId}`).then(d => setList(d.users || []));
   }, [userId, mode]);
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#f0f4fa' }}>
-      <header className="flex items-center gap-3 px-4 py-3 bg-blue-600 shadow-sm">
+    <div className="fixed inset-0 flex flex-col" style={{ background: '#f0f4fa' }}>
+      <header className="flex items-center gap-3 px-4 bg-blue-600 shadow-sm shrink-0"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 10px)', paddingBottom: '10px' }}>
         <button onClick={onBack} className="w-9 h-9 rounded-xl hover:bg-blue-500 flex items-center justify-center transition-colors">
           <Icon name="ArrowLeft" size={20} className="text-white" />
         </button>
@@ -2188,7 +2189,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, onBack, onOpenProf
   const subtitleColor = typing.length > 0 ? 'text-blue-200' : peerOnline && !groupName ? 'text-green-300' : 'text-blue-200';
 
   return (
-    <div className="fixed inset-0 flex flex-col" style={{ background: '#f0f4fa' }} onClick={() => { setSelectedMsg(null); setEmojiTarget(null); setShowAttach(false); }}>
+    <div className="fixed inset-0 flex flex-col" style={{ background: 'var(--chat-bg, #e8eef7)' }} onClick={() => { setSelectedMsg(null); setEmojiTarget(null); setShowAttach(false); }}>
       {/* Header — фиксированный, как Telegram */}
       <header className="shrink-0 flex items-center gap-2 px-2 bg-blue-600 shadow-md"
         style={{ paddingTop: 'calc(env(safe-area-inset-top) + 8px)', paddingBottom: '10px' }}
