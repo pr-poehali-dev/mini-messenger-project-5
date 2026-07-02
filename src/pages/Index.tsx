@@ -3871,14 +3871,21 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
   const uploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
     setShowPhotoMenu(false);
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const [header, b64] = (reader.result as string).split(',');
-      const ext = header.includes('png') ? 'png' : 'jpg';
-      await api('upload_group_photo', 'POST', { group_id: groupId, user_id: user.id, data: b64, ext });
-      load();
-    };
-    reader.readAsDataURL(file);
+    try {
+      const b64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const ext = file.type.includes('png') ? 'png' : 'jpg';
+      const d = await api('upload_group_photo', 'POST', { group_id: groupId, user_id: user.id, data: b64, ext });
+      console.log('[GROUP_PHOTO] response:', d);
+      await load();
+    } catch (err) {
+      console.error('[GROUP_PHOTO] error:', err);
+      alert('Не удалось загрузить фото. Попробуй ещё раз.');
+    }
     e.target.value = '';
   };
 
@@ -3953,7 +3960,7 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
           <input ref={fileRef} type="file" accept="image/*" hidden onChange={uploadPhoto} />
 
           {/* Фото группы */}
-          <div className="relative" onClick={e => { e.stopPropagation(); if (isAdmin) setShowPhotoMenu(v => !v); }}>
+          <div className="relative" onClick={e => { e.stopPropagation(); if (isAdmin) { if (group.photo_url) setShowPhotoMenu(v => !v); else fileRef.current?.click(); } }}>
             <div className="w-24 h-24 rounded-full overflow-hidden cursor-pointer">
               {group.photo_url
                 ? <img src={group.photo_url} className="w-full h-full object-cover" />
@@ -3966,19 +3973,17 @@ function GroupInfoScreen({ user, groupId, chatId, onBack, onOpenChat, onOpenProf
                 <Icon name="Camera" size={14} className="text-white" />
               </div>
             )}
-            {/* Меню фото */}
+            {/* Меню фото (только если фото уже есть — можно сменить или удалить) */}
             {showPhotoMenu && (
               <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-white rounded-2xl p-1 z-50 w-48 shadow-xl border border-slate-100" onClick={e => e.stopPropagation()}>
                 <button onClick={() => { setShowPhotoMenu(false); fileRef.current?.click(); }}
                   className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl hover:bg-slate-50 text-sm text-slate-700">
                   <Icon name="Camera" size={15} className="text-blue-500" /> Изменить фото
                 </button>
-                {group.photo_url && (
-                  <button onClick={removePhoto}
-                    className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl hover:bg-destructive/10 text-sm text-destructive">
-                    <Icon name="Trash2" size={15} /> Удалить фото
-                  </button>
-                )}
+                <button onClick={removePhoto}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl hover:bg-destructive/10 text-sm text-destructive">
+                  <Icon name="Trash2" size={15} /> Удалить фото
+                </button>
               </div>
             )}
           </div>
