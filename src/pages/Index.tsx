@@ -1851,50 +1851,94 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
   // Своё видео: зеркало только для фронталки
   const localMirror = facingMode === 'user' ? 'scaleX(-1)' : 'none';
 
+  // Перетаскивание маленького видео
+  const [pipPos, setPipPos] = useState({ x: -1, y: -1 }); // -1 = дефолт (правый нижний угол)
+  const pipDrag = useRef<{ startX: number; startY: number; ox: number; oy: number } | null>(null);
+
+  const onPipTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    pipDrag.current = { startX: t.clientX, startY: t.clientY, ox: pipPos.x, oy: pipPos.y };
+  };
+  const onPipTouchMove = (e: React.TouchEvent) => {
+    if (!pipDrag.current) return;
+    const t = e.touches[0];
+    const dx = t.clientX - pipDrag.current.startX;
+    const dy = t.clientY - pipDrag.current.startY;
+    setPipPos({ x: pipDrag.current.ox + dx, y: pipDrag.current.oy + dy });
+  };
+  const onPipTouchEnd = () => { pipDrag.current = null; };
+
+  const pipStyle: React.CSSProperties = pipPos.x === -1
+    ? { bottom: 120, right: 16 }
+    : { top: pipPos.y, left: pipPos.x };
+
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col" style={{ touchAction: 'none' }}>
       <audio ref={remoteAudio} autoPlay playsInline style={{ position: 'absolute', width: 0, height: 0 }} />
 
       {kind === 'video' ? (
         <div className="relative flex-1 overflow-hidden bg-black">
-          {/* Основное видео (большое) */}
+          {/* Большое видео — собеседник (или я если selfBig) */}
           {selfBig ? (
             <video ref={localRef} autoPlay playsInline muted
-              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', transform: localMirror }} />
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', transform: localMirror }} />
           ) : (
             <video ref={remoteRef} autoPlay playsInline
-              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
           )}
 
-          {/* Маленькое видео (в углу) — тап меняет местами */}
-          <div onClick={() => setSelfBig(v => !v)}
-            style={{ position: 'absolute', bottom: 16, right: 16, width: 110, height: 150,
-              borderRadius: 16, overflow: 'hidden', border: '2px solid rgba(255,255,255,0.3)',
-              zIndex: 10, cursor: 'pointer', boxShadow: '0 4px 16px rgba(0,0,0,0.5)' }}>
+          {/* Заголовок — имя + таймер/статус */}
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20,
+            paddingTop: 'calc(env(safe-area-inset-top) + 12px)',
+            paddingBottom: 8, paddingLeft: 60, paddingRight: 60,
+            background: 'linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, transparent 100%)',
+            textAlign: 'center' }}>
+            <p style={{ color: '#fff', fontWeight: 700, fontSize: 18, margin: 0 }}>{peer.nick}</p>
+            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, margin: '2px 0 0' }}>
+              {status === 'active' ? fmt(duration) : outgoing ? 'Звонок...' : 'Соединение...'}
+            </p>
+          </div>
+
+          {/* Кнопки справа */}
+          <div style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top) + 12px)', right: 14, zIndex: 20,
+            display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <button onClick={flipCamera}
+              style={{ width: 46, height: 46, borderRadius: '50%', background: 'rgba(60,60,60,0.85)',
+                border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="RefreshCw" size={20} className="text-white" />
+            </button>
+          </div>
+
+          {/* Маленькое видео PiP — перетаскиваемое */}
+          <div
+            onTouchStart={onPipTouchStart}
+            onTouchMove={onPipTouchMove}
+            onTouchEnd={onPipTouchEnd}
+            onClick={() => { if (!pipDrag.current) setSelfBig(v => !v); }}
+            style={{ position: 'absolute', ...pipStyle,
+              width: 120, height: 165, borderRadius: 18, overflow: 'hidden',
+              border: '2.5px solid rgba(255,255,255,0.25)', zIndex: 30,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.6)', cursor: 'pointer', touchAction: 'none' }}>
             {selfBig ? (
               <video ref={remoteRef} autoPlay playsInline
-                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             ) : (
               <video ref={localRef} autoPlay playsInline muted
-                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', transform: localMirror }} />
+                style={{ width: '100%', height: '100%', objectFit: 'cover', transform: localMirror }} />
             )}
-            <div style={{ position: 'absolute', bottom: 4, left: 0, right: 0, textAlign: 'center' }}>
-              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.6)', background: 'rgba(0,0,0,0.4)',
-                padding: '1px 6px', borderRadius: 99 }}>{selfBig ? 'собеседник' : 'я'}</span>
+            {/* Кнопки внутри PiP */}
+            <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(40,40,40,0.8)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="RefreshCw" size={13} className="text-white" />
+              </div>
             </div>
           </div>
 
-          {/* Кнопка переключения камеры */}
-          <button onClick={flipCamera}
-            style={{ position: 'absolute', top: 16, right: 16, zIndex: 15,
-              width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,0.2)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none' }}>
-            <Icon name="RefreshCw" size={18} className="text-white" />
-          </button>
-
+          {/* Оверлей ожидания */}
           {status !== 'active' && (
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.75)', zIndex: 20 }}>
+              alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)', zIndex: 25 }}>
               <div className="relative mb-5">
                 <span className="absolute inset-0 rounded-full bg-primary/40 animate-pulse-ring" />
                 <Avatar url={peer.avatar_url} nick={peer.nick} size={96} />
@@ -1903,14 +1947,9 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
               <p className="text-white/50 text-sm">{outgoing ? 'Вызов...' : 'Соединяемся...'}</p>
             </div>
           )}
-          {status === 'active' && (
-            <div style={{ position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
-              background: 'rgba(0,0,0,0.5)', borderRadius: 999, padding: '4px 16px', zIndex: 10 }}>
-              <p className="text-white text-xs">{fmt(duration)}</p>
-            </div>
-          )}
         </div>
       ) : (
+        /* Аудио звонок */
         <div className="flex-1 flex flex-col items-center justify-center" style={{ background: 'linear-gradient(160deg,#0d0d1a,#1a0d2e)' }}>
           <div className="relative mb-6">
             <span className="absolute inset-0 rounded-full bg-primary/30 animate-pulse-ring" />
@@ -1918,57 +1957,60 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
           </div>
           <p className="text-white font-bold text-2xl mb-2">@{peer.nick}</p>
           <p className={`text-sm ${status === 'active' ? 'text-green-400' : 'text-white/50'}`}>
-            {status === 'active' ? `● Соединено · ${fmt(duration)}` : outgoing ? 'Вызов...' : 'Соединяемся...'}
+            {status === 'active' ? `● ${fmt(duration)}` : outgoing ? 'Вызов...' : 'Соединяемся...'}
           </p>
         </div>
       )}
 
-      {/* Панель кнопок */}
-      <div className="flex items-center justify-center gap-5 shrink-0"
-        style={{ padding: '24px 0 36px', background: 'rgba(0,0,0,0.88)' }}>
+      {/* Панель кнопок — капсула как WhatsApp */}
+      <div style={{
+        position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 40,
+        paddingBottom: 'calc(env(safe-area-inset-bottom) + 24px)',
+        paddingTop: 16, paddingLeft: 16, paddingRight: 16,
+        background: kind === 'video' ? 'transparent' : 'rgba(0,0,0,0.88)',
+        display: 'flex', justifyContent: 'center',
+      }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          background: 'rgba(40,40,40,0.82)', backdropFilter: 'blur(20px)',
+          borderRadius: 60, padding: '10px 18px',
+          boxShadow: '0 4px 30px rgba(0,0,0,0.5)',
+        }}>
+          {/* ··· */}
+          <button style={{ width: 50, height: 50, borderRadius: '50%', background: 'rgba(80,80,80,0.7)',
+            border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="MoreHorizontal" size={22} className="text-white" />
+          </button>
 
-        {/* Микрофон */}
-        <div className="flex flex-col items-center gap-1">
+          {/* Камера (видео вкл/выкл) */}
+          {kind === 'video' && (
+            <button onClick={toggleCam}
+              style={{ width: 50, height: 50, borderRadius: '50%', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: camOn ? 'rgba(255,255,255,0.92)' : 'rgba(80,80,80,0.7)' }}>
+              <Icon name={camOn ? 'Video' : 'VideoOff'} size={22} style={{ color: camOn ? '#111' : '#fff' }} />
+            </button>
+          )}
+
+          {/* Динамик */}
+          <button onClick={toggleSpeaker}
+            style={{ width: 50, height: 50, borderRadius: '50%', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: speakerOn ? 'rgba(255,255,255,0.92)' : 'rgba(80,80,80,0.7)' }}>
+            <Icon name={speakerOn ? 'Volume2' : 'VolumeX'} size={22} style={{ color: speakerOn ? '#111' : '#fff' }} />
+          </button>
+
+          {/* Микрофон */}
           <button onClick={toggleMic}
-            style={{ width: 54, height: 54, borderRadius: '50%', display: 'flex', alignItems: 'center',
-              justifyContent: 'center', background: micOn ? 'rgba(255,255,255,0.18)' : 'hsl(var(--destructive))' }}>
+            style={{ width: 50, height: 50, borderRadius: '50%', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: micOn ? 'rgba(80,80,80,0.7)' : 'rgba(220,38,38,0.85)' }}>
             <Icon name={micOn ? 'Mic' : 'MicOff'} size={22} className="text-white" />
           </button>
-          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)' }}>{micOn ? 'Микрофон' : 'Без звука'}</span>
-        </div>
 
-        {/* Громкий/тихий — только для аудиозвонка */}
-        {kind === 'audio' && (
-          <div className="flex flex-col items-center gap-1">
-            <button onClick={toggleSpeaker}
-              style={{ width: 54, height: 54, borderRadius: '50%', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', background: speakerOn ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.08)' }}>
-              <Icon name={speakerOn ? 'Volume2' : 'VolumeX'} size={22} className="text-white" />
-            </button>
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)' }}>{speakerOn ? 'Громкий' : 'К уху'}</span>
-          </div>
-        )}
-
-        {/* Камера вкл/выкл — только для видео */}
-        {kind === 'video' && (
-          <div className="flex flex-col items-center gap-1">
-            <button onClick={toggleCam}
-              style={{ width: 54, height: 54, borderRadius: '50%', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', background: camOn ? 'rgba(255,255,255,0.18)' : 'hsl(var(--destructive))' }}>
-              <Icon name={camOn ? 'Video' : 'VideoOff'} size={22} className="text-white" />
-            </button>
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)' }}>{camOn ? 'Камера' : 'Без камеры'}</span>
-          </div>
-        )}
-
-        {/* Завершить */}
-        <div className="flex flex-col items-center gap-1">
+          {/* Завершить */}
           <button onClick={hangup}
-            style={{ width: 62, height: 62, borderRadius: '50%', display: 'flex', alignItems: 'center',
-              justifyContent: 'center', background: 'hsl(var(--destructive))', boxShadow: '0 4px 20px rgba(220,38,38,0.5)' }}>
-            <Icon name="PhoneOff" size={26} className="text-white" />
+            style={{ width: 58, height: 58, borderRadius: '50%', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: '#dc2626', boxShadow: '0 4px 20px rgba(220,38,38,0.5)' }}>
+            <Icon name="PhoneOff" size={24} className="text-white" />
           </button>
-          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)' }}>Завершить</span>
         </div>
       </div>
     </div>
