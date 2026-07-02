@@ -3269,24 +3269,46 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
   };
 
   const uploadFile = async (file: File, type: 'image' | 'video' | 'audio' | 'voice') => {
-    const maxMb = type === 'video' ? 200 : type === 'audio' ? 50 : 20;
+    const maxMb = type === 'video' ? 500 : type === 'audio' ? 100 : 20;
     if (file.size > maxMb * 1024 * 1024) {
       alert(`Файл слишком большой. Максимум ${maxMb} МБ.`);
       return;
     }
     setUploading(true);
-    const label = type === 'video' ? 'Загрузка видео...' : type === 'audio' ? 'Загрузка аудио...' : type === 'image' ? 'Загрузка фото...' : 'Загрузка...';
-    setUploadProgress(label);
     try {
       const ext = (file.name.split('.').pop() || (type === 'voice' ? 'ogg' : type === 'image' ? 'jpg' : type)).toLowerCase();
-      const b64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve((reader.result as string).split(',')[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      const d = await api('upload_media', 'POST', { user_id: user.id, data: b64, ext, media_type: type });
-      if (d.url) await send(undefined, d.url, type);
+
+      if (type === 'video' || type === 'audio') {
+        // Загрузка чанками по 512 КБ
+        const CHUNK = 512 * 1024;
+        const total = Math.ceil(file.size / CHUNK);
+        const upload_id = `${user.id}_${Date.now()}`;
+        for (let i = 0; i < total; i++) {
+          const slice = file.slice(i * CHUNK, (i + 1) * CHUNK);
+          const b64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve((reader.result as string).split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(slice);
+          });
+          setUploadProgress(`Загрузка ${Math.round((i + 1) / total * 100)}%`);
+          await api('upload_chunk', 'POST', { user_id: user.id, upload_id, chunk_index: i, data: b64 });
+        }
+        setUploadProgress('Обработка...');
+        const d = await api('assemble_chunks', 'POST', { user_id: user.id, upload_id, total_chunks: total, ext, media_type: type });
+        if (d.url) await send(undefined, d.url, type);
+      } else {
+        // Фото и голос — через base64 как раньше
+        setUploadProgress(type === 'image' ? 'Загрузка фото...' : 'Загрузка...');
+        const b64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve((reader.result as string).split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        const d = await api('upload_media', 'POST', { user_id: user.id, data: b64, ext, media_type: type });
+        if (d.url) await send(undefined, d.url, type);
+      }
     } catch (e) {
       console.error('[uploadFile]', e);
       alert('Не удалось загрузить файл. Попробуй ещё раз.');

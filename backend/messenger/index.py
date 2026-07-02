@@ -675,7 +675,48 @@ def handler(event: dict, context) -> dict:
 
         # ── PRESIGNED URL (не используется, оставлен для совместимости) ────────
         if action == 'get_upload_url' and method == 'POST':
-            return _resp(400, {'error': 'Используй upload_media'})
+            return _resp(400, {'error': 'Используй upload_chunk'})
+
+        # ── UPLOAD CHUNK (загрузка кусочка файла) ─────────
+        if action == 'upload_chunk' and method == 'POST':
+            """Принимает кусочек файла и сохраняет в S3"""
+            uid       = int(body.get('user_id') or 0)
+            upload_id = body.get('upload_id', '')
+            chunk_idx = int(body.get('chunk_index') or 0)
+            data_b64  = body.get('data', '')
+            if not upload_id or not data_b64:
+                return _resp(400, {'error': 'Нет данных'})
+            raw = base64.b64decode(data_b64)
+            key = f"chunks/{uid}/{upload_id}/{chunk_idx:05d}"
+            s3 = _s3()
+            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw)
+            print(f'[CHUNK] uid={uid} upload_id={upload_id} chunk={chunk_idx} size={len(raw)}')
+            return _resp(200, {'ok': True})
+
+        # ── ASSEMBLE CHUNKS (склеить кусочки в файл) ──────
+        if action == 'assemble_chunks' and method == 'POST':
+            """Склеивает все кусочки в один файл и возвращает URL"""
+            uid         = int(body.get('user_id') or 0)
+            upload_id   = body.get('upload_id', '')
+            total       = int(body.get('total_chunks') or 0)
+            ext         = (body.get('ext') or 'mp4').lower()
+            media_type  = body.get('media_type', 'video')
+            if not upload_id or not total:
+                return _resp(400, {'error': 'Нет данных'})
+            ct_map = {'video': f'video/{ext}', 'audio': f'audio/{ext}', 'voice': 'audio/ogg', 'file': 'application/octet-stream'}
+            content_type = ct_map.get(media_type, 'application/octet-stream')
+            s3 = _s3()
+            assembled = b''
+            for i in range(total):
+                key = f"chunks/{uid}/{upload_id}/{i:05d}"
+                obj = s3.get_object(Bucket=REGRU_BUCKET, Key=key)
+                assembled += obj['Body'].read()
+                s3.delete_object(Bucket=REGRU_BUCKET, Key=key)
+            final_key = f"media/{uid}/{upload_id}.{ext}"
+            s3.put_object(Bucket=REGRU_BUCKET, Key=final_key, Body=assembled, ContentType=content_type)
+            url = _s3_url(final_key)
+            print(f'[ASSEMBLE] uid={uid} upload_id={upload_id} total={total} size={len(assembled)} url={url}')
+            return _resp(200, {'url': url, 'media_type': media_type})
 
         # ── UPLOAD MEDIA ──────────────────────────────────
         if action == 'upload_media' and method == 'POST':
