@@ -263,7 +263,7 @@ def handler(event: dict, context) -> dict:
             raw = base64.b64decode(data_b64)
             key = f"avatars/{uid}.{ext}"
             s3 = _s3()
-            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw, ContentType=f'image/{ext}', ACL='public-read')
+            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw, ContentType=f'image/{ext}')
             url = _s3_url(key)
             cur.execute("UPDATE users SET avatar_url=%s, profile_complete=TRUE WHERE id=%s", (url, uid))
             conn.commit()
@@ -697,7 +697,7 @@ def handler(event: dict, context) -> dict:
             ct_map = {'image': f'image/{ext}', 'video': f'video/{ext}', 'audio': f'audio/{ext}', 'voice': 'audio/ogg', 'file': 'application/octet-stream'}
             content_type = ct_map.get(media_type, 'application/octet-stream')
             s3 = _s3()
-            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw, ContentType=content_type, ACL='public-read')
+            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw, ContentType=content_type)
             url = _s3_url(key)
             print(f'[MEDIA] OK url={url}')
             return _resp(200, {'url': url, 'media_type': media_type})
@@ -1125,7 +1125,7 @@ def handler(event: dict, context) -> dict:
             key = f"groups/{gid}/photo.{ext}"
             try:
                 s3 = _s3()
-                s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw, ContentType=f'image/{ext}', ACL='public-read')
+                s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw, ContentType=f'image/{ext}')
                 print(f'[GROUP_PHOTO] S3 upload OK key={key}')
             except Exception as e:
                 print(f'[GROUP_PHOTO] S3 error: {e}')
@@ -1323,7 +1323,7 @@ def handler(event: dict, context) -> dict:
                 return _resp(400, {'error': 'Ошибка декодирования фото'})
             s3 = _s3()
             key = f"realty/{uid}_{secrets.token_hex(8)}.jpg"
-            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=img_bytes, ContentType='image/jpeg', ACL='public-read')
+            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=img_bytes, ContentType='image/jpeg')
             url = _s3_url(key)
             print(f'[PHOTO] OK url={url}')
             return _resp(200, {'url': url})
