@@ -12,6 +12,20 @@ from psycopg2.extras import RealDictCursor
 
 ONESIGNAL_APP_ID = 'b50464b8-77e0-4bef-9897-aba0433d5f06'
 
+REGRU_ENDPOINT = 'https://s3.regru.cloud'
+REGRU_BUCKET   = 'vaimessenger'
+
+def _s3():
+    return boto3.client(
+        's3',
+        endpoint_url=REGRU_ENDPOINT,
+        aws_access_key_id=os.environ['REGRU_S3_ACCESS_KEY'],
+        aws_secret_access_key=os.environ['REGRU_S3_SECRET_KEY'],
+    )
+
+def _s3_url(key: str) -> str:
+    return f"{REGRU_ENDPOINT}/{REGRU_BUCKET}/{key}"
+
 
 def _hash_pw(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
@@ -248,14 +262,9 @@ def handler(event: dict, context) -> dict:
             ext = (body.get('ext') or 'jpg').lower()
             raw = base64.b64decode(data_b64)
             key = f"avatars/{uid}.{ext}"
-            s3 = boto3.client(
-                's3',
-                endpoint_url='https://bucket.poehali.dev',
-                aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
-                aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
-            )
-            s3.put_object(Bucket='files', Key=key, Body=raw, ContentType=f'image/{ext}')
-            url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
+            s3 = _s3()
+            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw, ContentType=f'image/{ext}')
+            url = _s3_url(key)
             cur.execute("UPDATE users SET avatar_url=%s, profile_complete=TRUE WHERE id=%s", (url, uid))
             conn.commit()
             return _resp(200, {'url': url})
@@ -660,15 +669,13 @@ def handler(event: dict, context) -> dict:
             ct_map = {'image': f'image/{ext}', 'video': f'video/{ext}', 'audio': f'audio/{ext}', 'voice': 'audio/ogg', 'file': 'application/octet-stream'}
             content_type = ct_map.get(media_type, 'application/octet-stream')
             key = f"media/{uid}/{int(time.time())}_{secrets.token_hex(4)}.{ext}"
-            s3 = boto3.client('s3', endpoint_url='https://bucket.poehali.dev',
-                aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
-                aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
+            s3 = _s3()
             upload_url = s3.generate_presigned_url(
                 'put_object',
-                Params={'Bucket': 'files', 'Key': key, 'ContentType': content_type},
+                Params={'Bucket': REGRU_BUCKET, 'Key': key, 'ContentType': content_type},
                 ExpiresIn=600
             )
-            cdn_url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
+            cdn_url = _s3_url(key)
             print(f'[PRESIGN] uid={uid} key={key} content_type={content_type}')
             return _resp(200, {'upload_url': upload_url, 'cdn_url': cdn_url, 'media_type': media_type})
 
@@ -689,11 +696,9 @@ def handler(event: dict, context) -> dict:
             key = f"media/{uid}/{int(time.time())}.{ext}"
             ct_map = {'image': f'image/{ext}', 'video': f'video/{ext}', 'audio': f'audio/{ext}', 'voice': 'audio/ogg', 'file': 'application/octet-stream'}
             content_type = ct_map.get(media_type, 'application/octet-stream')
-            s3 = boto3.client('s3', endpoint_url='https://bucket.poehali.dev',
-                aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
-                aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
-            s3.put_object(Bucket='files', Key=key, Body=raw, ContentType=content_type)
-            url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
+            s3 = _s3()
+            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw, ContentType=content_type)
+            url = _s3_url(key)
             print(f'[MEDIA] OK url={url}')
             return _resp(200, {'url': url, 'media_type': media_type})
 
@@ -1094,11 +1099,9 @@ def handler(event: dict, context) -> dict:
             ext = (body.get('ext') or 'jpg').lower()
             raw = base64.b64decode(data_b64)
             key = f"groups/{gid}/photo.{ext}"
-            s3 = boto3.client('s3', endpoint_url='https://bucket.poehali.dev',
-                aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
-                aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
-            s3.put_object(Bucket='files', Key=key, Body=raw, ContentType=f'image/{ext}')
-            url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}?t={int(time.time())}"
+            s3 = _s3()
+            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw, ContentType=f'image/{ext}')
+            url = _s3_url(key) + f"?t={int(time.time())}"
             cur.execute("UPDATE groups SET photo_url=%s WHERE id=%s", (url, gid))
             conn.commit()
             return _resp(200, {'url': url})
@@ -1288,12 +1291,10 @@ def handler(event: dict, context) -> dict:
             except Exception as e:
                 print(f'[PHOTO] base64 decode error: {e}')
                 return _resp(400, {'error': 'Ошибка декодирования фото'})
-            s3 = boto3.client('s3', endpoint_url='https://bucket.poehali.dev',
-                              aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
-                              aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
+            s3 = _s3()
             key = f"realty/{uid}_{secrets.token_hex(8)}.jpg"
-            s3.put_object(Bucket='files', Key=key, Body=img_bytes, ContentType='image/jpeg')
-            url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
+            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=img_bytes, ContentType='image/jpeg')
+            url = _s3_url(key)
             print(f'[PHOTO] OK url={url}')
             return _resp(200, {'url': url})
 
