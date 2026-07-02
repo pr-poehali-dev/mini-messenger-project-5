@@ -878,8 +878,8 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat 
                 : <Avatar url={c.peer_avatar} nick={c.peer_nick || '?'} size={48} online={c.peer_online} />
               }
               <div className="flex-1 min-w-0 text-left">
-                <div className="font-semibold text-slate-800 truncate text-[15px]">{c.kind === 'group' ? c.group_name : `@${c.peer_nick}`}</div>
-                <div className="text-sm text-slate-400 truncate mt-0.5">{c.last_text || 'Нет сообщений'}</div>
+                <div className="font-semibold text-slate-800 truncate text-[17px]">{c.kind === 'group' ? c.group_name : `@${c.peer_nick}`}</div>
+                <div className="text-[14px] text-slate-400 truncate mt-0.5">{c.last_text || 'Нет сообщений'}</div>
               </div>
               <div className="flex flex-col items-end gap-1.5 shrink-0 ml-1">
                 <span className="text-[11px] text-slate-400">{fmtTime(c.last_at || null)}</span>
@@ -3590,7 +3590,10 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
         {uploading && (
           <div className="flex items-center gap-3 px-4 py-3 bg-blue-50 border-t border-blue-100">
             <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin shrink-0" />
-            <span className="text-sm text-blue-600 font-medium">{uploadProgress}</span>
+            <span className="text-sm text-blue-600 font-medium flex-1">{uploadProgress}</span>
+            <button onClick={() => { setUploading(false); setUploadProgress(''); }} className="w-6 h-6 rounded-full bg-blue-200 flex items-center justify-center hover:bg-blue-300 transition-colors shrink-0">
+              <Icon name="X" size={14} className="text-blue-700" />
+            </button>
           </div>
         )}
 

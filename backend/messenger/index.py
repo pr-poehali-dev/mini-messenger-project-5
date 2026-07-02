@@ -693,9 +693,9 @@ def handler(event: dict, context) -> dict:
             print(f'[CHUNK] uid={uid} upload_id={upload_id} chunk={chunk_idx} size={len(raw)}')
             return _resp(200, {'ok': True})
 
-        # ── ASSEMBLE CHUNKS (склеить кусочки в файл) ──────
+        # ── ASSEMBLE CHUNKS (склеить кусочки через S3 multipart) ──────
         if action == 'assemble_chunks' and method == 'POST':
-            """Склеивает все кусочки в один файл и возвращает URL"""
+            """Склеивает все кусочки в один файл через S3 multipart upload"""
             uid         = int(body.get('user_id') or 0)
             upload_id   = body.get('upload_id', '')
             total       = int(body.get('total_chunks') or 0)
@@ -706,16 +706,33 @@ def handler(event: dict, context) -> dict:
             ct_map = {'video': f'video/{ext}', 'audio': f'audio/{ext}', 'voice': 'audio/ogg', 'file': 'application/octet-stream'}
             content_type = ct_map.get(media_type, 'application/octet-stream')
             s3 = _s3()
-            assembled = b''
-            for i in range(total):
-                key = f"chunks/{uid}/{upload_id}/{i:05d}"
-                obj = s3.get_object(Bucket=REGRU_BUCKET, Key=key)
-                assembled += obj['Body'].read()
-                s3.delete_object(Bucket=REGRU_BUCKET, Key=key)
             final_key = f"media/{uid}/{upload_id}.{ext}"
-            s3.put_object(Bucket=REGRU_BUCKET, Key=final_key, Body=assembled, ContentType=content_type)
+            # Начинаем multipart upload
+            mpu = s3.create_multipart_upload(Bucket=REGRU_BUCKET, Key=final_key, ContentType=content_type)
+            mp_id = mpu['UploadId']
+            parts = []
+            buf = b''
+            MIN_PART = 5 * 1024 * 1024  # минимум 5 МБ для каждой части кроме последней
+            part_num = 1
+            try:
+                for i in range(total):
+                    chunk_key = f"chunks/{uid}/{upload_id}/{i:05d}"
+                    obj = s3.get_object(Bucket=REGRU_BUCKET, Key=chunk_key)
+                    buf += obj['Body'].read()
+                    s3.delete_object(Bucket=REGRU_BUCKET, Key=chunk_key)
+                    # Отправляем часть когда накопили достаточно или это последний чанк
+                    if len(buf) >= MIN_PART or i == total - 1:
+                        resp = s3.upload_part(Bucket=REGRU_BUCKET, Key=final_key, UploadId=mp_id, PartNumber=part_num, Body=buf)
+                        parts.append({'PartNumber': part_num, 'ETag': resp['ETag']})
+                        part_num += 1
+                        buf = b''
+                s3.complete_multipart_upload(Bucket=REGRU_BUCKET, Key=final_key, UploadId=mp_id, MultipartUpload={'Parts': parts})
+            except Exception as e:
+                s3.abort_multipart_upload(Bucket=REGRU_BUCKET, Key=final_key, UploadId=mp_id)
+                print(f'[ASSEMBLE] error: {e}')
+                return _resp(500, {'error': f'Ошибка сборки: {e}'})
             url = _s3_url(final_key)
-            print(f'[ASSEMBLE] uid={uid} upload_id={upload_id} total={total} size={len(assembled)} url={url}')
+            print(f'[ASSEMBLE] OK uid={uid} upload_id={upload_id} total={total} parts={part_num-1} url={url}')
             return _resp(200, {'url': url, 'media_type': media_type})
 
         # ── UPLOAD MEDIA ──────────────────────────────────
