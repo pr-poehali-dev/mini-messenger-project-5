@@ -734,22 +734,22 @@ function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (t: Tab) =
     { key: 'profile', icon: 'User', label: 'Профиль' },
   ];
   return (
-    <div className="flex flex-col" style={{ background: '#f0f4fa', height: '100dvh', paddingTop: 'env(safe-area-inset-top)' }}>
+    <div className="flex flex-col" style={{ background: 'hsl(var(--background))', height: '100dvh', paddingTop: 'env(safe-area-inset-top)' }}>
       <div className="flex-1 overflow-hidden flex flex-col pb-[80px]">{children}</div>
       <div className="fixed bottom-0 left-0 right-0 flex justify-center pt-2 px-4"
-        style={{ background: 'linear-gradient(to top, #f0f4fa 60%, transparent)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}>
+        style={{ background: 'linear-gradient(to top, hsl(var(--background)) 60%, transparent)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}>
         <nav className="flex items-center gap-1 px-2 py-2 rounded-[28px] shadow-xl"
-          style={{ background: 'rgba(255,255,255,0.98)', backdropFilter: 'blur(24px)', boxShadow: '0 8px 32px rgba(30,58,138,0.13), 0 2px 8px rgba(30,58,138,0.08)' }}>
+          style={{ background: 'hsl(var(--card) / 0.98)', backdropFilter: 'blur(24px)', boxShadow: '0 8px 32px rgba(30,58,138,0.13), 0 2px 8px rgba(30,58,138,0.08)' }}>
           {tabs.map(t => (
             <button key={t.key} onClick={() => onTab(t.key)}
               className="relative flex flex-col items-center transition-all"
               style={{ minWidth: 64 }}>
               <div className={`relative flex flex-col items-center justify-center gap-0.5 px-4 py-2 rounded-[20px] transition-all duration-200
-                ${tab === t.key ? 'bg-blue-600 shadow-md shadow-blue-200' : 'hover:bg-slate-100'}`}>
+                ${tab === t.key ? 'bg-blue-600 shadow-md shadow-blue-200' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
                 <Icon name={t.icon} size={21}
-                  className={tab === t.key ? 'text-white' : 'text-slate-400'} />
+                  className={tab === t.key ? 'text-white' : 'text-slate-400 dark:text-slate-500'} />
                 <span className={`text-[10px] font-semibold leading-none transition-colors
-                  ${tab === t.key ? 'text-white' : 'text-slate-400'}`}>
+                  ${tab === t.key ? 'text-white' : 'text-slate-400 dark:text-slate-500'}`}>
                   {t.label}
                 </span>
                 {(t.badge || 0) > 0 && (
@@ -810,18 +810,18 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat 
   return (
     <div className="flex flex-col h-full" onClick={() => { setShowMenu(false); setSwipedId(null); }}>
       {/* Фиксированная шапка */}
-      <div className="shrink-0 bg-white px-4 pt-4 pb-2 border-b border-slate-100" onClick={e => e.stopPropagation()}>
+      <div className="shrink-0 bg-white dark:bg-slate-900 px-4 pt-4 pb-2 border-b border-slate-100 dark:border-slate-800" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
-          <h1 className="text-2xl font-bold text-slate-900" style={{ letterSpacing: '-0.5px' }}>Чаты</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100" style={{ letterSpacing: '-0.5px' }}>Чаты</h1>
           <div className="relative">
             <button onClick={() => setShowMenu(v => !v)}
               className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm shadow-blue-200 transition-all active:scale-95">
               <Icon name="Plus" size={18} className="text-white" />
             </button>
             {showMenu && (
-              <div className="absolute right-0 top-11 bg-white rounded-2xl p-1 z-50 w-52 shadow-xl border border-slate-100 animate-fade-up">
+              <div className="absolute right-0 top-11 bg-white dark:bg-slate-900 rounded-2xl p-1 z-50 w-52 shadow-xl border border-slate-100 dark:border-slate-800 animate-fade-up">
                 <button onClick={() => { setShowMenu(false); onNewGroup(); }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-50 transition-colors text-sm text-slate-700 font-medium">
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-sm text-slate-700 dark:text-slate-200 font-medium">
                   <Icon name="Users" size={16} className="text-blue-600" /> Создать группу
                 </button>
               </div>
@@ -829,12 +829,12 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat 
           </div>
         </div>
         {/* Поиск */}
-        <div className="flex items-center gap-2 bg-slate-100 rounded-2xl px-3 py-2.5 mb-3">
-          <Icon name="Search" size={16} className="text-slate-400 shrink-0" />
+        <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 rounded-2xl px-3 py-2.5 mb-3">
+          <Icon name="Search" size={16} className="text-slate-400 dark:text-slate-500 shrink-0" />
           <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Поиск"
-            className="flex-1 bg-transparent outline-none text-sm text-slate-700 placeholder:text-slate-400" />
-          {search && <button onClick={() => setSearch('')}><Icon name="X" size={14} className="text-slate-400" /></button>}
+            className="flex-1 bg-transparent outline-none text-sm text-slate-700 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+          {search && <button onClick={() => setSearch('')}><Icon name="X" size={14} className="text-slate-400 dark:text-slate-500" /></button>}
         </div>
         {/* Фильтры */}
         <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
@@ -844,21 +844,21 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat 
             { key: 'groups', label: `Группы${groupCount > 0 ? ` ${groupCount}` : ''}` },
           ] as const).map(f => (
             <button key={f.key} onClick={() => setFilter(f.key)}
-              className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${filter === f.key ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+              className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${filter === f.key ? 'bg-green-100 text-green-700' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>
               {f.label}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-2 bg-white">
+      <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-2 bg-white dark:bg-slate-950">
         {visibleChats.length === 0 && (
           <div className="flex flex-col items-center justify-center mt-24 gap-3">
-            <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center">
+            <div className="w-16 h-16 rounded-2xl bg-blue-50 dark:bg-slate-800 flex items-center justify-center">
               <Icon name="MessageCircle" size={32} className="text-blue-300" />
             </div>
-            <p className="font-semibold text-slate-500 text-sm">{search ? 'Ничего не найдено' : 'Нет сообщений'}</p>
-            <p className="text-xs text-slate-400">{search ? 'Попробуй другой запрос' : 'Найди людей через поиск'}</p>
+            <p className="font-semibold text-slate-500 dark:text-slate-400 text-sm">{search ? 'Ничего не найдено' : 'Нет сообщений'}</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500">{search ? 'Попробуй другой запрос' : 'Найди людей через поиск'}</p>
           </div>
         )}
         {/* Чаты по объявлениям */}
@@ -876,16 +876,16 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat 
             {deleteConfirm === c.chat_id && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6"
                 onClick={() => setDeleteConfirm(null)}>
-                <div className="bg-white rounded-3xl p-6 w-full max-w-sm space-y-3 shadow-2xl"
+                <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-sm space-y-3 shadow-2xl"
                   onClick={e => e.stopPropagation()}>
-                  <p className="font-bold text-center text-slate-800 text-lg">Удалить чат?</p>
-                  <p className="text-sm text-slate-500 text-center">Чат исчезнет только у тебя. Собеседник его не потеряет.</p>
+                  <p className="font-bold text-center text-slate-800 dark:text-slate-100 text-lg">Удалить чат?</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 text-center">Чат исчезнет только у тебя. Собеседник его не потеряет.</p>
                   <button onClick={() => hideChat(c.chat_id, false)}
                     className="w-full py-3.5 rounded-2xl bg-red-500 text-white text-sm font-bold mt-2">
                     Удалить у меня
                   </button>
                   <button onClick={() => setDeleteConfirm(null)}
-                    className="w-full py-3 rounded-2xl text-sm text-slate-500 font-medium">
+                    className="w-full py-3 rounded-2xl text-sm text-slate-500 dark:text-slate-400 font-medium">
                     Отмена
                   </button>
                 </div>
@@ -913,11 +913,11 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat 
                 : <Avatar url={c.peer_avatar} nick={c.peer_nick || '?'} size={48} online={c.peer_online} />
               }
               <div className="flex-1 min-w-0 text-left">
-                <div className="font-semibold text-slate-800 truncate text-[17px]">{c.kind === 'group' ? c.group_name : `@${c.peer_nick}`}</div>
-                <div className="text-[14px] text-slate-400 truncate mt-0.5">{c.last_text || 'Нет сообщений'}</div>
+                <div className="font-semibold text-slate-800 dark:text-slate-100 truncate text-[17px]">{c.kind === 'group' ? c.group_name : `@${c.peer_nick}`}</div>
+                <div className="text-[14px] text-slate-400 dark:text-slate-500 truncate mt-0.5">{c.last_text || 'Нет сообщений'}</div>
               </div>
               <div className="flex flex-col items-end gap-1.5 shrink-0 ml-1">
-                <span className="text-[11px] text-slate-400">{fmtTime(c.last_at || null)}</span>
+                <span className="text-[11px] text-slate-400 dark:text-slate-500">{fmtTime(c.last_at || null)}</span>
                 <div className="flex items-center gap-1">
                   {(c.unread_count || 0) > 0 && (
                     <span className="min-w-[20px] h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center px-1.5">
@@ -926,7 +926,7 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat 
                   )}
                   {c.kind === 'group' && c.group_id && (
                     <button onClick={e => { e.stopPropagation(); onOpenGroup(c.group_id!, c.chat_id); }}
-                      className="w-5 h-5 rounded-full hover:bg-slate-100 flex items-center justify-center transition-colors">
+                      className="w-5 h-5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center transition-colors">
                       <Icon name="Info" size={12} className="text-blue-400" />
                     </button>
                   )}
@@ -958,25 +958,25 @@ function SearchTab({ user, onOpenProfile }: { user: User; onOpenProfile: (id: nu
 
   return (
     <div className="flex flex-col h-full">
-      <div className="shrink-0 px-4 pt-4 pb-3 bg-white border-b border-slate-100">
-        <h1 className="text-2xl font-bold text-slate-900 mb-3" style={{ letterSpacing: '-0.5px' }}>Поиск</h1>
-        <div className="flex items-center gap-2 bg-slate-100 rounded-2xl px-3 py-2.5">
-          <Icon name="Search" size={16} className="text-slate-400 shrink-0" />
+      <div className="shrink-0 px-4 pt-4 pb-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mb-3" style={{ letterSpacing: '-0.5px' }}>Поиск</h1>
+        <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 rounded-2xl px-3 py-2.5">
+          <Icon name="Search" size={16} className="text-slate-400 dark:text-slate-500 shrink-0" />
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Найти по нику…"
-            className="flex-1 bg-transparent outline-none text-sm text-slate-700 placeholder:text-slate-400" />
-          {q && <button onClick={() => setQ('')}><Icon name="X" size={14} className="text-slate-400" /></button>}
+            className="flex-1 bg-transparent outline-none text-sm text-slate-700 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+          {q && <button onClick={() => setQ('')}><Icon name="X" size={14} className="text-slate-400 dark:text-slate-500" /></button>}
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-2">
-        {q.trim() && results.length === 0 && <p className="text-center text-slate-400 mt-12 text-sm">Никого не найдено</p>}
+      <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-2 bg-white dark:bg-slate-950">
+        {q.trim() && results.length === 0 && <p className="text-center text-slate-400 dark:text-slate-500 mt-12 text-sm">Никого не найдено</p>}
         {results.map(u => (
-          <button key={u.id} onClick={() => onOpenProfile(u.id)} className="w-full flex items-center gap-3 px-2 py-3 rounded-2xl hover:bg-blue-50 transition-colors animate-fade-up">
+          <button key={u.id} onClick={() => onOpenProfile(u.id)} className="w-full flex items-center gap-3 px-2 py-3 rounded-2xl hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors animate-fade-up">
             <Avatar url={u.avatar_url} nick={u.nick} size={48} online={u.is_online} />
             <div className="flex-1 text-left">
-              <div className="font-semibold text-slate-800">@{u.nick}</div>
-              {u.city && <div className="text-xs text-slate-400">{u.city}</div>}
+              <div className="font-semibold text-slate-800 dark:text-slate-100">@{u.nick}</div>
+              {u.city && <div className="text-xs text-slate-400 dark:text-slate-500">{u.city}</div>}
             </div>
-            <Icon name="ChevronRight" size={18} className="text-slate-300" />
+            <Icon name="ChevronRight" size={18} className="text-slate-300 dark:text-slate-600" />
           </button>
         ))}
       </div>
@@ -1056,47 +1056,47 @@ function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall }: {
   return (
     <div className="flex flex-col h-full">
       {/* Заголовок + вкладки */}
-      <div className="shrink-0 px-4 pt-4 pb-0 bg-white border-b border-slate-100">
+      <div className="shrink-0 px-4 pt-4 pb-0 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
         <div className="flex items-center justify-between mb-3">
-          <h1 className="text-2xl font-bold text-slate-900" style={{ letterSpacing: '-0.5px' }}>Уведомления</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100" style={{ letterSpacing: '-0.5px' }}>Уведомления</h1>
           {tab === 'notifs' && notifs.length > 0 && (
-            <button onClick={clearAll} className="text-sm text-slate-400 hover:text-red-400 transition-colors font-medium flex items-center gap-1">
+            <button onClick={clearAll} className="text-sm text-slate-400 dark:text-slate-500 hover:text-red-400 transition-colors font-medium flex items-center gap-1">
               <Icon name="Trash2" size={15} /> Очистить
             </button>
           )}
           {tab === 'calls' && calls.length > 0 && (
-            <button onClick={clearCalls} className="text-sm text-slate-400 hover:text-red-400 transition-colors font-medium flex items-center gap-1">
+            <button onClick={clearCalls} className="text-sm text-slate-400 dark:text-slate-500 hover:text-red-400 transition-colors font-medium flex items-center gap-1">
               <Icon name="Trash2" size={15} /> Очистить
             </button>
           )}
         </div>
         <div className="flex gap-1 mb-0">
           <button onClick={() => setTab('notifs')}
-            className={`flex-1 py-2 text-sm font-semibold rounded-t-xl transition-colors ${tab === 'notifs' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400'}`}>
+            className={`flex-1 py-2 text-sm font-semibold rounded-t-xl transition-colors ${tab === 'notifs' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 dark:text-slate-500'}`}>
             Уведомления
           </button>
           <button onClick={() => { setTab('calls'); if (!calls.length) loadCalls(); }}
-            className={`flex-1 py-2 text-sm font-semibold rounded-t-xl transition-colors ${tab === 'calls' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400'}`}>
+            className={`flex-1 py-2 text-sm font-semibold rounded-t-xl transition-colors ${tab === 'calls' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 dark:text-slate-500'}`}>
             Звонки
           </button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-2 pt-2">
+      <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-2 pt-2 bg-white dark:bg-slate-950">
         {/* Вкладка уведомлений */}
         {tab === 'notifs' && <>
           {loading && <div className="flex justify-center mt-16"><div className="w-7 h-7 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>}
           {!loading && notifs.length === 0 && (
             <div className="flex flex-col items-center justify-center mt-24 gap-3">
-              <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center"><Icon name="Bell" size={30} className="text-blue-300" /></div>
-              <p className="font-semibold text-slate-500 text-sm">Нет уведомлений</p>
+              <div className="w-16 h-16 rounded-2xl bg-blue-50 dark:bg-slate-800 flex items-center justify-center"><Icon name="Bell" size={30} className="text-blue-300" /></div>
+              <p className="font-semibold text-slate-500 dark:text-slate-400 text-sm">Нет уведомлений</p>
             </div>
           )}
           {notifs.map(n => (
-            <div key={n.id} className={`flex items-start gap-3 px-3 py-3.5 rounded-2xl mb-2 transition-colors ${!n.is_read ? 'bg-blue-50 border border-blue-100' : 'bg-white border border-slate-100'}`}>
+            <div key={n.id} className={`flex items-start gap-3 px-3 py-3.5 rounded-2xl mb-2 transition-colors ${!n.is_read ? 'bg-blue-50 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900' : 'bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800'}`}>
               <div className="relative shrink-0">
-                <div className="w-12 h-12 rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center">
-                  {n.from_avatar ? <img src={n.from_avatar} className="w-full h-full object-cover" /> : <span className="text-xl font-bold text-slate-400">{(n.from_nick || '?')[0].toUpperCase()}</span>}
+                <div className="w-12 h-12 rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                  {n.from_avatar ? <img src={n.from_avatar} className="w-full h-full object-cover" /> : <span className="text-xl font-bold text-slate-400 dark:text-slate-500">{(n.from_nick || '?')[0].toUpperCase()}</span>}
                 </div>
                 <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center ${n.type === 'missed_call' ? 'bg-red-500' : n.type === 'follow' ? 'bg-green-500' : 'bg-blue-500'}`}>
                   <Icon name={NOTIF_ICONS[n.type] || 'Bell'} size={11} className="text-white" />
@@ -1105,11 +1105,11 @@ function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall }: {
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-1">
                   <div>
-                    {n.from_nick && <div className="text-sm font-bold text-slate-800">@{n.from_nick}</div>}
+                    {n.from_nick && <div className="text-sm font-bold text-slate-800 dark:text-slate-100">@{n.from_nick}</div>}
                     <div className={`text-xs font-medium mt-0.5 ${n.type === 'missed_call' ? 'text-red-500' : n.type === 'follow' ? 'text-green-600' : 'text-blue-600'}`}>{NOTIF_LABELS[n.type] || n.type}</div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-[11px] text-slate-400">{fmtTime(n.created_at)}</span>
+                    <span className="text-[11px] text-slate-400 dark:text-slate-500">{fmtTime(n.created_at)}</span>
                     {!n.is_read && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />}
                   </div>
                 </div>
@@ -1117,7 +1117,7 @@ function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall }: {
                   {n.type === 'missed_call' && n.from_user_id && (<>
                     <button onClick={() => onCall(n.from_user_id!, n.from_nick || '?', n.from_avatar, 'audio')} className="text-xs bg-green-500 text-white rounded-xl px-3 py-1.5 font-semibold flex items-center gap-1"><Icon name="Phone" size={12} /> Перезвонить</button>
                     <button onClick={() => onCall(n.from_user_id!, n.from_nick || '?', n.from_avatar, 'video')} className="text-xs bg-blue-500 text-white rounded-xl px-3 py-1.5 font-semibold flex items-center gap-1"><Icon name="Video" size={12} /> Видео</button>
-                    <button onClick={() => onOpenProfile(n.from_user_id!)} className="text-xs bg-slate-100 text-slate-600 rounded-xl px-3 py-1.5 font-medium flex items-center gap-1"><Icon name="User" size={12} /> Профиль</button>
+                    <button onClick={() => onOpenProfile(n.from_user_id!)} className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl px-3 py-1.5 font-medium flex items-center gap-1"><Icon name="User" size={12} /> Профиль</button>
                   </>)}
                   {n.type === 'follow' && n.from_user_id && <button onClick={() => onOpenProfile(n.from_user_id!)} className="text-xs bg-blue-600 text-white rounded-xl px-3 py-1.5 font-semibold flex items-center gap-1"><Icon name="UserPlus" size={12} /> Профиль</button>}
                   {(n.type === 'new_message' || n.type === 'group_invite') && n.chat_id && <button onClick={() => onOpenChat(n.chat_id!)} className="text-xs bg-blue-600 text-white rounded-xl px-3 py-1.5 font-semibold flex items-center gap-1"><Icon name="MessageCircle" size={12} /> Открыть чат</button>}
@@ -1132,8 +1132,8 @@ function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall }: {
           {callsLoading && <div className="flex justify-center mt-16"><div className="w-7 h-7 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>}
           {!callsLoading && calls.length === 0 && (
             <div className="flex flex-col items-center justify-center mt-24 gap-3">
-              <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center"><Icon name="Phone" size={30} className="text-slate-300" /></div>
-              <p className="font-semibold text-slate-500 text-sm">Нет звонков</p>
+              <div className="w-16 h-16 rounded-2xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center"><Icon name="Phone" size={30} className="text-slate-300" /></div>
+              <p className="font-semibold text-slate-500 dark:text-slate-400 text-sm">Нет звонков</p>
             </div>
           )}
           {calls.map(c => {
@@ -1143,17 +1143,17 @@ function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall }: {
             const peerId = isOutgoing ? c.callee_id : c.caller_id;
             const missed = !isOutgoing && c.status !== 'active' && c.status !== 'ended';
             return (
-              <div key={c.call_id} className="flex items-center gap-3 px-3 py-3.5 bg-white rounded-2xl mb-2 border border-slate-100">
-                <div className="w-12 h-12 rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center shrink-0">
-                  {peerAvatar ? <img src={peerAvatar} className="w-full h-full object-cover" /> : <span className="text-xl font-bold text-slate-400">{(peerNick || '?')[0].toUpperCase()}</span>}
+              <div key={c.call_id} className="flex items-center gap-3 px-3 py-3.5 bg-white dark:bg-slate-900 rounded-2xl mb-2 border border-slate-100 dark:border-slate-800">
+                <div className="w-12 h-12 rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
+                  {peerAvatar ? <img src={peerAvatar} className="w-full h-full object-cover" /> : <span className="text-xl font-bold text-slate-400 dark:text-slate-500">{(peerNick || '?')[0].toUpperCase()}</span>}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-bold text-slate-800 text-sm">@{peerNick}</div>
+                  <div className="font-bold text-slate-800 dark:text-slate-100 text-sm">@{peerNick}</div>
                   <div className={`text-xs flex items-center gap-1 mt-0.5 ${missed ? 'text-red-500' : isOutgoing ? 'text-blue-500' : 'text-green-600'}`}>
                     <Icon name={isOutgoing ? 'PhoneOutgoing' : missed ? 'PhoneMissed' : 'PhoneIncoming'} size={11} />
                     {isOutgoing ? 'Исходящий' : missed ? 'Пропущенный' : 'Входящий'} · {c.kind === 'video' ? 'видео' : 'аудио'}
                   </div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">{fmtTime(c.created_at)}</div>
+                  <div className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">{fmtTime(c.created_at)}</div>
                 </div>
                 <div className="flex gap-1.5 shrink-0">
                   <button onClick={() => onCall(peerId, peerNick, peerAvatar, 'audio')} className="w-9 h-9 rounded-full bg-green-50 flex items-center justify-center"><Icon name="Phone" size={16} className="text-green-500" /></button>
@@ -1188,7 +1188,7 @@ function UserProfileScreen({ me, userId, onBack, onOpenChat, onFollowers, onCall
   const unblock = async () => { await api('unblock', 'POST', { user_id: me.id, target_id: userId }); load(); };
 
   return (
-    <div className="fixed inset-0 flex flex-col" style={{ background: '#f0f4fa' }}>
+    <div className="fixed inset-0 flex flex-col" style={{ background: 'hsl(var(--background))' }}>
       <header className="flex items-center gap-3 px-4 bg-blue-600 shrink-0"
         style={{ paddingTop: 'calc(env(safe-area-inset-top) + 6px)', paddingBottom: '12px', borderRadius: '0 0 18px 18px', boxShadow: '0 4px 20px rgba(37,99,235,0.35)', zIndex: 10 }}>
         <button onClick={onBack} className="w-9 h-9 rounded-full hover:bg-white/15 flex items-center justify-center transition-colors">
@@ -1206,25 +1206,25 @@ function UserProfileScreen({ me, userId, onBack, onOpenChat, onFollowers, onCall
             {showPhoto && profile.avatar_url && (
               <MediaViewer src={profile.avatar_url} type="image" onClose={() => setShowPhoto(false)} />
             )}
-            <h2 className="font-bold text-2xl mt-4 text-slate-800">@{profile.nick}</h2>
-            <p className="text-sm text-slate-400 mt-1">
+            <h2 className="font-bold text-2xl mt-4 text-slate-800 dark:text-slate-100">@{profile.nick}</h2>
+            <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">
               {profile.is_online ? <span className="text-green-500 font-medium">в сети</span> : fmtLastSeen(profile.last_seen || null)}
             </p>
             <div className="flex gap-8 mt-5">
               <button onClick={() => onFollowers(userId, 'followers')} className="flex flex-col items-center hover:text-blue-600 transition-colors">
-                <span className="font-bold text-xl text-slate-800">{profile.followers}</span>
-                <span className="text-xs text-slate-400">подписчиков</span>
+                <span className="font-bold text-xl text-slate-800 dark:text-slate-100">{profile.followers}</span>
+                <span className="text-xs text-slate-400 dark:text-slate-500">подписчиков</span>
               </button>
               <button onClick={() => onFollowers(userId, 'following')} className="flex flex-col items-center hover:text-blue-600 transition-colors">
-                <span className="font-bold text-xl text-slate-800">{profile.following}</span>
-                <span className="text-xs text-slate-400">подписок</span>
+                <span className="font-bold text-xl text-slate-800 dark:text-slate-100">{profile.following}</span>
+                <span className="text-xs text-slate-400 dark:text-slate-500">подписок</span>
               </button>
             </div>
           </div>
-          <div className="px-4 space-y-2 mb-4 bg-white rounded-2xl mx-4 p-4 border border-slate-100">
-            {profile.city && <div className="flex items-center gap-2 text-sm text-slate-700"><Icon name="MapPin" size={16} className="text-blue-500" />{profile.city}</div>}
-            {profile.birthdate && <div className="flex items-center gap-2 text-sm text-slate-700"><Icon name="Cake" size={16} className="text-blue-500" />{new Date(profile.birthdate).toLocaleDateString('ru-RU')}</div>}
-            {profile.about && <p className="text-sm mt-2 leading-relaxed text-slate-500">{profile.about}</p>}
+          <div className="px-4 space-y-2 mb-4 bg-white dark:bg-slate-900 rounded-2xl mx-4 p-4 border border-slate-100 dark:border-slate-800">
+            {profile.city && <div className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200"><Icon name="MapPin" size={16} className="text-blue-500" />{profile.city}</div>}
+            {profile.birthdate && <div className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200"><Icon name="Cake" size={16} className="text-blue-500" />{new Date(profile.birthdate).toLocaleDateString('ru-RU')}</div>}
+            {profile.about && <p className="text-sm mt-2 leading-relaxed text-slate-500 dark:text-slate-400">{profile.about}</p>}
           </div>
           <div className="px-4 space-y-3 pb-8 mt-2">
             {!profile.i_blocked ? (
@@ -1236,28 +1236,28 @@ function UserProfileScreen({ me, userId, onBack, onOpenChat, onFollowers, onCall
                 </button>
                 <div className="flex gap-2">
                   <button onClick={() => onCall?.({ id: userId, nick: profile.nick, avatar_url: profile.avatar_url }, 'audio')}
-                    className="flex-1 py-3 rounded-2xl font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors text-sm">
+                    className="flex-1 py-3 rounded-2xl font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-sm">
                     <Icon name="Phone" size={17} className="inline mr-2 text-blue-500" />Аудио
                   </button>
                   <button onClick={() => onCall?.({ id: userId, nick: profile.nick, avatar_url: profile.avatar_url }, 'video')}
-                    className="flex-1 py-3 rounded-2xl font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors text-sm">
+                    className="flex-1 py-3 rounded-2xl font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-sm">
                     <Icon name="Video" size={17} className="inline mr-2 text-blue-500" />Видео
                   </button>
                 </div>
                 {profile.i_follow
-                  ? <button onClick={unfollow} className="w-full py-3.5 rounded-2xl font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors text-sm">
+                  ? <button onClick={unfollow} className="w-full py-3.5 rounded-2xl font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-sm">
                       <Icon name="UserCheck" size={17} className="inline mr-2 text-green-500" />Отписаться
                     </button>
-                  : <button onClick={follow} className="w-full py-3.5 rounded-2xl font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors text-sm">
+                  : <button onClick={follow} className="w-full py-3.5 rounded-2xl font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-sm">
                       <Icon name="UserPlus" size={17} className="inline mr-2 text-blue-500" />Подписаться
                     </button>
                 }
-                <button onClick={block} className="w-full py-3 rounded-2xl text-red-500 text-sm hover:bg-red-50 transition-colors">
+                <button onClick={block} className="w-full py-3 rounded-2xl text-red-500 text-sm hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
                   <Icon name="Ban" size={15} className="inline mr-2" />Заблокировать
                 </button>
               </>
             ) : (
-              <button onClick={unblock} className="w-full py-3.5 rounded-2xl font-semibold bg-white border border-slate-200 hover:bg-slate-50 transition-colors text-red-500">
+              <button onClick={unblock} className="w-full py-3.5 rounded-2xl font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-red-500">
                 <Icon name="Ban" size={18} className="inline mr-2" />Разблокировать
               </button>
             )}
@@ -1277,7 +1277,7 @@ function FollowersScreen({ userId, mode, me, onBack, onOpenProfile }: { userId: 
     api(`${mode}&user_id=${userId}`).then(d => setList(d.users || []));
   }, [userId, mode]);
   return (
-    <div className="fixed inset-0 flex flex-col" style={{ background: '#f0f4fa' }}>
+    <div className="fixed inset-0 flex flex-col" style={{ background: 'hsl(var(--background))' }}>
       <header className="flex items-center gap-3 px-4 bg-blue-600 shrink-0"
         style={{ paddingTop: 'calc(env(safe-area-inset-top) + 6px)', paddingBottom: '12px', borderRadius: '0 0 18px 18px', boxShadow: '0 4px 20px rgba(37,99,235,0.35)', zIndex: 10 }}>
         <button onClick={onBack} className="w-9 h-9 rounded-full hover:bg-white/15 flex items-center justify-center transition-colors">
@@ -1286,13 +1286,13 @@ function FollowersScreen({ userId, mode, me, onBack, onOpenProfile }: { userId: 
         <span className="font-bold text-white">{mode === 'followers' ? 'Подписчики' : 'Подписки'}</span>
       </header>
       <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pt-3">
-        {list.length === 0 && <p className="text-center text-slate-400 mt-12 text-sm">Пусто</p>}
+        {list.length === 0 && <p className="text-center text-slate-400 dark:text-slate-500 mt-12 text-sm">Пусто</p>}
         {list.map(u => (
           <button key={u.id} onClick={() => onOpenProfile(u.id)}
-            className="w-full flex items-center gap-3 px-2 py-3 rounded-2xl hover:bg-blue-50 transition-colors">
+            className="w-full flex items-center gap-3 px-2 py-3 rounded-2xl hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors">
             <Avatar url={u.avatar_url} nick={u.nick} size={44} online={u.is_online} />
-            <span className="font-semibold flex-1 text-left text-slate-800">@{u.nick}</span>
-            <Icon name="ChevronRight" size={18} className="text-slate-300" />
+            <span className="font-semibold flex-1 text-left text-slate-800 dark:text-slate-100">@{u.nick}</span>
+            <Icon name="ChevronRight" size={18} className="text-slate-300 dark:text-slate-600" />
           </button>
         ))}
       </div>
@@ -1414,22 +1414,22 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
   return (
     <div className="flex flex-col h-full">
       {/* Фиксированный заголовок профиля */}
-      <div className="shrink-0 px-4 pt-4 pb-3 bg-white border-b border-slate-100 flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900" style={{ letterSpacing: '-0.5px' }}>Профиль</h1>
+      <div className="shrink-0 px-4 pt-4 pb-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100" style={{ letterSpacing: '-0.5px' }}>Профиль</h1>
       </div>
       {/* Скроллится только контент */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
+      <div className="flex-1 overflow-y-auto scrollbar-thin bg-white dark:bg-slate-950">
 
       {!profile && !loadError && (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 mt-20">
           <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-slate-400">Загружаю профиль...</p>
+          <p className="text-sm text-slate-400 dark:text-slate-500">Загружаю профиль...</p>
         </div>
       )}
       {!profile && loadError && (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 mt-20 px-6">
           <Icon name="WifiOff" size={40} className="text-slate-300" />
-          <p className="text-sm text-slate-400 text-center">Не удалось загрузить профиль</p>
+          <p className="text-sm text-slate-400 dark:text-slate-500 text-center">Не удалось загрузить профиль</p>
           <button onClick={load} className="px-5 py-2.5 rounded-2xl bg-blue-600 text-white text-sm font-semibold">
             Повторить
           </button>
@@ -1447,12 +1447,12 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
             </div>
             <input ref={fileRef} type="file" accept="image/*" hidden onChange={pickAvatar} />
             {showAvatarMenu && (
-              <div className="absolute top-24 bg-white rounded-2xl p-1 z-50 w-52 shadow-xl border border-slate-100">
-                <button onClick={() => { setShowAvatarMenu(false); fileRef.current?.click(); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-50 transition-colors text-sm text-slate-700">
+              <div className="absolute top-24 bg-white dark:bg-slate-900 rounded-2xl p-1 z-50 w-52 shadow-xl border border-slate-100 dark:border-slate-800">
+                <button onClick={() => { setShowAvatarMenu(false); fileRef.current?.click(); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-sm text-slate-700 dark:text-slate-200">
                   <Icon name="Camera" size={16} className="text-blue-600" /> Изменить фото
                 </button>
                 {profile.avatar_url && (
-                  <button onClick={removeAvatar} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-red-50 transition-colors text-sm text-red-500">
+                  <button onClick={removeAvatar} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors text-sm text-red-500">
                     <Icon name="Trash2" size={16} /> Удалить фото
                   </button>
                 )}
@@ -1460,18 +1460,18 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
             )}
             {!editingNick ? (
               <button onClick={() => { setNewNick(profile.nick); setEditingNick(true); setNickStatus('idle'); setNickHint(''); }} className="flex items-center gap-2 mt-4 group">
-                <h2 className="font-bold text-2xl text-slate-800">@{profile.nick}</h2>
+                <h2 className="font-bold text-2xl text-slate-800 dark:text-slate-100">@{profile.nick}</h2>
                 <Icon name="Pencil" size={15} className="text-slate-300 group-hover:text-slate-500 transition-colors" />
               </button>
             ) : (
               <div className="mt-4 w-full px-4">
                 <div className="relative mb-1">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">@</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 text-sm">@</span>
                   <input autoFocus value={newNick}
                     onChange={(e) => setNewNick(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
                     onKeyDown={(e) => { if (e.key === 'Enter') saveNick(); if (e.key === 'Escape') setEditingNick(false); }}
                     maxLength={30}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-8 pr-10 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 transition-all text-center font-bold text-lg text-slate-800" />
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl pl-8 pr-10 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 transition-all text-center font-bold text-lg text-slate-800 dark:text-slate-100" />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2">
                     {nickStatus === 'checking' && <span className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin block" />}
                     {nickStatus === 'ok' && <Icon name="Check" size={15} className="text-green-500" />}
@@ -1483,66 +1483,66 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
                   <button onClick={saveNick} disabled={nickSaving || nickStatus !== 'ok'} className="flex-1 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold disabled:opacity-40">
                     {nickSaving ? '...' : 'Сохранить'}
                   </button>
-                  <button onClick={() => setEditingNick(false)} className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-600 text-sm font-medium">Отмена</button>
+                  <button onClick={() => setEditingNick(false)} className="flex-1 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-sm font-medium">Отмена</button>
                 </div>
               </div>
             )}
             <div className="flex gap-8 mt-4">
               <button onClick={() => onFollowers(user.id, 'followers')} className="flex flex-col items-center hover:text-blue-600 transition-colors">
-                <span className="font-bold text-xl text-slate-800">{profile.followers}</span>
-                <span className="text-xs text-slate-400">подписчиков</span>
+                <span className="font-bold text-xl text-slate-800 dark:text-slate-100">{profile.followers}</span>
+                <span className="text-xs text-slate-400 dark:text-slate-500">подписчиков</span>
               </button>
               <button onClick={() => onFollowers(user.id, 'following')} className="flex flex-col items-center hover:text-blue-600 transition-colors">
-                <span className="font-bold text-xl text-slate-800">{profile.following}</span>
-                <span className="text-xs text-slate-400">подписок</span>
+                <span className="font-bold text-xl text-slate-800 dark:text-slate-100">{profile.following}</span>
+                <span className="text-xs text-slate-400 dark:text-slate-500">подписок</span>
               </button>
             </div>
           </div>
 
           {/* Инфо / редактирование */}
           {!editing ? (
-            <div className="bg-white rounded-3xl p-5 space-y-3 border border-slate-100">
-              {profile.city && <div className="flex items-center gap-2 text-sm text-slate-700"><Icon name="MapPin" size={15} className="text-blue-500" />{profile.city}</div>}
-              {profile.birthdate && <div className="flex items-center gap-2 text-sm text-slate-700"><Icon name="Cake" size={15} className="text-blue-500" />{new Date(profile.birthdate).toLocaleDateString('ru-RU')}</div>}
-              {profile.about && <p className="text-sm text-slate-500 leading-relaxed">{profile.about}</p>}
-              {!profile.city && !profile.birthdate && !profile.about && <p className="text-sm text-slate-400">Профиль не заполнен</p>}
-              <button onClick={() => setEditing(true)} className="w-full py-3 rounded-2xl font-medium bg-slate-50 border border-slate-200 hover:bg-slate-100 transition-colors mt-2 text-slate-700 text-sm">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 space-y-3 border border-slate-100 dark:border-slate-800">
+              {profile.city && <div className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200"><Icon name="MapPin" size={15} className="text-blue-500" />{profile.city}</div>}
+              {profile.birthdate && <div className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200"><Icon name="Cake" size={15} className="text-blue-500" />{new Date(profile.birthdate).toLocaleDateString('ru-RU')}</div>}
+              {profile.about && <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">{profile.about}</p>}
+              {!profile.city && !profile.birthdate && !profile.about && <p className="text-sm text-slate-400 dark:text-slate-500">Профиль не заполнен</p>}
+              <button onClick={() => setEditing(true)} className="w-full py-3 rounded-2xl font-medium bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors mt-2 text-slate-700 dark:text-slate-200 text-sm">
                 <Icon name="Pencil" size={15} className="inline mr-2 text-blue-500" />Редактировать
               </button>
             </div>
           ) : (
-            <div className="bg-white rounded-3xl p-5 space-y-4 border border-slate-100">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 space-y-4 border border-slate-100 dark:border-slate-800">
               <div>
-                <label className="text-xs text-slate-400 mb-1 block font-medium">Город</label>
-                <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Москва" className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-800 text-sm" />
+                <label className="text-xs text-slate-400 dark:text-slate-500 mb-1 block font-medium">Город</label>
+                <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Москва" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-800 dark:text-slate-100 text-sm" />
               </div>
               <div>
-                <label className="text-xs text-slate-400 mb-1 block font-medium">Дата рождения</label>
-                <input type="date" value={birthdate} onChange={(e) => setBirthdate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-800 text-sm" />
+                <label className="text-xs text-slate-400 dark:text-slate-500 mb-1 block font-medium">Дата рождения</label>
+                <input type="date" value={birthdate} onChange={(e) => setBirthdate(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-800 dark:text-slate-100 text-sm" />
               </div>
               <div>
-                <label className="text-xs text-slate-400 mb-1 block font-medium">О себе</label>
-                <textarea value={about} onChange={(e) => setAbout(e.target.value)} rows={3} className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all resize-none text-slate-800 text-sm" />
+                <label className="text-xs text-slate-400 dark:text-slate-500 mb-1 block font-medium">О себе</label>
+                <textarea value={about} onChange={(e) => setAbout(e.target.value)} rows={3} className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all resize-none text-slate-800 dark:text-slate-100 text-sm" />
               </div>
               <div className="flex gap-2">
                 <button onClick={save} disabled={saving} className="flex-1 py-3 rounded-2xl font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-all text-sm">
                   {saving ? 'Сохраняю...' : 'Сохранить'}
                 </button>
-                <button onClick={() => setEditing(false)} className="flex-1 py-3 rounded-2xl bg-slate-100 text-slate-600 text-sm font-medium hover:bg-slate-200 transition-colors">Отмена</button>
+                <button onClick={() => setEditing(false)} className="flex-1 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">Отмена</button>
               </div>
             </div>
           )}
 
           {/* Настройки */}
-          <div className="bg-white rounded-3xl p-5 space-y-1 border border-slate-100">
-            <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-3 px-1">Настройки</p>
-            <button onClick={onToggleTheme} className="w-full flex items-center gap-3 py-2 px-1 rounded-xl hover:bg-slate-50 transition-colors">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 space-y-1 border border-slate-100 dark:border-slate-800">
+            <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider mb-3 px-1">Настройки</p>
+            <button onClick={onToggleTheme} className="w-full flex items-center gap-3 py-2 px-1 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
               <div className="w-9 h-9 rounded-2xl bg-amber-100 flex items-center justify-center shrink-0">
                 <Icon name={lightTheme ? 'Sun' : 'Moon'} size={18} className="text-amber-500" />
               </div>
               <div className="flex-1 text-left">
-                <span className="text-sm font-medium text-slate-700">{lightTheme ? 'Светлая тема' : 'Тёмная тема'}</span>
-                <p className="text-xs text-slate-400">Нажмите, чтобы переключить</p>
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{lightTheme ? 'Светлая тема' : 'Тёмная тема'}</span>
+                <p className="text-xs text-slate-400 dark:text-slate-500">Нажмите, чтобы переключить</p>
               </div>
             </button>
             <div className="flex items-center gap-3 py-2 px-1">
@@ -1550,43 +1550,43 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
                 <Icon name="Globe" size={18} className="text-green-600" />
               </div>
               <div className="flex-1">
-                <span className="text-sm font-medium text-slate-700">Язык</span>
-                <p className="text-xs text-slate-400">Язык приложения</p>
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Язык</span>
+                <p className="text-xs text-slate-400 dark:text-slate-500">Язык приложения</p>
               </div>
-              <div className="flex bg-slate-100 rounded-full p-0.5">
-                <button onClick={() => changeLanguage('ru')} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${language === 'ru' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400'}`}>RU</button>
-                <button onClick={() => changeLanguage('en')} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${language === 'en' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400'}`}>EN</button>
+              <div className="flex bg-slate-100 dark:bg-slate-800 rounded-full p-0.5">
+                <button onClick={() => changeLanguage('ru')} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${language === 'ru' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm' : 'text-slate-400 dark:text-slate-500'}`}>RU</button>
+                <button onClick={() => changeLanguage('en')} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${language === 'en' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm' : 'text-slate-400 dark:text-slate-500'}`}>EN</button>
               </div>
             </div>
           </div>
 
           {/* Аккаунт */}
-          <div className="bg-white rounded-3xl p-5 border border-slate-100">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-100 dark:border-slate-800">
             <button onClick={() => setAccountOpen(v => !v)} className="w-full flex items-center gap-3 py-1 px-1">
               <div className="w-9 h-9 rounded-2xl bg-blue-100 flex items-center justify-center shrink-0">
                 <Icon name="User" size={18} className="text-blue-500" />
               </div>
-              <span className="text-sm font-semibold text-slate-800 flex-1 text-left">Аккаунт</span>
-              <Icon name={accountOpen ? 'ChevronUp' : 'ChevronDown'} size={18} className="text-slate-400" />
+              <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 flex-1 text-left">Аккаунт</span>
+              <Icon name={accountOpen ? 'ChevronUp' : 'ChevronDown'} size={18} className="text-slate-400 dark:text-slate-500" />
             </button>
             {accountOpen && (
-              <div className="space-y-1 mt-3 pt-3 border-t border-slate-100">
+              <div className="space-y-1 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
                 <button onClick={() => { setShowBlocked(true); loadBlocked(); }}
-                  className="w-full flex items-center gap-3 py-3 px-1 hover:bg-slate-50 transition-colors rounded-xl">
+                  className="w-full flex items-center gap-3 py-3 px-1 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors rounded-xl">
                   <div className="w-9 h-9 rounded-2xl bg-red-100 flex items-center justify-center shrink-0">
                     <Icon name="Ban" size={18} className="text-red-500" />
                   </div>
-                  <span className="text-sm text-slate-700 flex-1 text-left">Заблокированные</span>
-                  <Icon name="ChevronRight" size={16} className="text-slate-300" />
+                  <span className="text-sm text-slate-700 dark:text-slate-200 flex-1 text-left">Заблокированные</span>
+                  <Icon name="ChevronRight" size={16} className="text-slate-300 dark:text-slate-600" />
                 </button>
-                <button onClick={onLogout} className="w-full flex items-center gap-3 py-3 px-1 rounded-2xl hover:bg-slate-50 transition-colors">
-                  <div className="w-9 h-9 rounded-2xl bg-slate-100 flex items-center justify-center shrink-0">
-                    <Icon name="LogOut" size={18} className="text-slate-500" />
+                <button onClick={onLogout} className="w-full flex items-center gap-3 py-3 px-1 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                  <div className="w-9 h-9 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
+                    <Icon name="LogOut" size={18} className="text-slate-500 dark:text-slate-400" />
                   </div>
-                  <span className="text-sm font-medium text-slate-700">Выйти</span>
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Выйти</span>
                 </button>
                 {!confirmDelete ? (
-                  <button onClick={() => setConfirmDelete(true)} className="w-full flex items-center gap-3 py-3 px-1 rounded-2xl hover:bg-red-50 transition-colors">
+                  <button onClick={() => setConfirmDelete(true)} className="w-full flex items-center gap-3 py-3 px-1 rounded-2xl hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
                     <div className="w-9 h-9 rounded-2xl bg-red-100 flex items-center justify-center shrink-0">
                       <Icon name="Trash2" size={18} className="text-red-500" />
                     </div>
@@ -1597,7 +1597,7 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
                     <p className="text-sm text-red-500 mb-3 px-1">Удалить аккаунт навсегда? Это нельзя отменить.</p>
                     <div className="flex gap-2">
                       <button onClick={onDeleteAccount} className="flex-1 py-2.5 rounded-2xl bg-red-500 text-white text-sm font-semibold">Удалить</button>
-                      <button onClick={() => setConfirmDelete(false)} className="flex-1 py-2.5 rounded-2xl bg-slate-100 text-slate-600 text-sm font-medium">Отмена</button>
+                      <button onClick={() => setConfirmDelete(false)} className="flex-1 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-sm font-medium">Отмена</button>
                     </div>
                   </div>
                 )}
@@ -1606,24 +1606,24 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
           </div>
 
           {/* О приложении / Документы */}
-          <div className="bg-white rounded-3xl p-5 space-y-1 border border-slate-100">
-            <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-3 px-1">О приложении</p>
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 space-y-1 border border-slate-100 dark:border-slate-800">
+            <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider mb-3 px-1">О приложении</p>
             {[
               { label: 'Политика конфиденциальности', icon: 'Shield', doc: 'privacy', bg: 'bg-blue-100', color: 'text-blue-500' },
               { label: 'Пользовательское соглашение', icon: 'FileText', doc: 'terms', bg: 'bg-indigo-100', color: 'text-indigo-500' },
               { label: 'Шифрование и безопасность', icon: 'Lock', doc: 'security', bg: 'bg-purple-100', color: 'text-purple-500' },
             ].map(item => (
               <button key={item.doc} onClick={() => setShowDoc(item.doc as 'privacy'|'terms'|'security')}
-                className="w-full flex items-center gap-3 py-3 px-1 hover:bg-slate-50 transition-colors rounded-xl">
+                className="w-full flex items-center gap-3 py-3 px-1 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors rounded-xl">
                 <div className={`w-9 h-9 rounded-2xl ${item.bg} flex items-center justify-center shrink-0`}>
                   <Icon name={item.icon as 'Shield'} size={18} className={item.color} />
                 </div>
-                <span className="text-sm text-slate-700 flex-1 text-left">{item.label}</span>
-                <Icon name="ChevronRight" size={16} className="text-slate-300" />
+                <span className="text-sm text-slate-700 dark:text-slate-200 flex-1 text-left">{item.label}</span>
+                <Icon name="ChevronRight" size={16} className="text-slate-300 dark:text-slate-600" />
               </button>
             ))}
             <div className="pt-2 px-1">
-              <p className="text-xs text-slate-400">Вай Мессенджер v1.0 · Соответствует ФЗ-152</p>
+              <p className="text-xs text-slate-400 dark:text-slate-500">Вай Мессенджер v1.0 · Соответствует ФЗ-152</p>
             </div>
           </div>
         </div>
@@ -1633,21 +1633,21 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
       {/* Модальное окно заблокированных */}
       {showBlocked && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={() => setShowBlocked(false)}>
-          <div className="bg-white rounded-t-3xl w-full max-h-[70vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
+          <div className="bg-white dark:bg-slate-900 rounded-t-3xl w-full max-h-[70vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-800">Заблокированные</h3>
-              <button onClick={() => setShowBlocked(false)}><Icon name="X" size={20} className="text-slate-400" /></button>
+              <h3 className="font-bold text-slate-800 dark:text-slate-100">Заблокированные</h3>
+              <button onClick={() => setShowBlocked(false)}><Icon name="X" size={20} className="text-slate-400 dark:text-slate-500" /></button>
             </div>
             {blocked.length === 0
-              ? <p className="text-center text-slate-400 py-8">Никого нет</p>
+              ? <p className="text-center text-slate-400 dark:text-slate-500 py-8">Никого нет</p>
               : blocked.map(u => (
-                <div key={u.id} className="flex items-center gap-3 py-3 border-b border-slate-50">
+                <div key={u.id} className="flex items-center gap-3 py-3 border-b border-slate-50 dark:border-slate-800">
                   <Avatar url={u.avatar_url} nick={u.nick} size={44} />
-                  <span className="flex-1 font-semibold text-slate-800">@{u.nick}</span>
+                  <span className="flex-1 font-semibold text-slate-800 dark:text-slate-100">@{u.nick}</span>
                   <button onClick={async () => {
                     await api('unblock', 'POST', { user_id: user.id, target_id: u.id });
                     setBlocked(bs => bs.filter(b => b.id !== u.id));
-                  }} className="px-4 py-1.5 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">
+                  }} className="px-4 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">
                     Разблокировать
                   </button>
                 </div>
@@ -1660,16 +1660,16 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
       {/* Модальное окно документов */}
       {showDoc && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={() => setShowDoc(null)}>
-          <div className="bg-white rounded-t-3xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 shrink-0">
-              <h3 className="font-bold text-slate-800 text-lg">
+          <div className="bg-white dark:bg-slate-900 rounded-t-3xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
+              <h3 className="font-bold text-slate-800 dark:text-slate-100 text-lg">
                 {showDoc === 'privacy' ? 'Политика конфиденциальности'
                   : showDoc === 'terms' ? 'Пользовательское соглашение'
                   : 'Шифрование и безопасность'}
               </h3>
-              <button onClick={() => setShowDoc(null)}><Icon name="X" size={20} className="text-slate-400" /></button>
+              <button onClick={() => setShowDoc(null)}><Icon name="X" size={20} className="text-slate-400 dark:text-slate-500" /></button>
             </div>
-            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4 text-sm text-slate-700 leading-relaxed">
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4 text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
               {showDoc === 'privacy' && <>
                 <p className="font-bold text-slate-900">Политика конфиденциальности Вай Мессенджер</p>
                 <p className="text-xs text-slate-400">Редакция от 01.07.2026. Соответствует требованиям ФЗ-152 «О персональных данных».</p>
