@@ -1533,7 +1533,9 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onDelet
           <div className="bg-white rounded-3xl p-5 border border-slate-100">
             <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-3 px-1">Настройки</p>
             <div className="flex items-center gap-3 py-2 px-1">
-              <Icon name={lightTheme ? 'Sun' : 'Moon'} size={18} className="text-blue-500" />
+              <div className="w-9 h-9 rounded-2xl bg-amber-100 flex items-center justify-center shrink-0">
+                <Icon name={lightTheme ? 'Sun' : 'Moon'} size={18} className="text-amber-500" />
+              </div>
               <div>
                 <span className="text-sm font-medium text-slate-700">{lightTheme ? 'Светлая тема' : 'Тёмная тема'}</span>
                 <p className="text-xs text-slate-400">Следует за системной темой телефона</p>
@@ -1541,42 +1543,28 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onDelet
             </div>
           </div>
 
-          {/* О приложении / Документы */}
-          <div className="bg-white rounded-3xl p-5 space-y-1 border border-slate-100">
-            <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-3 px-1">О приложении</p>
-            {[
-              { label: 'Политика конфиденциальности', icon: 'Shield', doc: 'privacy' },
-              { label: 'Пользовательское соглашение', icon: 'FileText', doc: 'terms' },
-              { label: 'Шифрование и безопасность', icon: 'Lock', doc: 'security' },
-            ].map(item => (
-              <button key={item.doc} onClick={() => setShowDoc(item.doc as 'privacy'|'terms'|'security')}
-                className="w-full flex items-center gap-3 py-3 px-1 hover:bg-slate-50 transition-colors rounded-xl">
-                <Icon name={item.icon as 'Shield'} size={18} className="text-blue-500" />
-                <span className="text-sm text-slate-700 flex-1 text-left">{item.label}</span>
-                <Icon name="ChevronRight" size={16} className="text-slate-300" />
-              </button>
-            ))}
-            <div className="pt-2 px-1">
-              <p className="text-xs text-slate-400">Вай Мессенджер v1.0 · Соответствует ФЗ-152</p>
-            </div>
-          </div>
-
           {/* Аккаунт */}
           <div className="bg-white rounded-3xl p-5 space-y-1 border border-slate-100">
             <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-3 px-1">Аккаунт</p>
             <button onClick={() => { setShowBlocked(true); loadBlocked(); }}
-              className="w-full flex items-center gap-3 py-3 px-1 hover:text-blue-600 transition-colors border-t border-slate-100">
-              <Icon name="Ban" size={18} className="text-red-400" />
+              className="w-full flex items-center gap-3 py-3 px-1 hover:bg-slate-50 transition-colors rounded-xl">
+              <div className="w-9 h-9 rounded-2xl bg-red-100 flex items-center justify-center shrink-0">
+                <Icon name="Ban" size={18} className="text-red-500" />
+              </div>
               <span className="text-sm text-slate-700 flex-1 text-left">Заблокированные</span>
               <Icon name="ChevronRight" size={16} className="text-slate-300" />
             </button>
             <button onClick={onLogout} className="w-full flex items-center gap-3 py-3 px-1 rounded-2xl hover:bg-slate-50 transition-colors">
-              <Icon name="LogOut" size={18} className="text-slate-400" />
+              <div className="w-9 h-9 rounded-2xl bg-slate-100 flex items-center justify-center shrink-0">
+                <Icon name="LogOut" size={18} className="text-slate-500" />
+              </div>
               <span className="text-sm font-medium text-slate-700">Выйти</span>
             </button>
             {!confirmDelete ? (
               <button onClick={() => setConfirmDelete(true)} className="w-full flex items-center gap-3 py-3 px-1 rounded-2xl hover:bg-red-50 transition-colors">
-                <Icon name="Trash2" size={18} className="text-red-500" />
+                <div className="w-9 h-9 rounded-2xl bg-red-100 flex items-center justify-center shrink-0">
+                  <Icon name="Trash2" size={18} className="text-red-500" />
+                </div>
                 <span className="text-sm font-medium text-red-500">Удалить аккаунт</span>
               </button>
             ) : (
@@ -1588,6 +1576,28 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onDelet
                 </div>
               </div>
             )}
+          </div>
+
+          {/* О приложении / Документы */}
+          <div className="bg-white rounded-3xl p-5 space-y-1 border border-slate-100">
+            <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-3 px-1">О приложении</p>
+            {[
+              { label: 'Политика конфиденциальности', icon: 'Shield', doc: 'privacy', bg: 'bg-blue-100', color: 'text-blue-500' },
+              { label: 'Пользовательское соглашение', icon: 'FileText', doc: 'terms', bg: 'bg-indigo-100', color: 'text-indigo-500' },
+              { label: 'Шифрование и безопасность', icon: 'Lock', doc: 'security', bg: 'bg-purple-100', color: 'text-purple-500' },
+            ].map(item => (
+              <button key={item.doc} onClick={() => setShowDoc(item.doc as 'privacy'|'terms'|'security')}
+                className="w-full flex items-center gap-3 py-3 px-1 hover:bg-slate-50 transition-colors rounded-xl">
+                <div className={`w-9 h-9 rounded-2xl ${item.bg} flex items-center justify-center shrink-0`}>
+                  <Icon name={item.icon as 'Shield'} size={18} className={item.color} />
+                </div>
+                <span className="text-sm text-slate-700 flex-1 text-left">{item.label}</span>
+                <Icon name="ChevronRight" size={16} className="text-slate-300" />
+              </button>
+            ))}
+            <div className="pt-2 px-1">
+              <p className="text-xs text-slate-400">Вай Мессенджер v1.0 · Соответствует ФЗ-152</p>
+            </div>
           </div>
         </div>
       )}
