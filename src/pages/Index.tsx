@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import Icon from '@/components/ui/icon';
+import { playSendSound, startRingback, stopRingback } from '@/lib/sounds';
 
 declare global {
   interface Window {
@@ -1703,6 +1704,13 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
   // Видео: своё видео большое или маленькое
   const [selfBig, setSelfBig] = useState(false);
 
+  // Гудки при исходящем звонке — пока не ответили
+  useEffect(() => {
+    if (outgoing && status === 'ringing') startRingback();
+    else stopRingback();
+    return () => stopRingback();
+  }, [outgoing, status]);
+
   const localRef    = useRef<HTMLVideoElement>(null);
   const remoteRef   = useRef<HTMLVideoElement>(null);
   const remoteAudio = useRef<HTMLAudioElement>(null);
@@ -3273,6 +3281,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
     if (!t && !media_url) return;
     if (!text) setInput('');
     if (typingTimer.current) clearTimeout(typingTimer.current);
+    playSendSound();
     await api('send', 'POST', { chat_id: chatId, user_id: user.id, text: t || null, media_url: media_url || null, media_type: media_type || null });
     // После отправки своего сообщения — всегда скроллим вниз
     isAtBottomRef.current = true;
