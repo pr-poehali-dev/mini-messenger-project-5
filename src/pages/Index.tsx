@@ -355,7 +355,7 @@ export default function Index() {
             setGlobalCall({ kind, callId, outgoing: true, peer: { id: peerId, nick: peerNick, avatar_url: peerAvatar } });
             push({ name: 'chat', chatId: d.chat_id as number, peer: (d.peer as User) || { id: peerId, nick: peerNick, avatar_url: peerAvatar } });
           }} />}
-        {tab === 'profile' && <ProfileTab user={user} onLogout={logout} onUpdate={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); }} onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} lightTheme={lightTheme} onDeleteAccount={deleteAccount} />}
+        {tab === 'profile' && <ProfileTab user={user} onLogout={logout} onUpdate={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); }} onFollowers={(uid, mode) => push({ name: 'followers', userId: uid, mode })} lightTheme={lightTheme} onToggleTheme={() => setLightTheme(v => !v)} onDeleteAccount={deleteAccount} />}
       </TabsShell>
     );
   };
@@ -1303,15 +1303,19 @@ function FollowersScreen({ userId, mode, me, onBack, onOpenProfile }: { userId: 
 // ══════════════════════════════════════════════════════════════════════════════
 // MY PROFILE TAB
 // ══════════════════════════════════════════════════════════════════════════════
-function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onDeleteAccount }: {
+function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggleTheme, onDeleteAccount }: {
   user: User; onLogout: () => void; onUpdate: (u: User) => void;
   onFollowers: (uid: number, mode: 'followers' | 'following') => void;
   lightTheme: boolean;
+  onToggleTheme: () => void;
   onDeleteAccount: () => void;
 }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [editing, setEditing] = useState(false);
   const [city, setCity] = useState('');
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [language, setLanguage] = useState<'ru' | 'en'>(() => (localStorage.getItem('orbit_lang') as 'ru' | 'en') || 'ru');
+  const changeLanguage = (lang: 'ru' | 'en') => { setLanguage(lang); localStorage.setItem('orbit_lang', lang); };
   const [birthdate, setBirthdate] = useState('');
   const [about, setAbout] = useState('');
   const [saving, setSaving] = useState(false);
@@ -1530,50 +1534,73 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onDelet
           )}
 
           {/* Настройки */}
-          <div className="bg-white rounded-3xl p-5 border border-slate-100">
+          <div className="bg-white rounded-3xl p-5 space-y-1 border border-slate-100">
             <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-3 px-1">Настройки</p>
-            <div className="flex items-center gap-3 py-2 px-1">
+            <button onClick={onToggleTheme} className="w-full flex items-center gap-3 py-2 px-1 rounded-xl hover:bg-slate-50 transition-colors">
               <div className="w-9 h-9 rounded-2xl bg-amber-100 flex items-center justify-center shrink-0">
                 <Icon name={lightTheme ? 'Sun' : 'Moon'} size={18} className="text-amber-500" />
               </div>
-              <div>
+              <div className="flex-1 text-left">
                 <span className="text-sm font-medium text-slate-700">{lightTheme ? 'Светлая тема' : 'Тёмная тема'}</span>
-                <p className="text-xs text-slate-400">Следует за системной темой телефона</p>
+                <p className="text-xs text-slate-400">Нажмите, чтобы переключить</p>
+              </div>
+            </button>
+            <div className="flex items-center gap-3 py-2 px-1">
+              <div className="w-9 h-9 rounded-2xl bg-green-100 flex items-center justify-center shrink-0">
+                <Icon name="Globe" size={18} className="text-green-600" />
+              </div>
+              <div className="flex-1">
+                <span className="text-sm font-medium text-slate-700">Язык</span>
+                <p className="text-xs text-slate-400">Язык приложения</p>
+              </div>
+              <div className="flex bg-slate-100 rounded-full p-0.5">
+                <button onClick={() => changeLanguage('ru')} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${language === 'ru' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400'}`}>RU</button>
+                <button onClick={() => changeLanguage('en')} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${language === 'en' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400'}`}>EN</button>
               </div>
             </div>
           </div>
 
           {/* Аккаунт */}
-          <div className="bg-white rounded-3xl p-5 space-y-1 border border-slate-100">
-            <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-3 px-1">Аккаунт</p>
-            <button onClick={() => { setShowBlocked(true); loadBlocked(); }}
-              className="w-full flex items-center gap-3 py-3 px-1 hover:bg-slate-50 transition-colors rounded-xl">
-              <div className="w-9 h-9 rounded-2xl bg-red-100 flex items-center justify-center shrink-0">
-                <Icon name="Ban" size={18} className="text-red-500" />
+          <div className="bg-white rounded-3xl p-5 border border-slate-100">
+            <button onClick={() => setAccountOpen(v => !v)} className="w-full flex items-center gap-3 py-1 px-1">
+              <div className="w-9 h-9 rounded-2xl bg-blue-100 flex items-center justify-center shrink-0">
+                <Icon name="User" size={18} className="text-blue-500" />
               </div>
-              <span className="text-sm text-slate-700 flex-1 text-left">Заблокированные</span>
-              <Icon name="ChevronRight" size={16} className="text-slate-300" />
+              <span className="text-sm font-semibold text-slate-800 flex-1 text-left">Аккаунт</span>
+              <Icon name={accountOpen ? 'ChevronUp' : 'ChevronDown'} size={18} className="text-slate-400" />
             </button>
-            <button onClick={onLogout} className="w-full flex items-center gap-3 py-3 px-1 rounded-2xl hover:bg-slate-50 transition-colors">
-              <div className="w-9 h-9 rounded-2xl bg-slate-100 flex items-center justify-center shrink-0">
-                <Icon name="LogOut" size={18} className="text-slate-500" />
-              </div>
-              <span className="text-sm font-medium text-slate-700">Выйти</span>
-            </button>
-            {!confirmDelete ? (
-              <button onClick={() => setConfirmDelete(true)} className="w-full flex items-center gap-3 py-3 px-1 rounded-2xl hover:bg-red-50 transition-colors">
-                <div className="w-9 h-9 rounded-2xl bg-red-100 flex items-center justify-center shrink-0">
-                  <Icon name="Trash2" size={18} className="text-red-500" />
-                </div>
-                <span className="text-sm font-medium text-red-500">Удалить аккаунт</span>
-              </button>
-            ) : (
-              <div className="pt-2">
-                <p className="text-sm text-red-500 mb-3 px-1">Удалить аккаунт навсегда? Это нельзя отменить.</p>
-                <div className="flex gap-2">
-                  <button onClick={onDeleteAccount} className="flex-1 py-2.5 rounded-2xl bg-red-500 text-white text-sm font-semibold">Удалить</button>
-                  <button onClick={() => setConfirmDelete(false)} className="flex-1 py-2.5 rounded-2xl bg-slate-100 text-slate-600 text-sm font-medium">Отмена</button>
-                </div>
+            {accountOpen && (
+              <div className="space-y-1 mt-3 pt-3 border-t border-slate-100">
+                <button onClick={() => { setShowBlocked(true); loadBlocked(); }}
+                  className="w-full flex items-center gap-3 py-3 px-1 hover:bg-slate-50 transition-colors rounded-xl">
+                  <div className="w-9 h-9 rounded-2xl bg-red-100 flex items-center justify-center shrink-0">
+                    <Icon name="Ban" size={18} className="text-red-500" />
+                  </div>
+                  <span className="text-sm text-slate-700 flex-1 text-left">Заблокированные</span>
+                  <Icon name="ChevronRight" size={16} className="text-slate-300" />
+                </button>
+                <button onClick={onLogout} className="w-full flex items-center gap-3 py-3 px-1 rounded-2xl hover:bg-slate-50 transition-colors">
+                  <div className="w-9 h-9 rounded-2xl bg-slate-100 flex items-center justify-center shrink-0">
+                    <Icon name="LogOut" size={18} className="text-slate-500" />
+                  </div>
+                  <span className="text-sm font-medium text-slate-700">Выйти</span>
+                </button>
+                {!confirmDelete ? (
+                  <button onClick={() => setConfirmDelete(true)} className="w-full flex items-center gap-3 py-3 px-1 rounded-2xl hover:bg-red-50 transition-colors">
+                    <div className="w-9 h-9 rounded-2xl bg-red-100 flex items-center justify-center shrink-0">
+                      <Icon name="Trash2" size={18} className="text-red-500" />
+                    </div>
+                    <span className="text-sm font-medium text-red-500">Удалить аккаунт</span>
+                  </button>
+                ) : (
+                  <div className="pt-2">
+                    <p className="text-sm text-red-500 mb-3 px-1">Удалить аккаунт навсегда? Это нельзя отменить.</p>
+                    <div className="flex gap-2">
+                      <button onClick={onDeleteAccount} className="flex-1 py-2.5 rounded-2xl bg-red-500 text-white text-sm font-semibold">Удалить</button>
+                      <button onClick={() => setConfirmDelete(false)} className="flex-1 py-2.5 rounded-2xl bg-slate-100 text-slate-600 text-sm font-medium">Отмена</button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
