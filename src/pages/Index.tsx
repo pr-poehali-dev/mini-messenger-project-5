@@ -3541,7 +3541,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
                                   <Icon name="FileText" size={20} className={mine ? 'text-white/80' : 'text-accent'} />
                                   <span className="text-[15px] underline underline-offset-2 break-all">{m.text || 'Файл'}</span>
                                 </a>
-                              : <p className="leading-relaxed break-words text-[15px]">{renderTextWithLinks(m.text || '', mine)}</p>
+                              : <p className="leading-relaxed break-words text-[16.5px]">{renderTextWithLinks(m.text || '', mine)}</p>
                     }
                     <span className={`flex items-center justify-end gap-0.5 text-[10px] mt-0.5 ${mine ? 'text-white/60' : 'text-muted-foreground'}`}>
                       {fmtTime(m.created_at)}
