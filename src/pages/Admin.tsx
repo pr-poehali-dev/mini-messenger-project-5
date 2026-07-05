@@ -26,6 +26,7 @@ export default function Admin() {
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [tab, setTab] = useState<'stats' | 'users' | 'broadcast' | 'ad' | 'realty'>('stats');
+  const isAuth = !!token;
 
   // Недвижимость
   const MESSENGER_API = 'https://functions.poehali.dev/b927178a-1937-4d4d-8fd6-2a1ffe4d52be';
@@ -73,8 +74,6 @@ export default function Admin() {
   const [adResult, setAdResult] = useState('');
   const broadFileRef = useRef<HTMLInputElement>(null);
   const adFileRef = useRef<HTMLInputElement>(null);
-
-  const isAuth = !!token;
 
   const doLogin = async () => {
     setLoginError('');

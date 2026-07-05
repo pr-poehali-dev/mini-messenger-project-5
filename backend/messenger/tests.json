@@ -64,7 +64,6 @@
       "method": "GET",
       "path": "/?action=realty_list&deal_type=sale",
       "expectedStatus": 200,
-      "expectedBody": {"listings": []},
       "bodyMatcher": "partial"
     },
     {

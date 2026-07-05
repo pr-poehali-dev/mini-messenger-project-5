@@ -1615,11 +1615,12 @@ def handler(event: dict, context) -> dict:
                 FROM realty_listings l JOIN users u ON u.id=l.user_id
                 ORDER BY l.created_at DESC LIMIT 200
             """)
+            listings = cur.fetchall()
             cur.execute("SELECT COUNT(*) AS total FROM realty_listings")
             total = cur.fetchone()['total']
             cur.execute("SELECT COUNT(*) AS paid FROM realty_listings WHERE is_paid=TRUE")
             paid = cur.fetchone()['paid']
-            return _resp(200, {'listings': cur.fetchall(), 'stats': {'total': total, 'paid': paid}})
+            return _resp(200, {'listings': listings, 'stats': {'total': total, 'paid': paid}})
 
         # ── АДМИН: удалить/заблокировать ─────────────────
         if action == 'realty_admin_action' and method == 'POST':
