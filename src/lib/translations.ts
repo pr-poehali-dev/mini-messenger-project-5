@@ -308,4 +308,16 @@ export const translations: Record<string, string> = {
   'Пока никто не просмотрел': 'No one has viewed this yet',
   'Ответить': 'Reply',
   'Удалить этот статус?': 'Delete this status?',
+  'Фото/Видео': 'Photo/Video',
+  'Максимум 10 файлов в одном статусе': 'Maximum 10 files per status',
+  'Фото и видео (до 10 шт.)': 'Photos and videos (up to 10)',
+  'Добавить': 'Add',
+  'Каждый файл появится отдельным статусом в твоей истории': 'Each file will appear as a separate status in your story',
+
+  // Оплата недвижимости
+  'Безопасная оплата через ЮKassa · СБП и T-Pay': 'Secure payment via YooKassa · SBP and T-Pay',
+  'Ожидаем оплату...': 'Waiting for payment...',
+  'Заверши оплату в открывшемся окне. Как только платёж пройдёт — объявление опубликуется автоматически.': 'Complete the payment in the window that opened. As soon as the payment goes through, the listing will be published automatically.',
+  'Назад к оплате': 'Back to payment',
+  'Не удалось создать платёж. Попробуйте позже.': 'Failed to create payment. Please try again later.',
 };

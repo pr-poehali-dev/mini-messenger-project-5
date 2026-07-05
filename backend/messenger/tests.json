@@ -100,6 +100,23 @@
       "expectedStatus": 404,
       "expectedBody": {"error": "Статус не найден"},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Realty pay create - listing not found",
+      "method": "POST",
+      "path": "/?action=realty_pay_create",
+      "body": {"listing_id": 999999, "user_id": 0},
+      "expectedStatus": 404,
+      "expectedBody": {"error": "Объявление не найдено"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Realty pay status - listing not found",
+      "method": "GET",
+      "path": "/?action=realty_pay_status&listing_id=999999&user_id=0",
+      "expectedStatus": 404,
+      "expectedBody": {"error": "Не найдено"},
+      "bodyMatcher": "partial"
     }
   ]
 }

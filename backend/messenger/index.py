@@ -8,11 +8,61 @@ import base64
 import urllib.request
 import psycopg2
 import boto3
+import requests
 from psycopg2.extras import RealDictCursor
 
 ONESIGNAL_APP_ID = 'b50464b8-77e0-4bef-9897-aba0433d5f06'
 
 REGRU_BUCKET = 'files'
+
+YOOKASSA_SHOP_ID = '1398898'
+YOOKASSA_API_URL = 'https://api.yookassa.ru/v3/payments'
+
+
+def _yookassa_create_payment(amount: str, description: str, return_url: str, metadata: dict, user_id: int) -> dict:
+    """Создаёт платёж в ЮKassa со способом оплаты СБП/T-Pay, возвращает JSON ответа."""
+    secret_key = os.environ['YOOKASSA_SECRET_KEY']
+    idempotence_key = secrets.token_hex(16)
+    resp = requests.post(
+        YOOKASSA_API_URL,
+        json={
+            'amount': {'value': amount, 'currency': 'RUB'},
+            'confirmation': {'type': 'redirect', 'return_url': return_url},
+            'capture': True,
+            'description': description,
+            'metadata': metadata,
+            'receipt': {
+                'customer': {'email': f'user{user_id}@vaimessenger.ru'},
+                'items': [{
+                    'description': description[:128],
+                    'quantity': '1.00',
+                    'amount': {'value': amount, 'currency': 'RUB'},
+                    'vat_code': 1,
+                    'payment_subject': 'service',
+                    'payment_mode': 'full_payment',
+                }],
+            },
+        },
+        auth=(YOOKASSA_SHOP_ID, secret_key),
+        headers={'Idempotence-Key': idempotence_key, 'Content-Type': 'application/json'},
+        timeout=15,
+    )
+    if not resp.ok:
+        print(f'[YOOKASSA] HTTP {resp.status_code} body: {resp.text}')
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _yookassa_get_payment(payment_id: str) -> dict:
+    """Запрашивает текущий статус платежа по его ID."""
+    secret_key = os.environ['YOOKASSA_SECRET_KEY']
+    resp = requests.get(
+        f'{YOOKASSA_API_URL}/{payment_id}',
+        auth=(YOOKASSA_SHOP_ID, secret_key),
+        timeout=15,
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 def _s3():
     return boto3.client(
@@ -1374,17 +1424,97 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return _resp(200, {'id': lid})
 
-        # ── Оплата объявления (демо) ──────────────────────
-        if action == 'realty_pay' and method == 'POST':
+        # ── Создать платёж ЮKassa за объявление (50 ₽, СБП/T-Pay) ──
+        if action == 'realty_pay_create' and method == 'POST':
             lid = int(body.get('listing_id') or 0)
             uid = int(body.get('user_id') or 0)
-            cur.execute("SELECT id,user_id FROM realty_listings WHERE id=%s", (lid,))
+            return_url = body.get('return_url') or 'https://vaimessenger.ru/'
+            cur.execute("SELECT id,user_id,is_paid FROM realty_listings WHERE id=%s", (lid,))
             row = cur.fetchone()
-            if not row: return _resp(404, {'error': 'Не найдено'})
+            if not row: return _resp(404, {'error': 'Объявление не найдено'})
             if row['user_id'] != uid: return _resp(403, {'error': 'Нет доступа'})
-            cur.execute("UPDATE realty_listings SET is_paid=TRUE WHERE id=%s", (lid,))
+            if row['is_paid']: return _resp(200, {'ok': True, 'already_paid': True})
+            try:
+                payment = _yookassa_create_payment(
+                    amount='50.00',
+                    description=f'Публикация объявления №{lid} — Вай Мессенджер',
+                    return_url=return_url,
+                    metadata={'listing_id': str(lid), 'user_id': str(uid)},
+                    user_id=uid,
+                )
+            except Exception as e:
+                print(f'[YOOKASSA] create_payment error: {e}')
+                return _resp(502, {'error': 'Не удалось создать платёж. Попробуйте позже.'})
+            yk_id = payment.get('id')
+            confirmation_url = (payment.get('confirmation') or {}).get('confirmation_url')
+            if not yk_id or not confirmation_url:
+                print(f'[YOOKASSA] unexpected response: {payment}')
+                return _resp(502, {'error': 'Некорректный ответ платёжной системы'})
+            cur.execute(
+                """INSERT INTO realty_payments (listing_id, user_id, yookassa_payment_id, amount, status, confirmation_url)
+                   VALUES (%s, %s, %s, 50.00, %s, %s)""",
+                (lid, uid, yk_id, payment.get('status', 'pending'), confirmation_url),
+            )
             conn.commit()
-            return _resp(200, {'ok': True, 'paid': True})
+            return _resp(200, {'ok': True, 'payment_id': yk_id, 'confirmation_url': confirmation_url})
+
+        # ── Проверить статус платежа (фронт опрашивает после возврата) ──
+        if action == 'realty_pay_status' and method == 'GET':
+            lid = int(params.get('listing_id') or 0)
+            uid = int(params.get('user_id') or 0)
+            cur.execute("SELECT id,user_id,is_paid FROM realty_listings WHERE id=%s", (lid,))
+            listing = cur.fetchone()
+            if not listing: return _resp(404, {'error': 'Не найдено'})
+            if listing['user_id'] != uid: return _resp(403, {'error': 'Нет доступа'})
+            if listing['is_paid']:
+                return _resp(200, {'paid': True})
+            cur.execute(
+                "SELECT yookassa_payment_id, status FROM realty_payments WHERE listing_id=%s ORDER BY id DESC LIMIT 1",
+                (lid,),
+            )
+            pay_row = cur.fetchone()
+            if not pay_row:
+                return _resp(200, {'paid': False})
+            # Подстраховка: если вебхук ещё не пришёл — спросим у ЮKassa напрямую
+            try:
+                yk_status = _yookassa_get_payment(pay_row['yookassa_payment_id'])
+                if yk_status.get('status') == 'succeeded' and yk_status.get('paid'):
+                    cur.execute("UPDATE realty_listings SET is_paid=TRUE WHERE id=%s", (lid,))
+                    cur.execute(
+                        "UPDATE realty_payments SET status='succeeded', paid_at=NOW() WHERE yookassa_payment_id=%s",
+                        (pay_row['yookassa_payment_id'],),
+                    )
+                    conn.commit()
+                    return _resp(200, {'paid': True})
+            except Exception as e:
+                print(f'[YOOKASSA] status check error: {e}')
+            return _resp(200, {'paid': False})
+
+        # ── Webhook от ЮKassa: уведомление об оплате ──────
+        if action == 'realty_payment_webhook' and method == 'POST':
+            event_type = body.get('event', '')
+            payment_obj = body.get('object', {}) or {}
+            yk_id = payment_obj.get('id', '')
+            print(f'[YOOKASSA WEBHOOK] event={event_type} payment_id={yk_id}')
+            if not yk_id:
+                return _resp(400, {'error': 'Нет payment id'})
+            try:
+                verified = _yookassa_get_payment(yk_id)
+            except Exception as e:
+                print(f'[YOOKASSA WEBHOOK] verify error: {e}')
+                return _resp(200, {'ok': True})
+            cur.execute("SELECT listing_id FROM realty_payments WHERE yookassa_payment_id=%s", (yk_id,))
+            pay_row = cur.fetchone()
+            if not pay_row:
+                print(f'[YOOKASSA WEBHOOK] payment {yk_id} не найден в БД')
+                return _resp(200, {'ok': True})
+            status = verified.get('status', '')
+            cur.execute("UPDATE realty_payments SET status=%s WHERE yookassa_payment_id=%s", (status, yk_id))
+            if status == 'succeeded' and verified.get('paid'):
+                cur.execute("UPDATE realty_payments SET paid_at=NOW() WHERE yookassa_payment_id=%s", (yk_id,))
+                cur.execute("UPDATE realty_listings SET is_paid=TRUE WHERE id=%s", (pay_row['listing_id'],))
+            conn.commit()
+            return _resp(200, {'ok': True})
 
         # ── Загрузить фото объявления ─────────────────────
         if action == 'realty_upload_photo' and method == 'POST':
