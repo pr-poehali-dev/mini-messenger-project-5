@@ -2526,6 +2526,7 @@ function RealtyForm({ user, onClose, onPublished }: { user: User; onClose: () =>
   const [step, setStep] = useState<'form'|'pay'|'waiting'>('form');
   const [saving, setSaving] = useState(false);
   const [payError, setPayError] = useState('');
+  const [payUrl, setPayUrl] = useState('');
   const [listingId, setListingId] = useState<number|null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
   const [form, setForm] = useState({ deal_type: 'sale', city: '', district: '', street: '', rooms: '', area: '', price: '', description: '', phone: '' });
@@ -2563,14 +2564,24 @@ function RealtyForm({ user, onClose, onPublished }: { user: User; onClose: () =>
     if (!listingId || saving) return;
     setSaving(true);
     setPayError('');
+    // Открываем окно СРАЗУ (синхронно, в ответ на клик), иначе Safari на iOS заблокирует поп-ап,
+    // так как после await запрос уже не считается прямым действием пользователя.
+    const payWindow = window.open('', '_blank');
     const d = await api('realty_pay_create', 'POST', { listing_id: listingId, user_id: user.id, return_url: window.location.href });
     setSaving(false);
-    if (d.error) { setPayError(d.error as string); return; }
-    if (d.already_paid) { onPublished(); return; }
+    if (d.error) { payWindow?.close(); setPayError(d.error as string); return; }
+    if (d.already_paid) { payWindow?.close(); onPublished(); return; }
     if (d.confirmation_url) {
       setStep('waiting');
-      window.open(d.confirmation_url as string, '_blank');
+      setPayUrl(d.confirmation_url as string);
+      if (payWindow) {
+        payWindow.location.href = d.confirmation_url as string;
+      } else {
+        // Поп-ап всё же заблокирован — открываем в текущей вкладке
+        window.location.href = d.confirmation_url as string;
+      }
     } else {
+      payWindow?.close();
       setPayError(t('Не удалось создать платёж. Попробуйте позже.'));
     }
   };
@@ -2716,6 +2727,12 @@ function RealtyForm({ user, onClose, onPublished }: { user: User; onClose: () =>
               <h3 className="font-bold text-xl text-slate-900 dark:text-slate-100 mb-2">{t('Ожидаем оплату...')}</h3>
               <p className="text-slate-500 dark:text-slate-400 text-sm">{t('Заверши оплату в открывшемся окне. Как только платёж пройдёт — объявление опубликуется автоматически.')}</p>
             </div>
+            {payUrl && (
+              <a href={payUrl} target="_blank" rel="noopener noreferrer"
+                className="w-full py-3.5 rounded-2xl bg-blue-600 text-white font-bold text-center text-base">
+                {t('Открыть окно оплаты')}
+              </a>
+            )}
             <button onClick={() => setStep('pay')} className="text-sm text-blue-600 font-semibold">{t('Назад к оплате')}</button>
           </div>
         )}

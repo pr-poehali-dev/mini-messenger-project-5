@@ -320,4 +320,5 @@ export const translations: Record<string, string> = {
   'Заверши оплату в открывшемся окне. Как только платёж пройдёт — объявление опубликуется автоматически.': 'Complete the payment in the window that opened. As soon as the payment goes through, the listing will be published automatically.',
   'Назад к оплате': 'Back to payment',
   'Не удалось создать платёж. Попробуйте позже.': 'Failed to create payment. Please try again later.',
+  'Открыть окно оплаты': 'Open payment window',
 };
