@@ -278,7 +278,7 @@ def handler(event: dict, context) -> dict:
             data_b64 = body.get('data', '')
             ext = (body.get('ext') or 'jpg').lower()
             raw = base64.b64decode(data_b64)
-            key = f"avatars/{uid}.{ext}"
+            key = f"avatars/{uid}_{secrets.token_hex(8)}.{ext}"
             s3 = _s3()
             s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw, ContentType=f'image/{ext}')
             url = _s3_url(key)
