@@ -546,13 +546,13 @@ def handler(event: dict, context) -> dict:
                 )
                 return cur.fetchall()
 
-            # Long polling: ждём до 4 сек если нет новых сообщений
+            # Long polling: ждём до 2 сек если нет новых сообщений (экономия вычислительного времени)
             import time as _time
             msgs = _fetch_poll()
             if not msgs:
-                deadline = _time.time() + 4.0
+                deadline = _time.time() + 2.0
                 while _time.time() < deadline:
-                    _time.sleep(0.5)
+                    _time.sleep(0.7)
                     msgs = _fetch_poll()
                     if msgs:
                         break

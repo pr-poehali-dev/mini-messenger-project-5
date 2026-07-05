@@ -317,7 +317,7 @@ export default function Index() {
     };
 
     doPing();
-    const iv = setInterval(doPing, 8000);
+    const iv = setInterval(doPing, 20000);
     const off = () => api('offline', 'POST', { user_id: user.id });
     window.addEventListener('beforeunload', off);
     return () => { clearInterval(iv); window.removeEventListener('beforeunload', off); };
@@ -735,7 +735,7 @@ function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (tabKey: T
       setUnreadNotifs(Number(d.unread) || 0);
     });
     loadNotifs();
-    const iv = setInterval(loadNotifs, 10000);
+    const iv = setInterval(loadNotifs, 20000);
     return () => clearInterval(iv);
   }, [user.id]);
 
@@ -746,7 +746,7 @@ function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (tabKey: T
       setUnreadChats(total);
     });
     loadChats();
-    const iv = setInterval(loadChats, 5000);
+    const iv = setInterval(loadChats, 15000);
     return () => clearInterval(iv);
   }, [user.id]);
 
@@ -806,7 +806,7 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat,
     setChats(d.chats || []);
   }, [user.id]);
 
-  useEffect(() => { load(); const iv = setInterval(load, 3000); return () => clearInterval(iv); }, [load]);
+  useEffect(() => { load(); const iv = setInterval(load, 15000); return () => clearInterval(iv); }, [load]);
 
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
 
@@ -3419,8 +3419,12 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
     let active = true;
     const loop = async () => {
       while (active) {
-        if (!document.hidden) await poll();
-        else await new Promise(r => setTimeout(r, 2000));
+        if (!document.hidden) {
+          await poll();
+          await new Promise(r => setTimeout(r, 800));
+        } else {
+          await new Promise(r => setTimeout(r, 3000));
+        }
       }
     };
     loop();
