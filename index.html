@@ -90,33 +90,12 @@
   <script type="module" src="/src/main.tsx"></script>
 
   <script>
-    // ── Service Worker + авто-обновление ─────────────────────────────────────
+    // ── Service Worker — обновляется тихо в фоне, без авто-перезагрузки ───────
+    // Новая версия применится сама при следующем обычном открытии сайта.
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js', { scope: '/' })
-        .then(function(reg) {
-          // Проверяем обновление каждый раз при открытии
-          reg.update();
-          // Если SW обновился — перезагружаем страницу автоматически
-          reg.addEventListener('updatefound', function() {
-            var newSW = reg.installing;
-            if (!newSW) return;
-            newSW.addEventListener('statechange', function() {
-              if (newSW.state === 'activated') {
-                // Новый SW активен — тихо перезагружаемся
-                window.location.reload();
-              }
-            });
-          });
-        })
+        .then(function(reg) { reg.update(); })
         .catch(function() {});
-
-      // Слушаем сообщение от SW об обновлении
-      navigator.serviceWorker.addEventListener('message', function(event) {
-        if (event.data && event.data.type === 'APP_UPDATED') {
-          // Небольшая задержка чтобы не мешать текущему действию пользователя
-          setTimeout(function() { window.location.reload(); }, 1500);
-        }
-      });
     }
 
     // splash убран — функция-заглушка чтобы не было ошибок в React

@@ -16,6 +16,22 @@
       "expectedStatus": 401,
       "expectedBody": {"error": "Не авторизован"},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Broadcasts list without token",
+      "method": "GET",
+      "path": "/?action=broadcasts_list",
+      "expectedStatus": 401,
+      "expectedBody": {"error": "Не авторизован"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Broadcast delete without broadcast_id",
+      "method": "POST",
+      "path": "/?action=broadcast_delete",
+      "expectedStatus": 401,
+      "expectedBody": {"error": "Не авторизован"},
+      "bodyMatcher": "partial"
     }
   ]
 }

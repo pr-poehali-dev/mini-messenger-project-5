@@ -1631,7 +1631,15 @@ def handler(event: dict, context) -> dict:
             elif admin_action == 'unblock':
                 cur.execute("UPDATE realty_listings SET is_blocked=FALSE WHERE id=%s", (lid,))
             elif admin_action == 'delete':
-                cur.execute("UPDATE realty_listings SET is_blocked=TRUE WHERE id=%s", (lid,))
+                # Реальное удаление объявления — сначала чистим все зависимые записи (FK)
+                cur.execute("SELECT id FROM realty_chats WHERE listing_id=%s", (lid,))
+                chat_ids = [r['id'] for r in cur.fetchall()]
+                for cid in chat_ids:
+                    cur.execute("DELETE FROM realty_messages WHERE chat_id=%s", (cid,))
+                cur.execute("DELETE FROM realty_chats WHERE listing_id=%s", (lid,))
+                cur.execute("DELETE FROM realty_favorites WHERE listing_id=%s", (lid,))
+                cur.execute("DELETE FROM realty_payments WHERE listing_id=%s", (lid,))
+                cur.execute("DELETE FROM realty_listings WHERE id=%s", (lid,))
             conn.commit()
             return _resp(200, {'ok': True})
 

@@ -25,8 +25,32 @@ export default function Admin() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
-  const [tab, setTab] = useState<'stats' | 'users' | 'broadcast' | 'ad' | 'realty'>('stats');
+  const [tab, setTab] = useState<'stats' | 'users' | 'broadcast' | 'ad' | 'realty' | 'history'>('stats');
   const isAuth = !!token;
+
+  // История рассылок
+  type BroadcastItem = { id: number; is_ad: boolean; text?: string | null; image_url?: string | null; sent_count: number; created_at: string };
+  const [broadcasts, setBroadcasts] = useState<BroadcastItem[]>([]);
+  const [broadcastsLoading, setBroadcastsLoading] = useState(false);
+  const [broadcastDeleteConfirm, setBroadcastDeleteConfirm] = useState<number | null>(null);
+
+  const loadBroadcasts = async () => {
+    setBroadcastsLoading(true);
+    const d = await api('broadcasts_list', 'GET', undefined, token);
+    setBroadcasts((d.broadcasts as BroadcastItem[]) || []);
+    setBroadcastsLoading(false);
+  };
+
+  const deleteBroadcast = async (id: number) => {
+    await api('broadcast_delete', 'POST', { broadcast_id: id, token }, token);
+    setBroadcastDeleteConfirm(null);
+    setBroadcasts(b => b.filter(x => x.id !== id));
+  };
+
+  useEffect(() => {
+    if (isAuth && tab === 'history') loadBroadcasts();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuth, tab]);
 
   // Недвижимость
   const MESSENGER_API = 'https://functions.poehali.dev/b927178a-1937-4d4d-8fd6-2a1ffe4d52be';
@@ -212,6 +236,7 @@ export default function Admin() {
           {tabBtn('users', 'Users', 'Пользователи')}
           {tabBtn('broadcast', 'Send', 'Рассылка')}
           {tabBtn('ad', 'Megaphone', 'Реклама')}
+          {tabBtn('history', 'History', 'История рассылок')}
           {tabBtn('realty', 'Home', 'Недвижимость')}
         </div>
 
@@ -386,6 +411,66 @@ export default function Admin() {
                 {adSending ? 'Отправляю...' : 'Отправить рекламу всем'}
               </button>
             </div>
+          </div>
+        )}
+
+        {/* ── ИСТОРИЯ РАССЫЛОК ── */}
+        {tab === 'history' && (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-xl text-slate-800">История рассылок</h2>
+              <button onClick={loadBroadcasts} className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors">
+                <Icon name="RefreshCw" size={14} /> Обновить
+              </button>
+            </div>
+
+            {broadcastsLoading ? (
+              <div className="flex justify-center py-12"><div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
+            ) : broadcasts.length === 0 ? (
+              <div className="bg-white rounded-2xl p-12 text-center border border-slate-100">
+                <p className="text-slate-400">Рассылок пока не было</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {broadcasts.map(b => (
+                  <div key={b.id} className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm flex items-start gap-4">
+                    {b.image_url
+                      ? <img src={b.image_url} className="w-16 h-16 rounded-xl object-cover shrink-0" />
+                      : (
+                        <div className={`w-16 h-16 rounded-xl flex items-center justify-center shrink-0 ${b.is_ad ? 'bg-purple-100' : 'bg-blue-100'}`}>
+                          <Icon name={b.is_ad ? 'Megaphone' : 'Send'} size={20} className={b.is_ad ? 'text-purple-500' : 'text-blue-500'} />
+                        </div>
+                      )
+                    }
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${b.is_ad ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                          {b.is_ad ? 'Реклама' : 'Рассылка'}
+                        </span>
+                        <span className="text-xs text-slate-400">{fmtDate(b.created_at)}</span>
+                      </div>
+                      {b.text && <p className="text-sm text-slate-700 mb-1 break-words">{b.text}</p>}
+                      <p className="text-xs text-slate-400">Получили: {b.sent_count} чел.</p>
+                    </div>
+                    <div className="shrink-0">
+                      {broadcastDeleteConfirm === b.id ? (
+                        <div className="flex gap-2 items-center">
+                          <button onClick={() => deleteBroadcast(b.id)}
+                            className="px-3 py-1.5 bg-red-500 text-white text-xs font-bold rounded-lg">Да</button>
+                          <button onClick={() => setBroadcastDeleteConfirm(null)}
+                            className="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-medium rounded-lg">Нет</button>
+                        </div>
+                      ) : (
+                        <button onClick={() => setBroadcastDeleteConfirm(b.id)}
+                          className="w-8 h-8 rounded-xl hover:bg-red-50 flex items-center justify-center transition-colors">
+                          <Icon name="Trash2" size={15} className="text-red-400" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

@@ -199,6 +199,14 @@ def handler(event: dict, context) -> dict:
             bot_id = _get_or_create_bot(cur, bot_nick, sender_name)
             conn.commit()
 
+            # Создаём запись самой рассылки — чтобы её можно было увидеть в списке и удалить у всех
+            cur.execute(
+                f"INSERT INTO {SCHEMA}.broadcasts (is_ad, text, image_url) VALUES (%s, %s, %s) RETURNING id",
+                (is_ad, text or None, image_url or None)
+            )
+            broadcast_id = cur.fetchone()['id']
+            conn.commit()
+
             # Получаем всех активных пользователей
             cur.execute(
                 f"SELECT id FROM {SCHEMA}.users WHERE nick NOT IN ('vaimessenger', 'vaimessenger_ad') AND id != %s",
@@ -222,13 +230,14 @@ def handler(event: dict, context) -> dict:
                     )
                     chat = cur.fetchone()
                 chat_id = chat['id']
-                # Отправляем сообщение
+                # Отправляем сообщение, привязывая его к рассылке
                 cur.execute(
-                    f"INSERT INTO {SCHEMA}.messages (chat_id, sender_id, text, image_url) VALUES (%s, %s, %s, %s)",
-                    (chat_id, bot_id, text or None, image_url or None)
+                    f"INSERT INTO {SCHEMA}.messages (chat_id, sender_id, text, image_url, broadcast_id) VALUES (%s, %s, %s, %s, %s)",
+                    (chat_id, bot_id, text or None, image_url or None, broadcast_id)
                 )
                 sent += 1
 
+            cur.execute(f"UPDATE {SCHEMA}.broadcasts SET sent_count=%s WHERE id=%s", (sent, broadcast_id))
             conn.commit()
 
             # Создаём уведомления и отправляем push всем
@@ -245,7 +254,28 @@ def handler(event: dict, context) -> dict:
             push_title = '📢 ВайМессенджер Реклама' if is_ad else '📢 ВайМессенджер'
             _push(user_ids, push_title, text or '📸 Новое сообщение', '/')
 
-            return _resp(200, {'ok': True, 'sent': sent})
+            return _resp(200, {'ok': True, 'sent': sent, 'broadcast_id': broadcast_id})
+
+        # ── Список рассылок (для отображения в админке) ────────────────────
+        if action == 'broadcasts_list' and method == 'GET':
+            cur.execute(
+                f"""SELECT id, is_ad, text, image_url, sent_count, created_at
+                    FROM {SCHEMA}.broadcasts ORDER BY created_at DESC LIMIT 100"""
+            )
+            return _resp(200, {'broadcasts': cur.fetchall()})
+
+        # ── Удалить рассылку у всех получателей ─────────────────────────────
+        if action == 'broadcast_delete' and method == 'POST':
+            bid = int(body.get('broadcast_id') or 0)
+            if not bid:
+                return _resp(400, {'error': 'broadcast_id обязателен'})
+            cur.execute(
+                f"UPDATE {SCHEMA}.messages SET is_removed=TRUE WHERE broadcast_id=%s",
+                (bid,)
+            )
+            cur.execute(f"DELETE FROM {SCHEMA}.broadcasts WHERE id=%s", (bid,))
+            conn.commit()
+            return _resp(200, {'ok': True})
 
         # ── Загрузка медиа ────────────────────────────────────────────────
         if action == 'upload_media' and method == 'POST':
