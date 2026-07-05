@@ -103,6 +103,8 @@ type RealtyListing = { id: number; deal_type: 'sale'|'rent'; city: string; distr
 type Notif = { id: number; type: string; from_user_id?: number; from_nick?: string; from_avatar?: string | null; chat_id?: number; group_id?: number; payload?: string; is_read: boolean; created_at: string };
 type GroupInfo = { id: number; name: string; about?: string; photo_url?: string | null; invite_token: string; owner_id: number; my_role?: string; member_count: number; is_public?: boolean };
 type GroupMember = User & { role: string };
+type StatusItem = { id: number; user_id: number; type: 'text' | 'photo' | 'video'; content: string; caption?: string | null; bg_color?: string | null; created_at: string; expires_at: string; viewed?: boolean };
+type StatusFeedItem = { user_id: number; nick: string; avatar_url?: string | null; status_count: number; unseen_count: number; last_status_at: string };
 
 // ── screens ───────────────────────────────────────────────────────────────────
 type Screen =
@@ -114,7 +116,9 @@ type Screen =
   | { name: 'followers'; userId: number; mode: 'followers' | 'following' }
   | { name: 'new_group' }
   | { name: 'group_info'; groupId: number; chatId: number }
-  | { name: 'realty_chat'; chatId: number; listing: RealtyListing };
+  | { name: 'realty_chat'; chatId: number; listing: RealtyListing }
+  | { name: 'status_create' }
+  | { name: 'status_view'; userId: number };
 
 export default function Index() {
   const [user, setUser] = useState<User | null>(() => {
@@ -336,6 +340,9 @@ export default function Index() {
       onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />;
     if (screen.name === 'realty_chat') return <RealtyChatScreen
       user={user} chatId={screen.chatId} listing={screen.listing} onBack={back} />;
+    if (screen.name === 'status_create') return <StatusCreateScreen user={user} onBack={() => push({ name: 'tabs', tab: 'chats' })} onCreated={() => push({ name: 'tabs', tab: 'chats' })} />;
+    if (screen.name === 'status_view') return <StatusViewScreen me={user} userId={screen.userId} onBack={() => push({ name: 'tabs', tab: 'chats' })}
+      onOpenChat={async (peerId) => { const d = await api('open_chat', 'POST', { user_id: user.id, peer_id: peerId }); push({ name: 'chat', chatId: d.chat_id as number, peer: d.peer as User }); }} />;
     const tab = (screen as { name: 'tabs'; tab: Tab }).tab;
     return (
       <TabsShell tab={tab} onTab={(t) => push({ name: 'tabs', tab: t })} user={user}>
@@ -344,7 +351,9 @@ export default function Index() {
           onOpenChat={(c) => push({ name: 'chat', chatId: c.chat_id, peer: c.peer_id ? { id: c.peer_id, nick: c.peer_nick!, avatar_url: c.peer_avatar } : undefined, groupName: c.group_name, groupId: c.group_id, groupPhotoUrl: c.group_avatar })}
           onNewGroup={() => push({ name: 'new_group' })}
           onOpenGroup={(gid, chatId) => push({ name: 'group_info', groupId: gid, chatId })}
-          onOpenRealtyChat={(chatId, listing) => push({ name: 'realty_chat', chatId, listing })} />}
+          onOpenRealtyChat={(chatId, listing) => push({ name: 'realty_chat', chatId, listing })}
+          onCreateStatus={() => push({ name: 'status_create' })}
+          onOpenStatus={(uid) => push({ name: 'status_view', userId: uid })} />}
         {tab === 'realty' && <RealtyTab user={user}
           onOpenChat={(chatId, listing) => push({ name: 'realty_chat', chatId, listing })} />}
         {tab === 'notifications' && <NotificationsTab user={user}
@@ -773,7 +782,7 @@ function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (tabKey: T
 // ══════════════════════════════════════════════════════════════════════════════
 // CHATS TAB
 // ══════════════════════════════════════════════════════════════════════════════
-function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat }: { user: User; onOpenChat: (c: ChatItem) => void; onNewGroup: () => void; onOpenGroup: (gid: number, chatId: number) => void; onOpenRealtyChat: (chatId: number, listing: RealtyListing) => void }) {
+function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat, onCreateStatus, onOpenStatus }: { user: User; onOpenChat: (c: ChatItem) => void; onNewGroup: () => void; onOpenGroup: (gid: number, chatId: number) => void; onOpenRealtyChat: (chatId: number, listing: RealtyListing) => void; onCreateStatus: () => void; onOpenStatus: (userId: number) => void }) {
   const { t } = useLang();
   const [chats, setChats] = useState<ChatItem[]>([]);
   const [showMenu, setShowMenu] = useState(false);
@@ -855,6 +864,9 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat 
           ))}
         </div>
       </div>
+
+      {/* Лента статусов */}
+      <StatusBar user={user} onCreateStatus={onCreateStatus} onOpenStatus={onOpenStatus} />
 
       <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-2 bg-white dark:bg-slate-950">
         {visibleChats.length === 0 && (
@@ -939,6 +951,56 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat 
               </div>
             </button>
           </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STATUS BAR — лента статусов над списком чатов (как в WhatsApp)
+// ══════════════════════════════════════════════════════════════════════════════
+function StatusBar({ user, onCreateStatus, onOpenStatus }: { user: User; onCreateStatus: () => void; onOpenStatus: (userId: number) => void }) {
+  const { t } = useLang();
+  const [feed, setFeed] = useState<StatusFeedItem[]>([]);
+
+  const load = useCallback(async () => {
+    const d = await api(`statuses_feed&user_id=${user.id}`);
+    setFeed((d.feed as StatusFeedItem[]) || []);
+  }, [user.id]);
+
+  useEffect(() => { load(); const iv = setInterval(load, 15000); return () => clearInterval(iv); }, [load]);
+
+  const myStatus = feed.find(f => f.user_id === user.id);
+  const others = feed.filter(f => f.user_id !== user.id);
+
+  return (
+    <div className="shrink-0 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-3 py-3 overflow-x-auto scrollbar-none">
+      <div className="flex gap-3">
+        {/* Мой статус */}
+        <button onClick={() => myStatus ? onOpenStatus(user.id) : onCreateStatus()} className="flex flex-col items-center gap-1 shrink-0 w-16">
+          <div className="relative">
+            <div className={`w-14 h-14 rounded-full p-[2px] ${myStatus ? 'bg-green-500' : 'bg-transparent'}`}>
+              <div className="w-full h-full rounded-full border-2 border-white dark:border-slate-900 overflow-hidden">
+                <Avatar url={user.avatar_url} nick={user.nick} size={50} />
+              </div>
+            </div>
+            <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-blue-600 border-2 border-white dark:border-slate-900 flex items-center justify-center">
+              <Icon name="Plus" size={11} className="text-white" />
+            </div>
+          </div>
+          <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate w-full text-center">{t('Мой статус')}</span>
+        </button>
+
+        {others.map(f => (
+          <button key={f.user_id} onClick={() => onOpenStatus(f.user_id)} className="flex flex-col items-center gap-1 shrink-0 w-16">
+            <div className={`w-14 h-14 rounded-full p-[2px] ${f.unseen_count > 0 ? 'bg-green-500' : 'bg-slate-200 dark:bg-slate-700'}`}>
+              <div className="w-full h-full rounded-full border-2 border-white dark:border-slate-900 overflow-hidden">
+                <Avatar url={f.avatar_url} nick={f.nick} size={50} />
+              </div>
+            </div>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate w-full text-center">@{f.nick}</span>
+          </button>
         ))}
       </div>
     </div>
@@ -3944,6 +4006,365 @@ function NewGroupScreen({ user, onBack, onCreated }: { user: User; onBack: () =>
   );
 }
 
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STATUS CREATE SCREEN
+// ══════════════════════════════════════════════════════════════════════════════
+const STATUS_BG_COLORS = [
+  'from-blue-500 to-indigo-600',
+  'from-pink-500 to-rose-500',
+  'from-emerald-500 to-teal-600',
+  'from-orange-400 to-red-500',
+  'from-purple-500 to-fuchsia-600',
+  'from-slate-700 to-slate-900',
+];
+
+function StatusCreateScreen({ user, onBack, onCreated }: { user: User; onBack: () => void; onCreated: () => void }) {
+  const { t } = useLang();
+  const [type, setType] = useState<'text' | 'photo' | 'video'>('text');
+  const [text, setText] = useState('');
+  const [bgColor, setBgColor] = useState(STATUS_BG_COLORS[0]);
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [caption, setCaption] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [error, setError] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const pick = (kind: 'photo' | 'video') => {
+    setType(kind);
+    setError('');
+    if (fileRef.current) {
+      fileRef.current.accept = kind === 'photo' ? 'image/*' : 'video/*';
+      fileRef.current.click();
+    }
+  };
+
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const maxMb = type === 'video' ? 50 : 15;
+    if (f.size > maxMb * 1024 * 1024) {
+      setError(`${t('Файл слишком большой. Максимум')} ${maxMb} ${t('МБ.')}`);
+      return;
+    }
+    setFile(f);
+    setPreview(URL.createObjectURL(f));
+    e.target.value = '';
+  };
+
+  const canPost = type === 'text' ? text.trim().length > 0 : !!file;
+
+  const post = async () => {
+    if (!canPost || posting) return;
+    setPosting(true);
+    setError('');
+    try {
+      if (type === 'text') {
+        const d = await api('status_create', 'POST', { user_id: user.id, type: 'text', content: text.trim(), bg_color: bgColor });
+        if (d.error) { setError(d.error as string); return; }
+      } else if (file) {
+        const ext = (file.name.split('.').pop() || (type === 'photo' ? 'jpg' : 'mp4')).toLowerCase();
+        const b64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve((reader.result as string).split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        const up = await api('upload_status_media', 'POST', { user_id: user.id, data: b64, ext, media_type: type });
+        if (up.error || !up.url) { setError((up.error as string) || t('Ошибка загрузки')); return; }
+        const d = await api('status_create', 'POST', { user_id: user.id, type, content: up.url, caption: caption.trim() || undefined });
+        if (d.error) { setError(d.error as string); return; }
+      }
+      onCreated();
+    } catch (e) {
+      setError(`${t('Ошибка')}: ${e}`);
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 flex flex-col bg-white dark:bg-slate-950 z-40" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+      <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+        <button onClick={onBack} className="w-9 h-9 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors">
+          <Icon name="X" size={20} className="text-slate-600 dark:text-slate-300" />
+        </button>
+        <h1 className="font-bold text-slate-800 dark:text-slate-100">{t('Новый статус')}</h1>
+        <button onClick={post} disabled={!canPost || posting}
+          className="px-4 py-1.5 rounded-full bg-blue-600 text-white text-sm font-semibold disabled:opacity-40 transition-opacity">
+          {posting ? t('Публикация...') : t('Поделиться')}
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex gap-2 mb-4">
+          {([
+            { key: 'text', icon: 'Type', label: t('Текст') },
+            { key: 'photo', icon: 'Image', label: t('Фото') },
+            { key: 'video', icon: 'Video', label: t('Видео') },
+          ] as const).map(opt => (
+            <button key={opt.key} onClick={() => opt.key === 'text' ? setType('text') : pick(opt.key)}
+              className={`flex-1 py-3 rounded-2xl flex flex-col items-center gap-1 border transition-colors ${type === opt.key ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900' : 'bg-slate-50 dark:bg-slate-900 border-slate-100 dark:border-slate-800'}`}>
+              <Icon name={opt.icon} size={20} className={type === opt.key ? 'text-blue-600' : 'text-slate-400'} />
+              <span className={`text-xs font-medium ${type === opt.key ? 'text-blue-600' : 'text-slate-500 dark:text-slate-400'}`}>{opt.label}</span>
+            </button>
+          ))}
+        </div>
+
+        <input ref={fileRef} type="file" hidden onChange={onFile} />
+
+        {type === 'text' && (
+          <>
+            <div className={`w-full aspect-[9/12] max-h-[420px] rounded-3xl bg-gradient-to-br ${bgColor} flex items-center justify-center p-6 mb-4`}>
+              <textarea value={text} onChange={e => setText(e.target.value.slice(0, 100))} autoFocus
+                placeholder={t('Введите текст статуса...')} rows={4}
+                className="w-full bg-transparent outline-none resize-none text-center text-white text-2xl font-semibold placeholder:text-white/60" />
+            </div>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex gap-2">
+                {STATUS_BG_COLORS.map(c => (
+                  <button key={c} onClick={() => setBgColor(c)}
+                    className={`w-8 h-8 rounded-full bg-gradient-to-br ${c} ${bgColor === c ? 'ring-2 ring-offset-2 ring-blue-500 dark:ring-offset-slate-950' : ''}`} />
+                ))}
+              </div>
+              <span className="text-xs text-slate-400">{text.length}/100</span>
+            </div>
+          </>
+        )}
+
+        {(type === 'photo' || type === 'video') && (
+          <>
+            {preview ? (
+              <div className="relative rounded-3xl overflow-hidden mb-4 bg-black">
+                {type === 'photo'
+                  ? <img src={preview} className="w-full max-h-[420px] object-contain" />
+                  : <video src={preview} className="w-full max-h-[420px] object-contain" controls />}
+                <button onClick={() => { setFile(null); setPreview(null); }}
+                  className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center">
+                  <Icon name="X" size={16} className="text-white" />
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => pick(type)}
+                className="w-full aspect-[9/12] max-h-[420px] rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-2 mb-4 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors">
+                <Icon name={type === 'photo' ? 'Image' : 'Video'} size={32} className="text-slate-300" />
+                <span className="text-sm text-slate-400">{type === 'photo' ? t('Выбрать фото') : t('Выбрать видео')}</span>
+              </button>
+            )}
+            {file && (
+              <input value={caption} onChange={e => setCaption(e.target.value)} placeholder={t('Добавить подпись...')}
+                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-800 dark:text-slate-100 text-sm mb-4" />
+            )}
+          </>
+        )}
+
+        {error && <p className="text-sm text-red-500 text-center">{error}</p>}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STATUS VIEW SCREEN — полноэкранный просмотр статусов (как Stories)
+// ══════════════════════════════════════════════════════════════════════════════
+function StatusViewScreen({ me, userId, onBack, onOpenChat }: { me: User; userId: number; onBack: () => void; onOpenChat: (peerId: number) => void }) {
+  const { t } = useLang();
+  const [statuses, setStatuses] = useState<StatusItem[]>([]);
+  const [index, setIndex] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [showViews, setShowViews] = useState(false);
+  const [views, setViews] = useState<{ id: number; nick: string; avatar_url?: string | null; viewed_at: string }[]>([]);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [author, setAuthor] = useState<{ nick: string; avatar_url?: string | null } | null>(null);
+  const startRef = useRef(0);
+  const rafRef = useRef<number>();
+
+  const isMine = userId === me.id;
+  const DURATION = 5000;
+
+  useEffect(() => {
+    api(`statuses_user&user_id=${userId}&me=${me.id}`).then(d => {
+      const list = (d.statuses as StatusItem[]) || [];
+      setStatuses(list);
+      if (list.length === 0) onBack();
+    });
+    api(`profile&user_id=${userId}&me=${me.id}`).then(d => {
+      const p = d.user as { nick: string; avatar_url?: string | null } | undefined;
+      if (p) setAuthor({ nick: p.nick, avatar_url: p.avatar_url });
+    });
+  }, [userId, me.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const current = statuses[index];
+
+  useEffect(() => {
+    if (!current) return;
+    api('status_view', 'POST', { status_id: current.id, viewer_id: me.id });
+  }, [current, me.id]);
+
+  const goNext = useCallback(() => {
+    setIndex(i => {
+      if (i + 1 >= statuses.length) { onBack(); return i; }
+      return i + 1;
+    });
+    setProgress(0);
+  }, [statuses.length, onBack]);
+
+  const goPrev = useCallback(() => {
+    setIndex(i => Math.max(0, i - 1));
+    setProgress(0);
+  }, []);
+
+  useEffect(() => {
+    if (!current || paused || showViews || current.type === 'video') return;
+    startRef.current = Date.now() - progress * DURATION;
+    const tick = () => {
+      const elapsed = Date.now() - startRef.current;
+      const pct = Math.min(1, elapsed / DURATION);
+      setProgress(pct);
+      if (pct >= 1) { goNext(); return; }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [current, paused, showViews, goNext]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadViews = async () => {
+    if (!current) return;
+    const d = await api(`status_views&status_id=${current.id}&user_id=${me.id}`);
+    setViews((d.views as { id: number; nick: string; avatar_url?: string | null; viewed_at: string }[]) || []);
+    setShowViews(true);
+  };
+
+  const deleteStatus = async () => {
+    if (!current) return;
+    await api('status_delete', 'POST', { status_id: current.id, user_id: me.id });
+    setConfirmDelete(false);
+    const rest = statuses.filter(s => s.id !== current.id);
+    if (rest.length === 0) { onBack(); return; }
+    setStatuses(rest);
+    setIndex(i => Math.min(i, rest.length - 1));
+    setProgress(0);
+  };
+
+  const touchStartX = useRef(0);
+  const onTouchStart = (e: React.TouchEvent) => { touchStartX.current = e.touches[0].clientX; setPaused(true); };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    setPaused(false);
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    if (Math.abs(dx) > 50) { if (dx > 0) { goPrev(); } else { goNext(); } }
+  };
+
+  if (!current) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black flex flex-col" style={{ paddingTop: 'env(safe-area-inset-top)' }}
+      onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+      {/* Прогресс-бары */}
+      <div className="shrink-0 flex gap-1 px-2 pt-2">
+        {statuses.map((s, i) => (
+          <div key={s.id} className="flex-1 h-0.5 rounded-full bg-white/30 overflow-hidden">
+            <div className="h-full bg-white transition-none" style={{ width: i < index ? '100%' : i === index ? `${progress * 100}%` : '0%' }} />
+          </div>
+        ))}
+      </div>
+
+      {/* Шапка */}
+      <div className="shrink-0 flex items-center gap-3 px-4 py-3">
+        <Avatar url={author?.avatar_url} nick={author?.nick || '?'} size={36} />
+        <div className="flex-1">
+          <div className="text-white font-semibold text-sm">@{author?.nick}</div>
+          <div className="text-white/60 text-xs">{fmtTime(current.created_at)}</div>
+        </div>
+        {isMine && (
+          <button onClick={() => setConfirmDelete(true)} className="w-9 h-9 rounded-full hover:bg-white/10 flex items-center justify-center">
+            <Icon name="Trash2" size={18} className="text-white" />
+          </button>
+        )}
+        <button onClick={onBack} className="w-9 h-9 rounded-full hover:bg-white/10 flex items-center justify-center">
+          <Icon name="X" size={20} className="text-white" />
+        </button>
+      </div>
+
+      {/* Тап-зоны навигации */}
+      <div className="absolute inset-0 flex z-10">
+        <div className="w-1/3 h-full" onClick={goPrev} />
+        <div className="w-1/3 h-full" onClick={() => setPaused(p => !p)} />
+        <div className="w-1/3 h-full" onClick={goNext} />
+      </div>
+
+      {/* Контент */}
+      <div className="flex-1 flex items-center justify-center px-4 relative">
+        {current.type === 'text' && (
+          <div className={`w-full h-full rounded-2xl bg-gradient-to-br ${current.bg_color || STATUS_BG_COLORS[0]} flex items-center justify-center p-8`}>
+            <p className="text-white text-2xl font-semibold text-center break-words">{current.content}</p>
+          </div>
+        )}
+        {current.type === 'photo' && (
+          <img src={current.content} className="max-w-full max-h-full object-contain rounded-2xl" />
+        )}
+        {current.type === 'video' && (
+          <video src={current.content} autoPlay playsInline className="max-w-full max-h-full object-contain rounded-2xl"
+            onEnded={goNext} onLoadedMetadata={() => setProgress(0)} />
+        )}
+        {current.caption && (
+          <div className="absolute bottom-4 left-4 right-4 text-center">
+            <p className="text-white text-sm bg-black/40 rounded-xl px-3 py-2 inline-block">{current.caption}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Нижняя панель */}
+      <div className="shrink-0 px-4 pb-6 pt-2 flex items-center gap-3 z-20" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}>
+        {isMine ? (
+          <button onClick={loadViews} className="flex-1 flex items-center justify-center gap-2 py-3 rounded-full bg-white/10 text-white text-sm font-medium">
+            <Icon name="Eye" size={16} /> {t('Просмотрели')}
+          </button>
+        ) : (
+          <button onClick={() => onOpenChat(userId)} className="flex-1 flex items-center justify-center gap-2 py-3 rounded-full bg-white/10 text-white text-sm font-medium">
+            <Icon name="MessageCircle" size={16} /> {t('Ответить')}
+          </button>
+        )}
+      </div>
+
+      {/* Модалка: кто просмотрел */}
+      {showViews && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-end" onClick={() => setShowViews(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-t-3xl w-full max-h-[60vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-800 dark:text-slate-100">{t('Просмотрели')} ({views.length})</h3>
+              <button onClick={() => setShowViews(false)}><Icon name="X" size={20} className="text-slate-400" /></button>
+            </div>
+            {views.length === 0
+              ? <p className="text-center text-slate-400 py-8">{t('Пока никто не просмотрел')}</p>
+              : views.map(v => (
+                <div key={v.id} className="flex items-center gap-3 py-2.5">
+                  <Avatar url={v.avatar_url} nick={v.nick} size={40} />
+                  <span className="flex-1 font-semibold text-slate-800 dark:text-slate-100">@{v.nick}</span>
+                  <span className="text-xs text-slate-400">{fmtTime(v.viewed_at)}</span>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      )}
+
+      {/* Подтверждение удаления */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center px-6" onClick={() => setConfirmDelete(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 w-full max-w-xs" onClick={e => e.stopPropagation()}>
+            <p className="text-sm text-slate-700 dark:text-slate-200 mb-4 text-center">{t('Удалить этот статус?')}</p>
+            <div className="flex gap-2">
+              <button onClick={deleteStatus} className="flex-1 py-2.5 rounded-2xl bg-red-500 text-white text-sm font-semibold">{t('Удалить')}</button>
+              <button onClick={() => setConfirmDelete(false)} className="flex-1 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-sm font-medium">{t('Отмена')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // GROUP INFO SCREEN

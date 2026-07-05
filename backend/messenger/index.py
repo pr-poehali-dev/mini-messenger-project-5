@@ -1593,6 +1593,139 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return _resp(200, {'ok': True})
 
+        # ══════════════════════════════════════════════════
+        # СТАТУСЫ (как в WhatsApp)
+        # ══════════════════════════════════════════════════
+
+        # ── Создать статус: текст / фото / видео ──────────
+        if action == 'status_create' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            s_type = body.get('type', 'text')
+            content = body.get('content', '')
+            caption = body.get('caption') or None
+            bg_color = body.get('bg_color') or None
+            if not uid or s_type not in ('text', 'photo', 'video') or not content:
+                return _resp(400, {'error': 'Некорректные данные статуса'})
+            if s_type == 'text' and len(content) > 100:
+                return _resp(400, {'error': 'Текст статуса максимум 100 символов'})
+            cur.execute(
+                """INSERT INTO statuses (user_id, type, content, caption, bg_color, created_at, expires_at)
+                   VALUES (%s, %s, %s, %s, %s, NOW(), NOW() + INTERVAL '24 hours')
+                   RETURNING id, user_id, type, content, caption, bg_color, created_at, expires_at""",
+                (uid, s_type, content, caption, bg_color),
+            )
+            status = cur.fetchone()
+            conn.commit()
+            return _resp(200, {'status': status})
+
+        # ── Лента статусов: свои + тех, на кого подписан ──
+        if action == 'statuses_feed' and method == 'GET':
+            me = int(params.get('user_id') or 0)
+            cur.execute("DELETE FROM status_views WHERE status_id IN (SELECT id FROM statuses WHERE expires_at <= NOW())")
+            cur.execute("DELETE FROM statuses WHERE expires_at <= NOW()")
+            conn.commit()
+            cur.execute(
+                """
+                SELECT u.id AS user_id, u.nick, u.avatar_url,
+                       COUNT(s.id) AS status_count,
+                       COUNT(s.id) FILTER (WHERE sv.id IS NULL) AS unseen_count,
+                       MAX(s.created_at) AS last_status_at
+                FROM statuses s
+                JOIN users u ON u.id = s.user_id
+                LEFT JOIN status_views sv ON sv.status_id = s.id AND sv.viewer_id = %s
+                WHERE s.expires_at > NOW()
+                  AND (u.id = %s OR u.id IN (SELECT following_id FROM follows WHERE follower_id = %s))
+                GROUP BY u.id, u.nick, u.avatar_url
+                ORDER BY (u.id = %s) DESC, unseen_count DESC, last_status_at DESC
+                """,
+                (me, me, me, me),
+            )
+            return _resp(200, {'feed': cur.fetchall()})
+
+        # ── Статусы конкретного пользователя ───────────────
+        if action == 'statuses_user' and method == 'GET':
+            uid = int(params.get('user_id') or 0)
+            me = int(params.get('me') or 0)
+            cur.execute(
+                """
+                SELECT s.id, s.user_id, s.type, s.content, s.caption, s.bg_color, s.created_at, s.expires_at,
+                       EXISTS(SELECT 1 FROM status_views WHERE status_id=s.id AND viewer_id=%s) AS viewed
+                FROM statuses s
+                WHERE s.user_id=%s AND s.expires_at > NOW()
+                ORDER BY s.created_at ASC
+                """,
+                (me, uid),
+            )
+            return _resp(200, {'statuses': cur.fetchall()})
+
+        # ── Отметить статус просмотренным ──────────────────
+        if action == 'status_view' and method == 'POST':
+            status_id = int(body.get('status_id') or 0)
+            viewer_id = int(body.get('viewer_id') or 0)
+            cur.execute("SELECT user_id FROM statuses WHERE id=%s", (status_id,))
+            row = cur.fetchone()
+            if not row:
+                return _resp(404, {'error': 'Статус не найден'})
+            if row['user_id'] != viewer_id:
+                cur.execute(
+                    "INSERT INTO status_views (status_id, viewer_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                    (status_id, viewer_id),
+                )
+                conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── Кто просмотрел статус (только автор) ───────────
+        if action == 'status_views' and method == 'GET':
+            status_id = int(params.get('status_id') or 0)
+            uid = int(params.get('user_id') or 0)
+            cur.execute("SELECT user_id FROM statuses WHERE id=%s", (status_id,))
+            row = cur.fetchone()
+            if not row:
+                return _resp(404, {'error': 'Статус не найден'})
+            if row['user_id'] != uid:
+                return _resp(403, {'error': 'Нет доступа'})
+            cur.execute(
+                """
+                SELECT u.id, u.nick, u.avatar_url, sv.viewed_at
+                FROM status_views sv JOIN users u ON u.id = sv.viewer_id
+                WHERE sv.status_id=%s ORDER BY sv.viewed_at DESC
+                """,
+                (status_id,),
+            )
+            return _resp(200, {'views': cur.fetchall()})
+
+        # ── Удалить свой статус ─────────────────────────────
+        if action == 'status_delete' and method == 'POST':
+            status_id = int(body.get('status_id') or 0)
+            uid = int(body.get('user_id') or 0)
+            cur.execute("SELECT user_id FROM statuses WHERE id=%s", (status_id,))
+            row = cur.fetchone()
+            if not row:
+                return _resp(404, {'error': 'Статус не найден'})
+            if row['user_id'] != uid:
+                return _resp(403, {'error': 'Нет доступа'})
+            cur.execute("DELETE FROM status_views WHERE status_id=%s", (status_id,))
+            cur.execute("DELETE FROM statuses WHERE id=%s", (status_id,))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── Загрузка фото/видео для статуса (base64) ───────
+        if action == 'upload_status_media' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            data_b64 = body.get('data', '')
+            ext = (body.get('ext') or 'jpg').lower()
+            media_type = body.get('media_type', 'photo')
+            if not uid or not data_b64:
+                return _resp(400, {'error': 'Нет данных'})
+            raw = base64.b64decode(data_b64)
+            ct_map = {'photo': f'image/{ext}', 'video': f'video/{ext}'}
+            content_type = ct_map.get(media_type, 'application/octet-stream')
+            key = f"statuses/{uid}_{secrets.token_hex(8)}.{ext}"
+            s3 = _s3()
+            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw, ContentType=content_type)
+            url = _s3_url(key)
+            return _resp(200, {'url': url})
+
         return _resp(404, {'error': 'Неизвестное действие'})
     finally:
         conn.close()

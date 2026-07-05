@@ -66,6 +66,40 @@
       "expectedStatus": 200,
       "expectedBody": {"listings": []},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Statuses feed - empty for unknown user",
+      "method": "GET",
+      "path": "/?action=statuses_feed&user_id=0",
+      "expectedStatus": 200,
+      "expectedBody": {"feed": []},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Statuses user - empty for unknown user",
+      "method": "GET",
+      "path": "/?action=statuses_user&user_id=0&me=0",
+      "expectedStatus": 200,
+      "expectedBody": {"statuses": []},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Status create - bad data",
+      "method": "POST",
+      "path": "/?action=status_create",
+      "body": {"user_id": 0, "type": "text", "content": ""},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "Некорректные данные статуса"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Status delete - not found",
+      "method": "POST",
+      "path": "/?action=status_delete",
+      "body": {"status_id": 999999, "user_id": 0},
+      "expectedStatus": 404,
+      "expectedBody": {"error": "Статус не найден"},
+      "bodyMatcher": "partial"
     }
   ]
 }

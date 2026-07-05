@@ -292,4 +292,20 @@ export const translations: Record<string, string> = {
   'Начните переписку по объявлению': 'Start a conversation about the listing',
   'Написать сообщение...': 'Write a message...',
   'История переписки по этому объявлению исчезнет у тебя.': 'The message history for this listing will disappear for you.',
+
+  // Статусы
+  'Мой статус': 'My status',
+  'Новый статус': 'New status',
+  'Публикация...': 'Posting...',
+  'Поделиться': 'Share',
+  'Текст': 'Text',
+  'Введите текст статуса...': 'Enter status text...',
+  'Выбрать фото': 'Choose photo',
+  'Выбрать видео': 'Choose video',
+  'Добавить подпись...': 'Add a caption...',
+  'Ошибка загрузки': 'Upload error',
+  'Просмотрели': 'Viewed by',
+  'Пока никто не просмотрел': 'No one has viewed this yet',
+  'Ответить': 'Reply',
+  'Удалить этот статус?': 'Delete this status?',
 };
