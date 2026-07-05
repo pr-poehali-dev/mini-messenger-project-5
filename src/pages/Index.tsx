@@ -93,18 +93,28 @@ const Avatar = ({ url, nick, size = 40, online }: { url?: string | null; nick: s
   </div>
 );
 
+// Значок верификации разработчика — синяя галочка с лёгким покачиванием
+const VerifiedBadge = ({ size = 16 }: { size?: number }) => (
+  <span className="inline-flex shrink-0 animate-badge-sway" style={{ width: size, height: size }} title="Разработчик Вай Мессенджера">
+    <svg viewBox="0 0 22 22" width={size} height={size} fill="none">
+      <path d="M11 1.5l2.2 1.27 2.53-.4 1.27 2.2 2.2 1.27-.4 2.53.4 2.53-2.2 1.27-1.27 2.2-2.53-.4L11 15.64l-2.2-1.27-2.53.4-1.27-2.2-2.2-1.27.4-2.53-.4-2.53 2.2-1.27 1.27-2.2 2.53.4L11 1.5z" fill="#2196F3" />
+      <path d="M7.5 11l2.2 2.2 4.8-5.4" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </svg>
+  </span>
+);
+
 // ── types ─────────────────────────────────────────────────────────────────────
-type User = { id: number; nick: string; avatar_url?: string | null; profile_complete?: boolean; is_online?: boolean };
+type User = { id: number; nick: string; avatar_url?: string | null; profile_complete?: boolean; is_online?: boolean; is_verified?: boolean };
 type Profile = User & { city?: string; birthdate?: string; about?: string; is_online?: boolean; last_seen?: string; followers: number; following: number; i_follow?: boolean; i_blocked?: boolean };
-type ChatItem = { chat_id: number; kind: 'dm' | 'group'; peer_id?: number; peer_nick?: string; peer_avatar?: string | null; peer_online?: boolean; group_id?: number; group_name?: string; group_avatar?: string | null; last_text?: string | null; last_at?: string | null; unread_count?: number };
-type Message = { id: number; sender_id: number; sender_nick: string; sender_avatar?: string | null; text?: string | null; image_url?: string | null; media_type?: string | null; media_url?: string | null; created_at: string; is_removed?: boolean; is_read?: boolean; reactions?: { emoji: string; user_id: number }[] };
+type ChatItem = { chat_id: number; kind: 'dm' | 'group'; peer_id?: number; peer_nick?: string; peer_avatar?: string | null; peer_online?: boolean; peer_verified?: boolean; group_id?: number; group_name?: string; group_avatar?: string | null; last_text?: string | null; last_at?: string | null; unread_count?: number };
+type Message = { id: number; sender_id: number; sender_nick: string; sender_avatar?: string | null; sender_verified?: boolean; text?: string | null; image_url?: string | null; media_type?: string | null; media_url?: string | null; created_at: string; is_removed?: boolean; is_read?: boolean; reactions?: { emoji: string; user_id: number }[] };
 type Tab = 'search' | 'chats' | 'notifications' | 'realty' | 'profile';
 type RealtyListing = { id: number; deal_type: 'sale'|'rent'; city: string; district?: string; street?: string; rooms?: number; area?: number; price: number; description?: string; phone?: string; photos?: string[]; is_paid: boolean; created_at: string; seller_id: number; seller_nick: string; seller_avatar?: string|null };
 type Notif = { id: number; type: string; from_user_id?: number; from_nick?: string; from_avatar?: string | null; chat_id?: number; group_id?: number; payload?: string; is_read: boolean; created_at: string };
 type GroupInfo = { id: number; name: string; about?: string; photo_url?: string | null; invite_token: string; owner_id: number; my_role?: string; member_count: number; is_public?: boolean };
 type GroupMember = User & { role: string };
 type StatusItem = { id: number; user_id: number; type: 'text' | 'photo' | 'video'; content: string; caption?: string | null; bg_color?: string | null; created_at: string; expires_at: string; viewed?: boolean };
-type StatusFeedItem = { user_id: number; nick: string; avatar_url?: string | null; status_count: number; unseen_count: number; last_status_at: string };
+type StatusFeedItem = { user_id: number; nick: string; avatar_url?: string | null; is_verified?: boolean; status_count: number; unseen_count: number; last_status_at: string };
 
 // ── screens ───────────────────────────────────────────────────────────────────
 type Screen =
@@ -930,7 +940,10 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat,
                 : <Avatar url={c.peer_avatar} nick={c.peer_nick || '?'} size={48} online={c.peer_online} />
               }
               <div className="flex-1 min-w-0 text-left">
-                <div className="font-semibold text-slate-800 dark:text-slate-100 truncate text-[17px]">{c.kind === 'group' ? c.group_name : `@${c.peer_nick}`}</div>
+                <div className="font-semibold text-slate-800 dark:text-slate-100 truncate text-[17px] flex items-center gap-1">
+                  <span className="truncate">{c.kind === 'group' ? c.group_name : `@${c.peer_nick}`}</span>
+                  {c.kind !== 'group' && c.peer_verified && <VerifiedBadge size={15} />}
+                </div>
                 <div className="text-[14px] text-slate-400 dark:text-slate-500 truncate mt-0.5">{c.last_text || t('Нет сообщений')}</div>
               </div>
               <div className="flex flex-col items-end gap-1.5 shrink-0 ml-1">
@@ -989,7 +1002,9 @@ function StatusBar({ user, onCreateStatus, onOpenStatus }: { user: User; onCreat
               <Icon name="Plus" size={11} className="text-white" />
             </div>
           </div>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate w-full text-center">{t('Мой статус')}</span>
+          <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate w-full text-center flex items-center gap-0.5 justify-center">
+            {t('Мой статус')}{user.is_verified && <VerifiedBadge size={11} />}
+          </span>
         </button>
 
         {others.map(f => (
@@ -999,7 +1014,9 @@ function StatusBar({ user, onCreateStatus, onOpenStatus }: { user: User; onCreat
                 <Avatar url={f.avatar_url} nick={f.nick} size={50} />
               </div>
             </div>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate w-full text-center">@{f.nick}</span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate w-full text-center flex items-center gap-0.5 justify-center">
+              @{f.nick}{f.is_verified && <VerifiedBadge size={11} />}
+            </span>
           </button>
         ))}
       </div>
@@ -1041,7 +1058,7 @@ function SearchTab({ user, onOpenProfile }: { user: User; onOpenProfile: (id: nu
           <button key={u.id} onClick={() => onOpenProfile(u.id)} className="w-full flex items-center gap-3 px-2 py-3 rounded-2xl hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors animate-fade-up">
             <Avatar url={u.avatar_url} nick={u.nick} size={48} online={u.is_online} />
             <div className="flex-1 text-left">
-              <div className="font-semibold text-slate-800 dark:text-slate-100">@{u.nick}</div>
+              <div className="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-1">@{u.nick}{u.is_verified && <VerifiedBadge size={14} />}</div>
               {u.city && <div className="text-xs text-slate-400 dark:text-slate-500">{u.city}</div>}
             </div>
             <Icon name="ChevronRight" size={18} className="text-slate-300 dark:text-slate-600" />
@@ -1264,7 +1281,7 @@ function UserProfileScreen({ me, userId, onBack, onOpenChat, onFollowers, onCall
         <button onClick={onBack} className="w-9 h-9 rounded-full hover:bg-white/15 flex items-center justify-center transition-colors">
           <Icon name="ArrowLeft" size={20} className="text-white" />
         </button>
-        <span className="font-bold text-white flex-1">{profile ? `@${profile.nick}` : '...'}</span>
+        <span className="font-bold text-white flex-1 flex items-center gap-1">{profile ? `@${profile.nick}` : '...'}{profile?.is_verified && <VerifiedBadge size={15} />}</span>
       </header>
       {loading && <div className="flex-1 flex items-center justify-center"><div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>}
       {profile && (
@@ -1276,7 +1293,7 @@ function UserProfileScreen({ me, userId, onBack, onOpenChat, onFollowers, onCall
             {showPhoto && profile.avatar_url && (
               <MediaViewer src={profile.avatar_url} type="image" onClose={() => setShowPhoto(false)} />
             )}
-            <h2 className="font-bold text-2xl mt-4 text-slate-800 dark:text-slate-100">@{profile.nick}</h2>
+            <h2 className="font-bold text-2xl mt-4 text-slate-800 dark:text-slate-100 flex items-center gap-1.5">@{profile.nick}{profile.is_verified && <VerifiedBadge size={19} />}</h2>
             <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">
               {profile.is_online ? <span className="text-green-500 font-medium">{t('в сети')}</span> : fmtLastSeen(profile.last_seen || null)}
             </p>
@@ -1362,7 +1379,7 @@ function FollowersScreen({ userId, mode, me, onBack, onOpenProfile }: { userId: 
           <button key={u.id} onClick={() => onOpenProfile(u.id)}
             className="w-full flex items-center gap-3 px-2 py-3 rounded-2xl hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors">
             <Avatar url={u.avatar_url} nick={u.nick} size={44} online={u.is_online} />
-            <span className="font-semibold flex-1 text-left text-slate-800 dark:text-slate-100">@{u.nick}</span>
+            <span className="font-semibold flex-1 text-left text-slate-800 dark:text-slate-100 flex items-center gap-1">@{u.nick}{u.is_verified && <VerifiedBadge size={14} />}</span>
             <Icon name="ChevronRight" size={18} className="text-slate-300 dark:text-slate-600" />
           </button>
         ))}
@@ -1530,7 +1547,7 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
             )}
             {!editingNick ? (
               <button onClick={() => { setNewNick(profile.nick); setEditingNick(true); setNickStatus('idle'); setNickHint(''); }} className="flex items-center gap-2 mt-4 group">
-                <h2 className="font-bold text-2xl text-slate-800 dark:text-slate-100">@{profile.nick}</h2>
+                <h2 className="font-bold text-2xl text-slate-800 dark:text-slate-100 flex items-center gap-1.5">@{profile.nick}{profile.is_verified && <VerifiedBadge size={19} />}</h2>
                 <Icon name="Pencil" size={15} className="text-slate-300 group-hover:text-slate-500 transition-colors" />
               </button>
             ) : (
@@ -3566,7 +3583,10 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
               : <div className="w-[42px] h-[42px] rounded-full bg-white/20 flex items-center justify-center shrink-0"><Icon name="Users" size={20} className="text-white" /></div>
           }
           <div className="min-w-0 flex-1">
-            <div className="font-bold text-white text-[16px] truncate leading-tight">{title}</div>
+            <div className="font-bold text-white text-[16px] truncate leading-tight flex items-center gap-1">
+              <span className="truncate">{title}</span>
+              {peer?.is_verified && <VerifiedBadge size={14} />}
+            </div>
             {typing.length > 0
               ? <div className="flex items-center gap-1 mt-[2px]">
                   <span className="text-[12px] text-blue-200">{t('печатает')}</span>
@@ -3628,7 +3648,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
               onClick={e => { e.stopPropagation(); if (!m.is_removed) { setSelectedMsg(isSelected ? null : m.id); setEmojiTarget(null); } }}
               onTouchStart={handleTouchStart}
               onTouchEnd={handleTouchEnd}>
-              {showNick && <span className="text-[11px] text-accent ml-10 mb-0.5">{m.sender_nick}</span>}
+              {showNick && <span className="text-[11px] text-accent ml-10 mb-0.5 inline-flex items-center gap-0.5">{m.sender_nick}{m.sender_verified && <VerifiedBadge size={11} />}</span>}
               <div className={`flex items-end gap-1.5 ${mine ? 'flex-row-reverse' : ''} max-w-[82%]`}>
                 {!mine && groupName && <Avatar url={m.sender_avatar} nick={m.sender_nick} size={34} />}
                 <div className="relative">

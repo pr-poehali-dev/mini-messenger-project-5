@@ -138,7 +138,7 @@ def handler(event: dict, context) -> dict:
             # Автовход по device_id (без ввода ника)
             if device_id and not nick:
                 cur.execute(
-                    "SELECT id, nick, profile_complete, avatar_url FROM users WHERE device_id = %s",
+                    "SELECT id, nick, profile_complete, avatar_url, is_verified FROM users WHERE device_id = %s",
                     (device_id,)
                 )
                 by_device = cur.fetchone()
@@ -162,7 +162,7 @@ def handler(event: dict, context) -> dict:
 
             pw_hash = _hash_pw(password)
             cur.execute(
-                "INSERT INTO users (nick, device_id, password_hash, is_online, last_seen, profile_complete) VALUES (%s, %s, %s, TRUE, NOW(), FALSE) RETURNING id, nick, profile_complete, avatar_url",
+                "INSERT INTO users (nick, device_id, password_hash, is_online, last_seen, profile_complete) VALUES (%s, %s, %s, TRUE, NOW(), FALSE) RETURNING id, nick, profile_complete, avatar_url, is_verified",
                 (nick, device_id or None, pw_hash),
             )
             user = cur.fetchone()
@@ -178,7 +178,7 @@ def handler(event: dict, context) -> dict:
                 return _resp(400, {'error': 'Введи ник'})
             if not password:
                 return _resp(400, {'error': 'Введи пароль'})
-            cur.execute("SELECT id, nick, profile_complete, avatar_url, password_hash FROM users WHERE nick = %s", (nick,))
+            cur.execute("SELECT id, nick, profile_complete, avatar_url, password_hash, is_verified FROM users WHERE nick = %s", (nick,))
             found = cur.fetchone()
             if not found:
                 return _resp(404, {'error': 'Аккаунт с таким ником не найден'})
@@ -193,7 +193,7 @@ def handler(event: dict, context) -> dict:
             else:
                 cur.execute("UPDATE users SET is_online=TRUE, last_seen=NOW() WHERE id=%s", (found['id'],))
             conn.commit()
-            result = {'id': found['id'], 'nick': found['nick'], 'profile_complete': found['profile_complete'], 'avatar_url': found['avatar_url']}
+            result = {'id': found['id'], 'nick': found['nick'], 'profile_complete': found['profile_complete'], 'avatar_url': found['avatar_url'], 'is_verified': found['is_verified']}
             return _resp(200, {'user': result})
 
         # ── CHECK NICK ─────────────────────────────────────
@@ -226,7 +226,7 @@ def handler(event: dict, context) -> dict:
             if cur.fetchone():
                 return _resp(409, {'error': 'Этот ник уже занят'})
             cur.execute(
-                "UPDATE users SET nick=%s, nick_changed_at=NOW() WHERE id=%s RETURNING id, nick, avatar_url, profile_complete",
+                "UPDATE users SET nick=%s, nick_changed_at=NOW() WHERE id=%s RETURNING id, nick, avatar_url, profile_complete, is_verified",
                 (new_nick, uid),
             )
             user = cur.fetchone()
@@ -239,7 +239,7 @@ def handler(event: dict, context) -> dict:
             me = int(params.get('me') or 0)
             cur.execute(
                 """
-                SELECT u.id, u.nick, u.avatar_url, u.city, u.birthdate, u.about, u.is_online, u.last_seen,
+                SELECT u.id, u.nick, u.avatar_url, u.city, u.birthdate, u.about, u.is_online, u.last_seen, u.is_verified,
                        (SELECT COUNT(*) FROM follows WHERE following_id = u.id) AS followers,
                        (SELECT COUNT(*) FROM follows WHERE follower_id = u.id) AS following,
                        (SELECT TRUE FROM follows WHERE follower_id=%s AND following_id=u.id) AS i_follow,
@@ -294,7 +294,7 @@ def handler(event: dict, context) -> dict:
                 return _resp(200, {'users': []})
             cur.execute(
                 """
-                SELECT u.id, u.nick, u.avatar_url, u.city, u.is_online
+                SELECT u.id, u.nick, u.avatar_url, u.city, u.is_online, u.is_verified
                 FROM users u
                 WHERE u.nick LIKE %s AND u.id != %s
                   AND u.id NOT IN (SELECT blocked_id FROM blocks WHERE blocker_id=%s)
@@ -349,7 +349,7 @@ def handler(event: dict, context) -> dict:
         if action == 'followers' and method == 'GET':
             uid = int(params.get('user_id') or 0)
             cur.execute(
-                "SELECT u.id, u.nick, u.avatar_url, u.is_online FROM users u JOIN follows f ON f.follower_id=u.id WHERE f.following_id=%s",
+                "SELECT u.id, u.nick, u.avatar_url, u.is_online, u.is_verified FROM users u JOIN follows f ON f.follower_id=u.id WHERE f.following_id=%s",
                 (uid,),
             )
             return _resp(200, {'users': cur.fetchall()})
@@ -357,7 +357,7 @@ def handler(event: dict, context) -> dict:
         if action == 'following' and method == 'GET':
             uid = int(params.get('user_id') or 0)
             cur.execute(
-                "SELECT u.id, u.nick, u.avatar_url, u.is_online FROM users u JOIN follows f ON f.following_id=u.id WHERE f.follower_id=%s",
+                "SELECT u.id, u.nick, u.avatar_url, u.is_online, u.is_verified FROM users u JOIN follows f ON f.following_id=u.id WHERE f.follower_id=%s",
                 (uid,),
             )
             return _resp(200, {'users': cur.fetchall()})
@@ -369,7 +369,7 @@ def handler(event: dict, context) -> dict:
                 """
                 SELECT c.id AS chat_id,
                        NULL::int AS group_id, NULL AS group_name, NULL AS group_avatar,
-                       u.id AS peer_id, u.nick AS peer_nick, u.avatar_url AS peer_avatar, u.is_online AS peer_online,
+                       u.id AS peer_id, u.nick AS peer_nick, u.avatar_url AS peer_avatar, u.is_online AS peer_online, u.is_verified AS peer_verified,
                        (SELECT text FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE ORDER BY m.id DESC LIMIT 1) AS last_text,
                        (SELECT created_at FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE ORDER BY m.id DESC LIMIT 1) AS last_at,
                        'dm' AS kind,
@@ -387,7 +387,7 @@ def handler(event: dict, context) -> dict:
                 UNION ALL
                 SELECT c.id AS chat_id,
                        g.id AS group_id, g.name AS group_name, COALESCE(g.photo_url, g.avatar_url) AS group_avatar,
-                       NULL, NULL, NULL, NULL,
+                       NULL, NULL, NULL, NULL, NULL,
                        (SELECT text FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE ORDER BY m.id DESC LIMIT 1) AS last_text,
                        (SELECT created_at FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE ORDER BY m.id DESC LIMIT 1) AS last_at,
                        'group' AS kind,
@@ -473,7 +473,7 @@ def handler(event: dict, context) -> dict:
             def _fetch_poll():
                 cur.execute(
                     """
-                    SELECT m.id, m.sender_id, u.nick AS sender_nick, u.avatar_url AS sender_avatar,
+                    SELECT m.id, m.sender_id, u.nick AS sender_nick, u.avatar_url AS sender_avatar, u.is_verified AS sender_verified,
                            m.text, m.image_url, m.media_type, m.media_url, m.created_at,
                            m.is_removed, m.removed_by_sender, m.is_read,
                            COALESCE(
@@ -489,7 +489,7 @@ def handler(event: dict, context) -> dict:
                         (SELECT hidden_at FROM hidden_chats WHERE user_id=%s AND chat_id=%s),
                         '1970-01-01'::timestamptz
                       )
-                    GROUP BY m.id, u.nick, u.avatar_url
+                    GROUP BY m.id, u.nick, u.avatar_url, u.is_verified
                     ORDER BY m.id ASC LIMIT 200
                     """,
                     (chat_id, after, me, me, chat_id),
@@ -579,7 +579,7 @@ def handler(event: dict, context) -> dict:
             me = int(params.get('user_id') or 0)
             cur.execute(
                 """
-                SELECT m.id, m.sender_id, u.nick AS sender_nick, u.avatar_url AS sender_avatar,
+                SELECT m.id, m.sender_id, u.nick AS sender_nick, u.avatar_url AS sender_avatar, u.is_verified AS sender_verified,
                        m.text, m.image_url, m.media_type, m.media_url, m.created_at,
                        m.is_removed, m.removed_by_sender, m.is_read,
                        COALESCE(
@@ -591,7 +591,7 @@ def handler(event: dict, context) -> dict:
                 LEFT JOIN message_reactions r ON r.message_id = m.id
                 WHERE m.chat_id=%s AND m.id>%s
                   AND NOT (m.removed_by_sender = TRUE AND m.sender_id = %s)
-                GROUP BY m.id, u.nick, u.avatar_url
+                GROUP BY m.id, u.nick, u.avatar_url, u.is_verified
                 ORDER BY m.id ASC LIMIT 200
                 """,
                 (chat_id, after, me),
@@ -1054,7 +1054,7 @@ def handler(event: dict, context) -> dict:
                 return _resp(404, {'error': 'Группа не найдена'})
             cur.execute(
                 """
-                SELECT u.id, u.nick, u.avatar_url, u.is_online, gm.role
+                SELECT u.id, u.nick, u.avatar_url, u.is_online, u.is_verified, gm.role
                 FROM group_members gm JOIN users u ON u.id=gm.user_id
                 WHERE gm.group_id=%s ORDER BY gm.role DESC, u.nick
                 """,
@@ -1064,7 +1064,7 @@ def handler(event: dict, context) -> dict:
             # Подписчики владельца, кого ещё нет в группе
             cur.execute(
                 """
-                SELECT u.id, u.nick, u.avatar_url, u.is_online
+                SELECT u.id, u.nick, u.avatar_url, u.is_online, u.is_verified
                 FROM follows f JOIN users u ON u.id = f.following_id
                 WHERE f.follower_id = %s
                   AND u.id NOT IN (SELECT user_id FROM group_members WHERE group_id=%s)
@@ -1626,7 +1626,7 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             cur.execute(
                 """
-                SELECT u.id AS user_id, u.nick, u.avatar_url,
+                SELECT u.id AS user_id, u.nick, u.avatar_url, u.is_verified,
                        COUNT(s.id) AS status_count,
                        COUNT(s.id) FILTER (WHERE sv.id IS NULL) AS unseen_count,
                        MAX(s.created_at) AS last_status_at
@@ -1635,7 +1635,7 @@ def handler(event: dict, context) -> dict:
                 LEFT JOIN status_views sv ON sv.status_id = s.id AND sv.viewer_id = %s
                 WHERE s.expires_at > NOW()
                   AND (u.id = %s OR u.id IN (SELECT following_id FROM follows WHERE follower_id = %s))
-                GROUP BY u.id, u.nick, u.avatar_url
+                GROUP BY u.id, u.nick, u.avatar_url, u.is_verified
                 ORDER BY (u.id = %s) DESC, unseen_count DESC, last_status_at DESC
                 """,
                 (me, me, me, me),
