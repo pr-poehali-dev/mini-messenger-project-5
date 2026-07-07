@@ -16,19 +16,19 @@
   "prefer_related_applications": false,
   "icons": [
     {
-      "src": "https://cdn.poehali.dev/projects/59076a76-2862-4ba6-9c95-c02c43e87c88/bucket/ef6c7e5f-2194-4d2c-9727-5416d1e06bc1.png",
+      "src": "https://cdn.poehali.dev/projects/59076a76-2862-4ba6-9c95-c02c43e87c88/bucket/e3a302d3-2faa-470e-acf8-e4125656c984.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "https://cdn.poehali.dev/projects/59076a76-2862-4ba6-9c95-c02c43e87c88/bucket/ef6c7e5f-2194-4d2c-9727-5416d1e06bc1.png",
+      "src": "https://cdn.poehali.dev/projects/59076a76-2862-4ba6-9c95-c02c43e87c88/bucket/e3a302d3-2faa-470e-acf8-e4125656c984.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "https://cdn.poehali.dev/projects/59076a76-2862-4ba6-9c95-c02c43e87c88/bucket/ef6c7e5f-2194-4d2c-9727-5416d1e06bc1.png",
+      "src": "https://cdn.poehali.dev/projects/59076a76-2862-4ba6-9c95-c02c43e87c88/bucket/e3a302d3-2faa-470e-acf8-e4125656c984.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
@@ -38,7 +38,7 @@
     {
       "name": "Чаты",
       "url": "/",
-      "icons": [{"src": "https://cdn.poehali.dev/projects/59076a76-2862-4ba6-9c95-c02c43e87c88/bucket/ef6c7e5f-2194-4d2c-9727-5416d1e06bc1.png", "sizes": "96x96"}]
+      "icons": [{"src": "https://cdn.poehali.dev/projects/59076a76-2862-4ba6-9c95-c02c43e87c88/bucket/e3a302d3-2faa-470e-acf8-e4125656c984.png", "sizes": "96x96"}]
     }
   ]
 }
