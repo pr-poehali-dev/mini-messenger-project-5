@@ -83,8 +83,9 @@
       overflow: hidden;
     }
     #root {
-      height: 100%;
+      height: var(--app-height, 100dvh);
       overflow: hidden;
+      will-change: transform;
     }
   </style>
 </head>
@@ -104,6 +105,26 @@
 
     // splash убран — функция-заглушка чтобы не было ошибок в React
     window.__hideSplash = function() {};
+
+    // ── Фикс "убегающей" шапки при открытии клавиатуры на iOS ─────────────────
+    // iOS Safari при фокусе на input скроллит всю страницу вверх, из-за чего
+    // элементы с position:fixed съезжают. Решение: слушаем visualViewport и
+    // задаём точную высоту через CSS-переменную + фиксируем scrollTop в 0.
+    (function() {
+      function setAppHeight() {
+        var vv = window.visualViewport;
+        var h = vv ? vv.height : window.innerHeight;
+        document.documentElement.style.setProperty('--app-height', h + 'px');
+        window.scrollTo(0, 0);
+      }
+      setAppHeight();
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', setAppHeight);
+        window.visualViewport.addEventListener('scroll', setAppHeight);
+      }
+      window.addEventListener('resize', setAppHeight);
+      document.addEventListener('scroll', function() { window.scrollTo(0, 0); }, { passive: true });
+    })();
 
     // Автоматическая тёмная тема как у Т-Банка
     (function() {
