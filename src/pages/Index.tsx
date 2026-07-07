@@ -364,12 +364,14 @@ export default function Index() {
           onOpenGroup={(gid, chatId) => push({ name: 'group_info', groupId: gid, chatId })}
           onOpenRealtyChat={(chatId, listing) => push({ name: 'realty_chat', chatId, listing })}
           onCreateStatus={() => push({ name: 'status_create' })}
-          onOpenStatus={(uid) => push({ name: 'status_view', userId: uid })} />}
+          onOpenStatus={(uid) => push({ name: 'status_view', userId: uid })}
+          onOpenNotifications={() => push({ name: 'tabs', tab: 'notifications' })} />}
         {tab === 'realty' && <RealtyTab user={user}
           onOpenChat={(chatId, listing) => push({ name: 'realty_chat', chatId, listing })} />}
         {tab === 'notifications' && <NotificationsTab user={user}
           onOpenChat={(chatId) => push({ name: 'chat', chatId })}
           onOpenProfile={(id) => push({ name: 'user_profile', userId: id })}
+          onBack={() => push({ name: 'tabs', tab: 'chats' })}
           onCall={async (peerId, peerNick, peerAvatar, kind) => {
             const d = await api('open_chat', 'POST', { user_id: user.id, peer_id: peerId });
             const callId = `call_${Date.now()}`;
@@ -727,17 +729,7 @@ function SetupScreen({ user, onDone }: { user: User; onDone: (u: User) => void }
 // ══════════════════════════════════════════════════════════════════════════════
 function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (tabKey: Tab) => void; children: React.ReactNode; user: User }) {
   const { t } = useLang();
-  const [unreadNotifs, setUnreadNotifs] = useState(0);
   const [unreadChats, setUnreadChats] = useState(0);
-
-  useEffect(() => {
-    const loadNotifs = () => api(`notifications&user_id=${user.id}`).then(d => {
-      setUnreadNotifs(Number(d.unread) || 0);
-    });
-    loadNotifs();
-    const iv = setInterval(loadNotifs, 20000);
-    return () => clearInterval(iv);
-  }, [user.id]);
 
   useEffect(() => {
     const loadChats = () => api(`chats&user_id=${user.id}`).then(d => {
@@ -754,14 +746,13 @@ function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (tabKey: T
     { key: 'search', icon: 'Search', label: t('Поиск') },
     { key: 'chats', icon: 'MessageCircle', label: t('Чаты'), badge: unreadChats },
     { key: 'realty', icon: 'Home', label: t('Жильё') },
-    { key: 'notifications', icon: 'Bell', label: t('События'), badge: unreadNotifs },
     { key: 'profile', icon: 'User', label: t('Профиль') },
   ];
   return (
-    <div className="flex flex-col" style={{ background: 'hsl(var(--background))', height: '100dvh', paddingTop: 'env(safe-area-inset-top)' }}>
+    <div className="flex flex-col" style={{ background: 'hsl(var(--background))', height: '100dvh', paddingTop: 'calc(env(safe-area-inset-top) + 8px)' }}>
       <div className="flex-1 overflow-hidden flex flex-col pb-[80px]">{children}</div>
       <div className="fixed bottom-0 left-0 right-0 flex justify-center pt-2 px-4"
-        style={{ background: 'linear-gradient(to top, hsl(var(--background)) 60%, transparent)', paddingBottom: 'calc(env(safe-area-inset-bottom) * 0.35 + 6px)' }}>
+        style={{ background: 'linear-gradient(to top, hsl(var(--background)) 60%, transparent)', paddingBottom: 'calc(env(safe-area-inset-bottom) * 0.15 + 4px)' }}>
         <nav className="flex items-center gap-1 px-2 py-2 rounded-[28px] shadow-xl"
           style={{ background: 'hsl(var(--card) / 0.98)', backdropFilter: 'blur(24px)', boxShadow: '0 8px 32px rgba(30,58,138,0.13), 0 2px 8px rgba(30,58,138,0.08)' }}>
           {tabs.map(tb => (
@@ -793,13 +784,14 @@ function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (tabKey: T
 // ══════════════════════════════════════════════════════════════════════════════
 // CHATS TAB
 // ══════════════════════════════════════════════════════════════════════════════
-function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat, onCreateStatus, onOpenStatus }: { user: User; onOpenChat: (c: ChatItem) => void; onNewGroup: () => void; onOpenGroup: (gid: number, chatId: number) => void; onOpenRealtyChat: (chatId: number, listing: RealtyListing) => void; onCreateStatus: () => void; onOpenStatus: (userId: number) => void }) {
+function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat, onCreateStatus, onOpenStatus, onOpenNotifications }: { user: User; onOpenChat: (c: ChatItem) => void; onNewGroup: () => void; onOpenGroup: (gid: number, chatId: number) => void; onOpenRealtyChat: (chatId: number, listing: RealtyListing) => void; onCreateStatus: () => void; onOpenStatus: (userId: number) => void; onOpenNotifications?: () => void }) {
   const { t } = useLang();
   const [chats, setChats] = useState<ChatItem[]>([]);
   const [showMenu, setShowMenu] = useState(false);
   const [swipedId, setSwipedId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'unread' | 'groups'>('all');
+  const [unreadNotifs, setUnreadNotifs] = useState(0);
 
   const load = useCallback(async () => {
     const d = await api(`chats&user_id=${user.id}`);
@@ -807,6 +799,15 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat,
   }, [user.id]);
 
   useEffect(() => { load(); const iv = setInterval(load, 15000); return () => clearInterval(iv); }, [load]);
+
+  useEffect(() => {
+    const loadNotifs = () => api(`notifications&user_id=${user.id}`).then(d => {
+      setUnreadNotifs(Number(d.unread) || 0);
+    });
+    loadNotifs();
+    const iv = setInterval(loadNotifs, 20000);
+    return () => clearInterval(iv);
+  }, [user.id]);
 
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
 
@@ -835,22 +836,36 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat,
   return (
     <div className="flex flex-col h-full" onClick={() => { setShowMenu(false); setSwipedId(null); }}>
       {/* Фиксированная шапка */}
-      <div className="shrink-0 bg-white dark:bg-slate-900 px-4 pt-4 pb-2 border-b border-slate-100 dark:border-slate-800" onClick={e => e.stopPropagation()}>
+      <div className="shrink-0 bg-white dark:bg-slate-900 px-4 pt-6 pb-2 border-b border-slate-100 dark:border-slate-800" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100" style={{ letterSpacing: '-0.5px' }}>{t('Чаты')}</h1>
-          <div className="relative">
-            <button onClick={() => setShowMenu(v => !v)}
-              className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm shadow-blue-200 transition-all active:scale-95">
-              <Icon name="Plus" size={18} className="text-white" />
-            </button>
-            {showMenu && (
-              <div className="absolute right-0 top-11 bg-white dark:bg-slate-900 rounded-2xl p-1 z-50 w-52 shadow-xl border border-slate-100 dark:border-slate-800 animate-fade-up">
-                <button onClick={() => { setShowMenu(false); onNewGroup(); }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-sm text-slate-700 dark:text-slate-200 font-medium">
-                  <Icon name="Users" size={16} className="text-blue-600" /> {t('Создать группу')}
-                </button>
-              </div>
+          <div className="flex items-center gap-2">
+            {onOpenNotifications && (
+              <button onClick={() => onOpenNotifications()}
+                className="relative w-9 h-9 rounded-xl flex items-center justify-center shadow-sm transition-all active:scale-90 bell-shake"
+                style={{ background: 'linear-gradient(145deg, #fef9c3, #fde047)', boxShadow: '0 2px 8px rgba(250,204,21,0.45)' }}>
+                <Icon name="Bell" size={17} className="text-amber-600" />
+                {unreadNotifs > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5 shadow-sm border-2 border-white dark:border-slate-900">
+                    {unreadNotifs > 99 ? '99+' : unreadNotifs}
+                  </span>
+                )}
+              </button>
             )}
+            <div className="relative">
+              <button onClick={() => setShowMenu(v => !v)}
+                className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm shadow-blue-200 transition-all active:scale-95">
+                <Icon name="Plus" size={18} className="text-white" />
+              </button>
+              {showMenu && (
+                <div className="absolute right-0 top-11 bg-white dark:bg-slate-900 rounded-2xl p-1 z-50 w-52 shadow-xl border border-slate-100 dark:border-slate-800 animate-fade-up">
+                  <button onClick={() => { setShowMenu(false); onNewGroup(); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-sm text-slate-700 dark:text-slate-200 font-medium">
+                    <Icon name="Users" size={16} className="text-blue-600" /> {t('Создать группу')}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
         {/* Поиск */}
@@ -1086,11 +1101,12 @@ const NOTIF_ICONS: Record<string, string> = {
   group_invite: 'Users',
 };
 
-function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall }: {
+function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall, onBack }: {
   user: User;
   onOpenChat: (chatId: number) => void;
   onOpenProfile: (id: number) => void;
   onCall: (peerId: number, peerNick: string, peerAvatar: string | null | undefined, kind: 'audio' | 'video') => void;
+  onBack?: () => void;
 }) {
   const { t } = useLang();
   const [notifs, setNotifs] = useState<Notif[]>([]);
@@ -1143,9 +1159,16 @@ function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall }: {
   return (
     <div className="flex flex-col h-full">
       {/* Заголовок + вкладки */}
-      <div className="shrink-0 px-4 pt-4 pb-0 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
+      <div className="shrink-0 px-4 pt-6 pb-0 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
         <div className="flex items-center justify-between mb-3">
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100" style={{ letterSpacing: '-0.5px' }}>{t('Уведомления')}</h1>
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <button onClick={onBack} className="w-9 h-9 -ml-1 rounded-xl flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                <Icon name="ArrowLeft" size={20} className="text-slate-500 dark:text-slate-400" />
+              </button>
+            )}
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100" style={{ letterSpacing: '-0.5px' }}>{t('Уведомления')}</h1>
+          </div>
           {tab === 'notifs' && notifs.length > 0 && (
             <button onClick={clearAll} className="text-sm text-slate-400 dark:text-slate-500 hover:text-red-400 transition-colors font-medium flex items-center gap-1">
               <Icon name="Trash2" size={15} /> {t('Очистить')}
