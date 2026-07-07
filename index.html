@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <!-- viewport-fit=cover — занимаем весь экран включая чёлку iPhone -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content"/>
   <title>Вай Мессенджер</title>
   <meta name="description" content="Вай Мессенджер — быстрый мессенджер. Чаты, звонки, группы."/>
   <meta name="robots" content="index, follow"/>
@@ -78,9 +78,13 @@
       background: #0f172a;
       overscroll-behavior: none;
       min-height: 100vh; min-height: 100dvh;
+      position: fixed;
+      width: 100%;
+      overflow: hidden;
     }
     #root {
-      min-height: 100vh; min-height: 100dvh;
+      height: 100%;
+      overflow: hidden;
     }
   </style>
 </head>
