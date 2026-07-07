@@ -837,21 +837,21 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat,
     <div className="flex flex-col h-full" onClick={() => { setShowMenu(false); setSwipedId(null); }}>
       {/* Фиксированная шапка */}
       <div className="shrink-0 bg-white dark:bg-slate-900 px-4 pt-6 pb-2 border-b border-slate-100 dark:border-slate-800" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 relative">
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100" style={{ letterSpacing: '-0.5px' }}>{t('Чаты')}</h1>
+          {onOpenNotifications && (
+            <button onClick={() => onOpenNotifications()}
+              className="absolute left-1/2 -translate-x-1/2 w-9 h-9 rounded-xl flex items-center justify-center shadow-sm transition-all active:scale-90 bell-shake"
+              style={{ background: 'linear-gradient(145deg, #3b82f6, #1d4ed8)', boxShadow: '0 2px 8px rgba(37,99,235,0.4)' }}>
+              <Icon name="Bell" size={17} className="text-white" />
+              {unreadNotifs > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5 shadow-sm border-2 border-white dark:border-slate-900">
+                  {unreadNotifs > 99 ? '99+' : unreadNotifs}
+                </span>
+              )}
+            </button>
+          )}
           <div className="flex items-center gap-2">
-            {onOpenNotifications && (
-              <button onClick={() => onOpenNotifications()}
-                className="relative w-9 h-9 rounded-xl flex items-center justify-center shadow-sm transition-all active:scale-90 bell-shake"
-                style={{ background: 'linear-gradient(145deg, #fef9c3, #fde047)', boxShadow: '0 2px 8px rgba(250,204,21,0.45)' }}>
-                <Icon name="Bell" size={17} className="text-amber-600" />
-                {unreadNotifs > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5 shadow-sm border-2 border-white dark:border-slate-900">
-                    {unreadNotifs > 99 ? '99+' : unreadNotifs}
-                  </span>
-                )}
-              </button>
-            )}
             <div className="relative">
               <button onClick={() => setShowMenu(v => !v)}
                 className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm shadow-blue-200 transition-all active:scale-95">
@@ -3843,7 +3843,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
 
       {/* Composer — фиксированный снизу */}
       <div className="shrink-0 px-2 pt-2 pb-3 bg-white border-t border-slate-100"
-        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 10px)' }}
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) * 0.25 + 6px)' }}
         onClick={e => e.stopPropagation()}>
         <input ref={fileRef} type="file" hidden onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(f, fileType.current); e.target.value = ''; }} />
         <input ref={fileRef2} type="file" hidden accept="*/*" onChange={e => {
