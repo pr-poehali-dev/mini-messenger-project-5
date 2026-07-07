@@ -68,6 +68,29 @@ def handler(event: dict, context) -> dict:
         print(f'[CHUNK] uid={uid} upload_id={upload_id} chunk={chunk_idx} size={len(raw)}')
         return _resp(200, {'ok': True})
 
+    # ── UPLOAD IMAGE (single-shot, base64 body) ────────────
+    if action == 'upload_image' and method == 'POST':
+        import json
+        raw_body = event.get('body') or '{}'
+        if event.get('isBase64Encoded'):
+            raw_body = base64.b64decode(raw_body).decode('utf-8')
+        body = json.loads(raw_body)
+
+        uid  = int(body.get('user_id') or 0)
+        ext  = (body.get('ext') or 'png').lower()
+        data = body.get('data') or ''
+        if not data:
+            return _resp(400, {'error': 'Нет данных'})
+        raw = base64.b64decode(data)
+        ct_map = {'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg'}
+        content_type = ct_map.get(ext, 'application/octet-stream')
+        key = f"images/{uid}/{secrets.token_hex(8)}_{int(time.time())}.{ext}"
+        s3 = _s3()
+        s3.put_object(Bucket=BUCKET, Key=key, Body=raw, ContentType=content_type)
+        url = _s3_url(key)
+        print(f'[UPLOAD_IMAGE] OK uid={uid} url={url}')
+        return _resp(200, {'url': url})
+
     # ── ASSEMBLE CHUNKS ───────────────────────────────────
     if action == 'assemble_chunks' and method == 'POST':
         import json
