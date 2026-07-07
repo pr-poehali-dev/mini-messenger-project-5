@@ -3657,7 +3657,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
   const subtitleColor = peerOnline && !groupName && typing.length === 0 ? 'text-green-300' : 'text-blue-200';
 
   return (
-    <div className="fixed top-0 left-0 right-0 flex flex-col" style={{ height: 'var(--app-height, 100dvh)', backgroundColor: '#dbe4d3', backgroundImage: "url('https://cdn.poehali.dev/projects/59076a76-2862-4ba6-9c95-c02c43e87c88/bucket/2d1b9392-f223-4893-b9e1-bf82887796ab.jpg')", backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }} onClick={() => { setSelectedMsg(null); setEmojiTarget(null); setShowAttach(false); setShowComposerEmoji(false); }}>
+    <div className="fixed inset-0 flex flex-col" style={{ backgroundColor: '#dbe4d3', backgroundImage: "url('https://cdn.poehali.dev/projects/59076a76-2862-4ba6-9c95-c02c43e87c88/bucket/2d1b9392-f223-4893-b9e1-bf82887796ab.jpg')", backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }} onClick={() => { setSelectedMsg(null); setEmojiTarget(null); setShowAttach(false); setShowComposerEmoji(false); }}>
       {/* Header — Telegram стиль: скруглён снизу, тень */}
       <header className="shrink-0 flex items-center gap-1 px-1 bg-blue-600"
         style={{
@@ -3665,6 +3665,8 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
           paddingBottom: '12px',
           borderRadius: '0 0 18px 18px',
           boxShadow: '0 4px 20px rgba(37,99,235,0.35)',
+          position: 'sticky',
+          top: 0,
           zIndex: 10,
         }}
         onClick={e => e.stopPropagation()}>
