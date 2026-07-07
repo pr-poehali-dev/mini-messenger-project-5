@@ -108,6 +108,10 @@ export default {
 				'badge-sway': {
 					'0%, 100%': { transform: 'rotate(-12deg)' },
 					'50%': { transform: 'rotate(12deg)' }
+				},
+				'pulse-ring-btn': {
+					'0%, 100%': { transform: 'scale(1)' },
+					'50%': { transform: 'scale(1.07)' }
 				}
 			},
 			animation: {
@@ -119,7 +123,8 @@ export default {
 				'glow': 'glow 3s ease-in-out infinite',
 				'pulse-ring': 'pulse-ring 1.5s cubic-bezier(0.22, 1, 0.36, 1) infinite',
 				'sway': 'sway 3.5s ease-in-out infinite',
-				'badge-sway': 'badge-sway 1.6s ease-in-out infinite'
+				'badge-sway': 'badge-sway 1.6s ease-in-out infinite',
+				'pulse-ring-btn': 'pulse-ring-btn 1.8s ease-in-out infinite'
 			}
 		}
 	},

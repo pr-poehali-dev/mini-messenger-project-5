@@ -2049,6 +2049,56 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
   };
   const hangup = () => { sig('end', {}); doEnd(); };
 
+  // ── Мини-чат поверх звонка ──────────────────────────────────────────────
+  const [showChat, setShowChat] = useState(false);
+  const [chatId, setChatId] = useState<number | null>(null);
+  const [chatMsgs, setChatMsgs] = useState<Message[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const chatLastId = useRef(0);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showChat) return;
+    let cancelled = false;
+    const init = async () => {
+      const d = await api('open_chat', 'POST', { user_id: user.id, peer_id: peer.id });
+      if (cancelled) return;
+      const cid = d.chat_id as number;
+      setChatId(cid);
+      const hist = await api(`messages&chat_id=${cid}&user_id=${user.id}`);
+      if (cancelled) return;
+      const msgs = (hist.messages as Message[]) || [];
+      setChatMsgs(msgs);
+      if (msgs.length) chatLastId.current = msgs[msgs.length - 1].id;
+      setTimeout(() => { chatScrollRef.current && (chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight); }, 50);
+    };
+    init();
+    const iv = setInterval(async () => {
+      if (!chatId) return;
+      const d = await api(`chat_poll&chat_id=${chatId}&after=${chatLastId.current}&user_id=${user.id}&peer_id=${peer.id}`);
+      const fresh = (d.messages as Message[]) || [];
+      if (fresh.length) {
+        chatLastId.current = fresh[fresh.length - 1].id;
+        setChatMsgs(m => [...m, ...fresh]);
+        setTimeout(() => { chatScrollRef.current && (chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight); }, 50);
+      }
+    }, 1500);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [showChat]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const sendChatMsg = async () => {
+    const txt = chatInput.trim();
+    if (!txt || !chatId) return;
+    setChatInput('');
+    const d = await api('send', 'POST', { chat_id: chatId, user_id: user.id, text: txt });
+    const real = d.message as Message | undefined;
+    if (real) {
+      chatLastId.current = Math.max(chatLastId.current, real.id);
+      setChatMsgs(m => [...m, { ...real, sender_nick: user.nick }]);
+      setTimeout(() => { chatScrollRef.current && (chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight); }, 50);
+    }
+  };
+
   // Своё видео: зеркало только для фронталки
   const localMirror = facingMode === 'user' ? 'scaleX(-1)' : 'none';
 
@@ -2200,10 +2250,11 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
           borderRadius: 60, padding: '10px 18px',
           boxShadow: '0 4px 30px rgba(0,0,0,0.5)',
         }}>
-          {/* ··· */}
-          <button style={{ width: 50, height: 50, borderRadius: '50%', background: 'rgba(80,80,80,0.7)',
-            border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="MoreHorizontal" size={22} className="text-white" />
+          {/* Чат поверх звонка */}
+          <button onClick={() => setShowChat(true)}
+            style={{ width: 50, height: 50, borderRadius: '50%', background: 'rgba(80,80,80,0.7)',
+              border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="MessageCircle" size={22} className="text-white" />
           </button>
 
           {/* Камера (видео вкл/выкл) */}
@@ -2237,39 +2288,99 @@ function WebRTCCall({ user, peer, callId, kind, outgoing, onEnd }: {
           </button>
         </div>
       </div>
+
+      {/* Оверлей чата поверх звонка — не прерывает разговор */}
+      {showChat && (
+        <div className="fixed inset-0 z-[60] flex flex-col animate-fade-up" style={{ background: 'rgba(15,15,20,0.97)' }}>
+          <div className="shrink-0 flex items-center gap-3 px-4 bg-blue-600"
+            style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)', paddingBottom: 12 }}>
+            <button onClick={() => setShowChat(false)} className="w-9 h-9 rounded-full hover:bg-white/15 flex items-center justify-center">
+              <Icon name="ChevronDown" size={22} className="text-white" />
+            </button>
+            <Avatar url={peer.avatar_url} nick={peer.nick} size={36} />
+            <div className="flex-1 min-w-0">
+              <p className="text-white font-bold text-[15px] truncate">@{peer.nick}</p>
+              <p className="text-blue-200 text-[11px]">{status === 'active' ? fmt(duration) : t('Звонок...')}</p>
+            </div>
+            <Icon name={kind === 'video' ? 'Video' : 'Phone'} size={18} className="text-white/70" />
+          </div>
+
+          <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
+            {chatMsgs.map(m => {
+              const mine = m.sender_id === user.id;
+              return (
+                <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[75%] px-3.5 py-2 rounded-2xl text-[14.5px] ${mine ? 'bg-blue-600 text-white rounded-br-md' : 'bg-white/10 text-white rounded-bl-md'}`}>
+                    {m.text}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="shrink-0 flex items-center gap-2 px-3 py-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}>
+            <div className="flex-1 flex items-center bg-white/10 rounded-full px-4">
+              <input value={chatInput} onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && sendChatMsg()}
+                placeholder={t('Сообщение')}
+                className="flex-1 bg-transparent outline-none py-2.5 text-sm text-white placeholder:text-white/40" />
+            </div>
+            <button onClick={sendChatMsg} disabled={!chatInput.trim()}
+              className="w-10 h-10 shrink-0 rounded-full bg-blue-600 flex items-center justify-center disabled:opacity-40 transition-opacity">
+              <Icon name="Send" size={18} className="text-white" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// ── INCOMING CALL BANNER ──────────────────────────────────────────────────────
+// ── INCOMING CALL BANNER — полноэкранный, как в WhatsApp ─────────────────────
 function IncomingCallBanner({ caller, kind, onAccept, onReject }: {
   caller: { nick: string; avatar_url?: string | null }; kind: string;
   onAccept: () => void; onReject: () => void;
 }) {
   const { t } = useLang();
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-[calc(100%-2rem)] max-w-xs bg-card border border-border rounded-3xl p-6 shadow-2xl flex flex-col items-center gap-5">
-        {/* Аватар с пульсацией */}
-        <div className="relative">
-          <span className="absolute -inset-3 rounded-full bg-green-400/20 animate-pulse-ring" />
-          <Avatar url={caller.avatar_url} nick={caller.nick} size={80} />
+    <div className="fixed inset-0 z-50 flex flex-col animate-fade-up"
+      style={{ background: 'linear-gradient(160deg, #1a2a52 0%, #0d1226 60%, #060810 100%)' }}>
+      {/* Верхняя часть — аватар и имя */}
+      <div className="flex-1 flex flex-col items-center justify-center px-6"
+        style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+        <p className="text-white/60 text-[13px] font-medium tracking-wide mb-8 uppercase">
+          {kind === 'video' ? t('Входящий видеозвонок') : t('Входящий звонок')}
+        </p>
+        <div className="relative mb-6">
+          <span className="absolute -inset-4 rounded-full bg-green-400/20 animate-pulse-ring" />
+          <span className="absolute -inset-8 rounded-full bg-green-400/10 animate-pulse-ring" style={{ animationDelay: '0.3s' }} />
+          <Avatar url={caller.avatar_url} nick={caller.nick} size={128} />
         </div>
-        <div className="text-center">
-          <p className="font-bold text-lg">@{caller.nick}</p>
-          <p className="text-muted-foreground text-sm mt-0.5">
-            {kind === 'video' ? `📹 ${t('Входящий видеозвонок')}` : `📞 ${t('Входящий звонок')}`}
-          </p>
-        </div>
-        <div className="flex gap-4 w-full">
+        <p className="text-white font-bold text-[26px] tracking-tight">@{caller.nick}</p>
+        <p className="text-white/50 text-sm mt-2 flex items-center gap-1.5">
+          <Icon name={kind === 'video' ? 'Video' : 'Phone'} size={14} className="text-white/50" />
+          {kind === 'video' ? t('видеозвонок') : t('аудиозвонок')}
+        </p>
+      </div>
+
+      {/* Кнопки приёма/отклонения — большие, полупрозрачные */}
+      <div className="flex items-center justify-center gap-16 px-6"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 56px)' }}>
+        <div className="flex flex-col items-center gap-3">
           <button onClick={onReject}
-            className="flex-1 py-3.5 rounded-2xl bg-destructive text-white font-semibold flex items-center justify-center gap-2">
-            <Icon name="PhoneOff" size={18} className="text-white" /> {t('Отклонить')}
+            className="w-[68px] h-[68px] rounded-full flex items-center justify-center transition-transform active:scale-90"
+            style={{ background: 'rgba(220,38,38,0.9)', boxShadow: '0 6px 24px rgba(220,38,38,0.45)' }}>
+            <Icon name="PhoneOff" size={28} className="text-white" />
           </button>
+          <span className="text-white/70 text-[13px] font-medium">{t('Отклонить')}</span>
+        </div>
+        <div className="flex flex-col items-center gap-3">
           <button onClick={onAccept}
-            className="flex-1 py-3.5 rounded-2xl bg-green-500 text-white font-semibold flex items-center justify-center gap-2">
-            <Icon name="Phone" size={18} className="text-white" /> {t('Принять')}
+            className="w-[68px] h-[68px] rounded-full flex items-center justify-center transition-transform active:scale-90 animate-pulse-ring-btn"
+            style={{ background: 'rgba(34,197,94,0.92)', boxShadow: '0 6px 24px rgba(34,197,94,0.45)' }}>
+            <Icon name={kind === 'video' ? 'Video' : 'Phone'} size={28} className="text-white" />
           </button>
+          <span className="text-white/70 text-[13px] font-medium">{t('Принять')}</span>
         </div>
       </div>
     </div>
