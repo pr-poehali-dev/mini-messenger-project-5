@@ -3346,7 +3346,7 @@ function renderTextWithLinks(text: string, mine: boolean) {
   return parts.map((part, i) =>
     new RegExp('^https?:\\/\\/[^\\s]+$').test(part)
       ? <a key={i} href={part} target="_blank" rel="noopener noreferrer"
-          className={`underline underline-offset-2 break-all ${mine ? 'text-blue-800' : 'text-blue-600'}`}
+          className={`underline underline-offset-2 break-all ${mine ? 'text-white/90' : 'text-blue-600'}`}
           onClick={e => e.stopPropagation()}>{part}</a>
       : <span key={i}>{part}</span>
   );
@@ -3771,17 +3771,17 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
                             ? <VoicePlayer src={m.media_url || ''} mine={mine} />
                             : m.media_type === 'file'
                               ? <a href={m.media_url || ''} target="_blank" rel="noopener noreferrer"
-                                  className={`flex items-center gap-2 py-0.5 ${mine ? 'text-[#1a2e1a]' : 'text-foreground'}`}>
-                                  <Icon name="FileText" size={20} className={mine ? 'text-[#1a2e1a]/70' : 'text-accent'} />
+                                  className={`flex items-center gap-2 py-0.5 ${mine ? 'text-white' : 'text-foreground'}`}>
+                                  <Icon name="FileText" size={20} className={mine ? 'text-white/80' : 'text-accent'} />
                                   <span className="text-[15px] underline underline-offset-2 break-all">{m.text || t('Файл')}</span>
                                 </a>
                               : <p className="leading-relaxed break-words text-[16.5px]">{renderTextWithLinks(m.text || '', mine)}</p>
                     }
-                    <span className={`flex items-center justify-end gap-0.5 text-[10px] mt-0.5 ${mine ? 'text-[#1a2e1a]/60' : 'text-muted-foreground'}`}>
+                    <span className={`flex items-center justify-end gap-0.5 text-[10px] mt-0.5 ${mine ? 'text-white/60' : 'text-muted-foreground'}`}>
                       {fmtTime(m.created_at)}
                       {mine && (
                         m.is_read
-                          ? <span className="text-blue-500 leading-none ml-0.5">✓✓</span>
+                          ? <span className="text-green-400 leading-none ml-0.5">✓✓</span>
                           : <span className="leading-none ml-0.5 opacity-70">✓</span>
                       )}
                     </span>
