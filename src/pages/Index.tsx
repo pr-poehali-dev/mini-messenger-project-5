@@ -749,8 +749,8 @@ function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (tabKey: T
     { key: 'profile', icon: 'User', label: t('Профиль') },
   ];
   return (
-    <div className="flex flex-col" style={{ background: 'hsl(var(--background))', height: '100dvh', paddingTop: 'calc(env(safe-area-inset-top) + 8px)' }}>
-      <div className="flex-1 overflow-hidden flex flex-col pb-[80px]">{children}</div>
+    <div className="flex flex-col bg-white dark:bg-slate-900" style={{ height: '100dvh', paddingTop: 'calc(env(safe-area-inset-top) + 8px)' }}>
+      <div className="flex-1 overflow-hidden flex flex-col pb-[80px]" style={{ background: 'hsl(var(--background))' }}>{children}</div>
       <div className="fixed bottom-0 left-0 right-0 flex justify-center pt-2 px-4"
         style={{ background: 'linear-gradient(to top, hsl(var(--background)) 60%, transparent)', paddingBottom: 'calc(env(safe-area-inset-bottom) * 0.15 + 4px)' }}>
         <nav className="flex items-center gap-1 px-2 py-2 rounded-[28px] shadow-xl"
@@ -839,19 +839,19 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat,
       <div className="shrink-0 bg-white dark:bg-slate-900 px-4 pt-6 pb-2 border-b border-slate-100 dark:border-slate-800" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3 relative">
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100" style={{ letterSpacing: '-0.5px' }}>{t('Чаты')}</h1>
-          {onOpenNotifications && (
-            <button onClick={() => onOpenNotifications()}
-              className="absolute left-1/2 -translate-x-1/2 w-9 h-9 rounded-xl flex items-center justify-center shadow-sm transition-all active:scale-90 bell-shake"
-              style={{ background: 'linear-gradient(145deg, #3b82f6, #1d4ed8)', boxShadow: '0 2px 8px rgba(37,99,235,0.4)' }}>
-              <Icon name="Bell" size={17} className="text-white" />
-              {unreadNotifs > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5 shadow-sm border-2 border-white dark:border-slate-900">
-                  {unreadNotifs > 99 ? '99+' : unreadNotifs}
-                </span>
-              )}
-            </button>
-          )}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
+            {onOpenNotifications && (
+              <button onClick={() => onOpenNotifications()}
+                className="relative w-9 h-9 rounded-xl flex items-center justify-center shadow-sm transition-all active:scale-90 bell-shake"
+                style={{ background: 'linear-gradient(145deg, #3b82f6, #1d4ed8)', boxShadow: '0 2px 8px rgba(37,99,235,0.4)' }}>
+                <Icon name="Bell" size={17} className="text-white" />
+                {unreadNotifs > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5 shadow-sm border-2 border-white dark:border-slate-900">
+                    {unreadNotifs > 99 ? '99+' : unreadNotifs}
+                  </span>
+                )}
+              </button>
+            )}
             <div className="relative">
               <button onClick={() => setShowMenu(v => !v)}
                 className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm shadow-blue-200 transition-all active:scale-95">
@@ -3657,7 +3657,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
   const subtitleColor = peerOnline && !groupName && typing.length === 0 ? 'text-green-300' : 'text-blue-200';
 
   return (
-    <div className="fixed inset-0 flex flex-col" style={{ background: 'var(--chat-bg, #e8eef7)' }} onClick={() => { setSelectedMsg(null); setEmojiTarget(null); setShowAttach(false); setShowComposerEmoji(false); }}>
+    <div className="fixed inset-0 flex flex-col" style={{ backgroundColor: '#dbe4d3', backgroundImage: "url('https://cdn.poehali.dev/projects/59076a76-2862-4ba6-9c95-c02c43e87c88/bucket/2d1b9392-f223-4893-b9e1-bf82887796ab.jpg')", backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }} onClick={() => { setSelectedMsg(null); setEmojiTarget(null); setShowAttach(false); setShowComposerEmoji(false); }}>
       {/* Header — Telegram стиль: скруглён снизу, тень */}
       <header className="shrink-0 flex items-center gap-1 px-1 bg-blue-600"
         style={{
