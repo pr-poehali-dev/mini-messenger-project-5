@@ -761,7 +761,7 @@ function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (tabKey: T
     <div className="flex flex-col" style={{ background: 'hsl(var(--background))', height: '100dvh', paddingTop: 'env(safe-area-inset-top)' }}>
       <div className="flex-1 overflow-hidden flex flex-col pb-[80px]">{children}</div>
       <div className="fixed bottom-0 left-0 right-0 flex justify-center pt-2 px-4"
-        style={{ background: 'linear-gradient(to top, hsl(var(--background)) 60%, transparent)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}>
+        style={{ background: 'linear-gradient(to top, hsl(var(--background)) 60%, transparent)', paddingBottom: 'calc(env(safe-area-inset-bottom) * 0.35 + 6px)' }}>
         <nav className="flex items-center gap-1 px-2 py-2 rounded-[28px] shadow-xl"
           style={{ background: 'hsl(var(--card) / 0.98)', backdropFilter: 'blur(24px)', boxShadow: '0 8px 32px rgba(30,58,138,0.13), 0 2px 8px rgba(30,58,138,0.08)' }}>
           {tabs.map(tb => (
@@ -3349,6 +3349,7 @@ function MediaViewer({ src, type, onClose }: { src: string; type: 'image' | 'vid
 
 // ══════════════════════════════════════════════════════════════════════════════
 const EMOJIS = ['❤️','😂','😮','😢','👍','👎','🔥','🎉','😍','🤔'];
+const COMPOSER_EMOJIS = ['😀','😂','😍','🥰','😊','😉','😎','🤔','😢','😭','😡','👍','👎','👏','🙏','🔥','❤️','💯','🎉','😴'];
 
 type Reaction = { emoji: string; user_id: number };
 type MsgExt = Message & { reactions?: Reaction[]; is_removed?: boolean; media_type?: string; media_url?: string };
@@ -3368,6 +3369,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
   const [selectedMsg, setSelectedMsg] = useState<number | null>(null);
   const [emojiTarget, setEmojiTarget] = useState<number | null>(null);
   const [showAttach, setShowAttach] = useState(false);
+  const [showComposerEmoji, setShowComposerEmoji] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordSecs, setRecordSecs] = useState(0);
   const [inCall, setInCall] = useState<{ kind: 'audio' | 'video'; callId: string; outgoing: boolean } | null>(null);
@@ -3387,14 +3389,21 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
   const audioChunks = useRef<Blob[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const fileRef2 = useRef<HTMLInputElement>(null);
-  const fileType = useRef<'image' | 'video' | 'audio'>('image');
+  const fileType = useRef<'image' | 'audio'>('image');
   const recordTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const cancelFlag = useRef(false);
 
   const poll = useCallback(async () => {
     const d = await api(`chat_poll&chat_id=${chatId}&after=${lastIdRef.current}&user_id=${user.id}&peer_id=${peer?.id || 0}`);
     const fresh: MsgExt[] = d.messages || [];
-    if (fresh.length) { lastIdRef.current = fresh[fresh.length - 1].id; setMessages(m => [...m, ...fresh]); }
+    if (fresh.length) {
+      lastIdRef.current = fresh[fresh.length - 1].id;
+      setMessages(m => {
+        const existingIds = new Set(m.filter(x => x.id > 0).map(x => x.id));
+        const toAdd = fresh.filter(f => !existingIds.has(f.id));
+        return [...m, ...toAdd];
+      });
+    }
     if (d.read_until) {
       const ru = d.read_until as number;
       setMessages(m => m.map(msg => msg.sender_id === user.id && msg.id <= ru ? { ...msg, is_read: true } : msg));
@@ -3472,13 +3481,41 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
     if (!text) setInput('');
     if (typingTimer.current) clearTimeout(typingTimer.current);
     playSendSound();
-    await api('send', 'POST', { chat_id: chatId, user_id: user.id, text: txt || null, media_url: media_url || null, media_type: media_type || null });
-    // После отправки своего сообщения — всегда скроллим вниз
+
+    // Optimistic update — сообщение появляется в чате мгновенно, не дожидаясь сервера
+    const tempId = -Date.now();
+    const optimisticMsg: MsgExt = {
+      id: tempId,
+      sender_id: user.id,
+      sender_nick: user.nick,
+      sender_avatar: user.avatar_url,
+      sender_verified: user.is_verified,
+      text: txt || null,
+      media_url: media_url || null,
+      media_type: media_type || null,
+      created_at: new Date().toISOString(),
+      is_read: false,
+    };
+    setMessages(m => [...m, optimisticMsg]);
     isAtBottomRef.current = true;
     setTimeout(() => {
       const el = scrollRef.current;
       if (el) el.scrollTop = el.scrollHeight;
-    }, 50);
+    }, 0);
+
+    const d = await api('send', 'POST', { chat_id: chatId, user_id: user.id, text: txt || null, media_url: media_url || null, media_type: media_type || null });
+    const real = d.message as MsgExt | undefined;
+    if (real) {
+      lastIdRef.current = Math.max(lastIdRef.current, real.id);
+      setMessages(m => {
+        // Если polling уже успел подтянуть это же сообщение — просто убираем "черновик"
+        if (m.some(msg => msg.id === real.id)) return m.filter(msg => msg.id !== tempId);
+        return m.map(msg => msg.id === tempId ? { ...real, sender_nick: user.nick, sender_avatar: user.avatar_url, sender_verified: user.is_verified } : msg);
+      });
+    } else {
+      // Отправка не удалась — убираем оптимистичное сообщение
+      setMessages(m => m.filter(msg => msg.id !== tempId));
+    }
   };
 
   const openForward = async (msg: MsgExt) => {
@@ -3501,8 +3538,8 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
     setForwardMsg(null);
   };
 
-  const uploadFile = async (file: File, type: 'image' | 'video' | 'audio' | 'voice') => {
-    const maxMb = type === 'video' ? 500 : type === 'audio' ? 100 : 20;
+  const uploadFile = async (file: File, type: 'image' | 'audio' | 'voice') => {
+    const maxMb = type === 'audio' ? 100 : 20;
     if (file.size > maxMb * 1024 * 1024) {
       alert(`${t('Файл слишком большой. Максимум')} ${maxMb} ${t('МБ.')}`);
       return;
@@ -3510,34 +3547,15 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
     setUploading(true);
     try {
       const ext = (file.name.split('.').pop() || (type === 'voice' ? 'ogg' : type === 'image' ? 'jpg' : type)).toLowerCase();
-
-      if (type === 'video' || type === 'audio') {
-        const CHUNK = 512 * 1024; // 512 КБ — binary без base64 накладных расходов
-        const total = Math.ceil(file.size / CHUNK);
-        const upload_id = `${user.id}_${Date.now()}`;
-        setUploadProgress('0%');
-        for (let i = 0; i < total; i++) {
-          const slice = file.slice(i * CHUNK, (i + 1) * CHUNK);
-          const buf = await slice.arrayBuffer();
-          const res = await apiChunk(user.id, upload_id, i, buf);
-          if (!res.ok) throw new Error(`${t('Чанк')} ${i}: ${res.error}`);
-          setUploadProgress(`${Math.round((i + 1) / total * 95)}%`);
-        }
-        setUploadProgress('Сборка...');
-        const d = await apiAssemble({ user_id: user.id, upload_id, total_chunks: total, ext, media_type: type });
-        if (d.url) { setUploadProgress('100%'); await send(undefined, d.url as string, type); }
-      } else {
-        // Фото и голос — через base64 как раньше
-        setUploadProgress(type === 'image' ? 'Загрузка фото...' : 'Загрузка...');
-        const b64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve((reader.result as string).split(',')[1]);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        const d = await api('upload_media', 'POST', { user_id: user.id, data: b64, ext, media_type: type });
-        if (d.url) await send(undefined, d.url, type);
-      }
+      setUploadProgress(type === 'image' ? 'Загрузка фото...' : 'Загрузка...');
+      const b64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const d = await api('upload_media', 'POST', { user_id: user.id, data: b64, ext, media_type: type });
+      if (d.url) await send(undefined, d.url, type);
     } catch (e) {
       console.error('[uploadFile]', e);
       alert(`${t('Ошибка')}: ${e}`);
@@ -3547,11 +3565,11 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
     }
   };
 
-  const pickFile = (type: 'image' | 'video' | 'audio') => {
+  const pickFile = (type: 'image' | 'audio') => {
     fileType.current = type;
     setShowAttach(false);
     if (fileRef.current) {
-      fileRef.current.accept = type === 'image' ? 'image/*' : type === 'video' ? 'video/*' : 'audio/*';
+      fileRef.current.accept = type === 'image' ? 'image/*' : 'audio/*';
       fileRef.current.click();
     }
   };
@@ -3616,7 +3634,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
   const subtitleColor = peerOnline && !groupName && typing.length === 0 ? 'text-green-300' : 'text-blue-200';
 
   return (
-    <div className="fixed inset-0 flex flex-col" style={{ background: 'var(--chat-bg, #e8eef7)' }} onClick={() => { setSelectedMsg(null); setEmojiTarget(null); setShowAttach(false); }}>
+    <div className="fixed inset-0 flex flex-col" style={{ background: 'var(--chat-bg, #e8eef7)' }} onClick={() => { setSelectedMsg(null); setEmojiTarget(null); setShowAttach(false); setShowComposerEmoji(false); }}>
       {/* Header — Telegram стиль: скруглён снизу, тень */}
       <header className="shrink-0 flex items-center gap-1 px-1 bg-blue-600"
         style={{
@@ -3842,7 +3860,6 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
           <div className="flex gap-2 mb-3 animate-fade-up">
             {[
               { icon: 'Image', label: t('Фото'), type: 'image' as const },
-              { icon: 'Video', label: t('Видео'), type: 'video' as const },
               { icon: 'Music', label: t('Аудио'), type: 'audio' as const },
             ].map(a => (
               <button key={a.type} onClick={() => pickFile(a.type)}
@@ -3856,6 +3873,19 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
               <Icon name="FileText" size={20} className="text-blue-600" />
               <span className="text-[10px] text-slate-500 font-medium">{t('Файл')}</span>
             </button>
+          </div>
+        )}
+
+        {/* Composer emoji panel */}
+        {showComposerEmoji && !recording && (
+          <div className="flex flex-wrap gap-1 mb-3 p-2 bg-slate-50 border border-slate-100 rounded-2xl animate-fade-up"
+            onClick={e => e.stopPropagation()}>
+            {COMPOSER_EMOJIS.map(e => (
+              <button key={e} onClick={() => setInput(v => v + e)}
+                className="w-9 h-9 flex items-center justify-center text-xl rounded-lg hover:bg-slate-200 transition-colors">
+                {e}
+              </button>
+            ))}
           </div>
         )}
 
@@ -3880,7 +3910,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
           </div>
         ) : (
           <div className="flex items-center gap-2">
-            <button onClick={() => setShowAttach(v => !v)}
+            <button onClick={() => { setShowComposerEmoji(false); setShowAttach(v => !v); }}
               className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-colors ${showAttach ? 'bg-blue-100 text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}>
               <Icon name="Paperclip" size={22} />
             </button>
@@ -3889,11 +3919,10 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
                 onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
                 placeholder={t('Сообщение')}
                 className="flex-1 bg-transparent outline-none py-2.5 text-sm text-slate-800 placeholder:text-slate-400" />
-              {!input.trim() && (
-                <button className="shrink-0 text-slate-400">
-                  <Icon name="Smile" size={20} />
-                </button>
-              )}
+              <button onClick={e => { e.stopPropagation(); setShowAttach(false); setShowComposerEmoji(v => !v); }}
+                className={`shrink-0 transition-colors ${showComposerEmoji ? 'text-blue-600' : 'text-slate-400'}`}>
+                <Icon name="Smile" size={20} />
+              </button>
             </div>
             {input.trim()
               ? <button key="send" onClick={() => send()} disabled={uploading}
