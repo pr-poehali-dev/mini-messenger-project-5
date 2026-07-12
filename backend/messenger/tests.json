@@ -60,10 +60,11 @@
       "bodyMatcher": "partial"
     },
     {
-      "name": "Realty list",
+      "name": "Feed - empty for unknown user",
       "method": "GET",
-      "path": "/?action=realty_list&deal_type=sale",
+      "path": "/?action=feed&user_id=0",
       "expectedStatus": 200,
+      "expectedBody": {"posts": []},
       "bodyMatcher": "partial"
     },
     {
@@ -101,20 +102,20 @@
       "bodyMatcher": "partial"
     },
     {
-      "name": "Realty pay create - listing not found",
-      "method": "POST",
-      "path": "/?action=realty_pay_create",
-      "body": {"listing_id": 999999, "user_id": 0},
-      "expectedStatus": 404,
-      "expectedBody": {"error": "Объявление не найдено"},
+      "name": "Post search - empty query",
+      "method": "GET",
+      "path": "/?action=post_search&user_id=0&q=",
+      "expectedStatus": 200,
+      "expectedBody": {"posts": []},
       "bodyMatcher": "partial"
     },
     {
-      "name": "Realty pay status - listing not found",
-      "method": "GET",
-      "path": "/?action=realty_pay_status&listing_id=999999&user_id=0",
-      "expectedStatus": 404,
-      "expectedBody": {"error": "Не найдено"},
+      "name": "Post create - bad data",
+      "method": "POST",
+      "path": "/?action=post_create",
+      "body": {"user_id": 0, "type": "text", "content": ""},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "Некорректные данные публикации"},
       "bodyMatcher": "partial"
     }
   ]

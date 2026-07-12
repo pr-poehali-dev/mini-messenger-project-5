@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vai-messenger-v25';
+const CACHE_NAME = 'vai-messenger-v27';
 const ICON_URL = 'https://cdn.poehali.dev/projects/59076a76-2862-4ba6-9c95-c02c43e87c88/files/d13675c5-0092-4683-9d21-a86c2a22bd22.jpg';
 
 // ── Установка ─────────────────────────────────────────────────────────────────

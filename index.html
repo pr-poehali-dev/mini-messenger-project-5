@@ -83,7 +83,7 @@
       overflow: hidden;
     }
     #root {
-      height: 100dvh;
+      height: var(--app-height, 100dvh);
       overflow: hidden;
     }
   </style>
@@ -105,10 +105,24 @@
     // splash убран — функция-заглушка чтобы не было ошибок в React
     window.__hideSplash = function() {};
 
-    // ── Фикс "убегающей" шапки при открытии клавиатуры на iOS ─────────────────
-    // Шапка зафиксирована через position:fixed с top:0 напрямую в CSS (см. ниже),
-    // поэтому она физически не может сдвинуться — просто не трогаем её через JS.
-    // Единственное что нужно — не дать странице проскроллиться самой по себе.
+    // ── Клавиатура на мобильных: композер должен оставаться видимым над ней ───
+    // 100dvh не пересчитывается при появлении клавиатуры в PWA на iOS, поэтому
+    // высота #root подстраивается под visualViewport — БЕЗ CSS transition и БЕЗ
+    // скролла страницы, так что шапка (position: sticky) физически не сдвигается,
+    // а нижняя часть (композер) просто оказывается видимой над клавиатурой.
+    (function() {
+      function setAppHeight() {
+        var vv = window.visualViewport;
+        var h = vv ? vv.height : window.innerHeight;
+        document.documentElement.style.setProperty('--app-height', h + 'px');
+      }
+      setAppHeight();
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', setAppHeight);
+      } else {
+        window.addEventListener('resize', setAppHeight);
+      }
+    })();
     document.addEventListener('scroll', function() { window.scrollTo(0, 0); }, { passive: true });
 
     // Автоматическая тёмная тема как у Т-Банка

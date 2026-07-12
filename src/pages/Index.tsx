@@ -108,8 +108,9 @@ type User = { id: number; nick: string; avatar_url?: string | null; profile_comp
 type Profile = User & { city?: string; birthdate?: string; about?: string; is_online?: boolean; last_seen?: string; followers: number; following: number; i_follow?: boolean; i_blocked?: boolean };
 type ChatItem = { chat_id: number; kind: 'dm' | 'group'; peer_id?: number; peer_nick?: string; peer_avatar?: string | null; peer_online?: boolean; peer_verified?: boolean; group_id?: number; group_name?: string; group_avatar?: string | null; last_text?: string | null; last_at?: string | null; unread_count?: number };
 type Message = { id: number; sender_id: number; sender_nick: string; sender_avatar?: string | null; sender_verified?: boolean; text?: string | null; image_url?: string | null; media_type?: string | null; media_url?: string | null; created_at: string; is_removed?: boolean; is_read?: boolean; reactions?: { emoji: string; user_id: number }[] };
-type Tab = 'search' | 'chats' | 'notifications' | 'realty' | 'profile';
-type RealtyListing = { id: number; deal_type: 'sale'|'rent'; city: string; district?: string; street?: string; rooms?: number; area?: number; price: number; description?: string; phone?: string; photos?: string[]; is_paid: boolean; created_at: string; seller_id: number; seller_nick: string; seller_avatar?: string|null };
+type Tab = 'feed' | 'search' | 'chats' | 'notifications' | 'profile';
+type Post = { id: number; user_id: number; nick: string; avatar_url?: string | null; is_verified?: boolean; type: 'photo' | 'video' | 'text'; content: string; caption?: string | null; created_at: string; likes_count: number; comments_count: number; views_count: number; liked_by_me: boolean };
+type PostComment = { id: number; post_id: number; user_id: number; nick: string; avatar_url?: string | null; is_verified?: boolean; text: string; reply_to_user_id?: number | null; reply_to_nick?: string | null; created_at: string };
 type Notif = { id: number; type: string; from_user_id?: number; from_nick?: string; from_avatar?: string | null; chat_id?: number; group_id?: number; payload?: string; is_read: boolean; created_at: string };
 type GroupInfo = { id: number; name: string; about?: string; photo_url?: string | null; invite_token: string; owner_id: number; my_role?: string; member_count: number; is_public?: boolean };
 type GroupMember = User & { role: string };
@@ -126,7 +127,6 @@ type Screen =
   | { name: 'followers'; userId: number; mode: 'followers' | 'following' }
   | { name: 'new_group' }
   | { name: 'group_info'; groupId: number; chatId: number }
-  | { name: 'realty_chat'; chatId: number; listing: RealtyListing }
   | { name: 'status_create' }
   | { name: 'status_view'; userId: number };
 
@@ -348,26 +348,23 @@ export default function Index() {
       onBack={() => push({ name: 'tabs', tab: 'chats' })}
       onOpenChat={(name, photoUrl) => push({ name: 'chat', chatId: screen.chatId, groupId: screen.groupId, groupName: name, groupPhotoUrl: photoUrl })}
       onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />;
-    if (screen.name === 'realty_chat') return <RealtyChatScreen
-      user={user} chatId={screen.chatId} listing={screen.listing} onBack={back} />;
-    if (screen.name === 'status_create') return <StatusCreateScreen user={user} onBack={() => push({ name: 'tabs', tab: 'chats' })} onCreated={() => push({ name: 'tabs', tab: 'chats' })} />;
-    if (screen.name === 'status_view') return <StatusViewScreen me={user} userId={screen.userId} onBack={() => push({ name: 'tabs', tab: 'chats' })}
+    if (screen.name === 'status_create') return <StatusCreateScreen user={user} onBack={() => push({ name: 'tabs', tab: 'feed' })} onCreated={() => push({ name: 'tabs', tab: 'feed' })} />;
+    if (screen.name === 'status_view') return <StatusViewScreen me={user} userId={screen.userId} onBack={() => push({ name: 'tabs', tab: 'feed' })}
       onOpenChat={async (peerId) => { const d = await api('open_chat', 'POST', { user_id: user.id, peer_id: peerId }); push({ name: 'chat', chatId: d.chat_id as number, peer: d.peer as User }); }}
       onOpenProfile={(uid) => push({ name: 'user_profile', userId: uid })} />;
     const tab = (screen as { name: 'tabs'; tab: Tab }).tab;
     return (
       <TabsShell tab={tab} onTab={(t) => push({ name: 'tabs', tab: t })} user={user}>
+        {tab === 'feed' && <FeedTab user={user}
+          onOpenProfile={(id) => push({ name: 'user_profile', userId: id })}
+          onCreateStatus={() => push({ name: 'status_create' })}
+          onOpenStatus={(uid) => push({ name: 'status_view', userId: uid })} />}
         {tab === 'search' && <SearchTab user={user} onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />}
         {tab === 'chats' && <ChatsTab user={user}
           onOpenChat={(c) => push({ name: 'chat', chatId: c.chat_id, peer: c.peer_id ? { id: c.peer_id, nick: c.peer_nick!, avatar_url: c.peer_avatar } : undefined, groupName: c.group_name, groupId: c.group_id, groupPhotoUrl: c.group_avatar })}
           onNewGroup={() => push({ name: 'new_group' })}
           onOpenGroup={(gid, chatId) => push({ name: 'group_info', groupId: gid, chatId })}
-          onOpenRealtyChat={(chatId, listing) => push({ name: 'realty_chat', chatId, listing })}
-          onCreateStatus={() => push({ name: 'status_create' })}
-          onOpenStatus={(uid) => push({ name: 'status_view', userId: uid })}
           onOpenNotifications={() => push({ name: 'tabs', tab: 'notifications' })} />}
-        {tab === 'realty' && <RealtyTab user={user}
-          onOpenChat={(chatId, listing) => push({ name: 'realty_chat', chatId, listing })} />}
         {tab === 'notifications' && <NotificationsTab user={user}
           onOpenChat={(chatId) => push({ name: 'chat', chatId })}
           onOpenProfile={(id) => push({ name: 'user_profile', userId: id })}
@@ -743,9 +740,9 @@ function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (tabKey: T
   }, [user.id]);
 
   const tabs: { key: Tab; icon: string; label: string; badge?: number; emoji?: string }[] = [
+    { key: 'feed', icon: 'LayoutGrid', label: t('Лента') },
     { key: 'search', icon: 'Search', label: t('Поиск') },
     { key: 'chats', icon: 'MessageCircle', label: t('Чаты'), badge: unreadChats },
-    { key: 'realty', icon: 'Home', label: t('Жильё') },
     { key: 'profile', icon: 'User', label: t('Профиль') },
   ];
   return (
@@ -784,7 +781,7 @@ function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (tabKey: T
 // ══════════════════════════════════════════════════════════════════════════════
 // CHATS TAB
 // ══════════════════════════════════════════════════════════════════════════════
-function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat, onCreateStatus, onOpenStatus, onOpenNotifications }: { user: User; onOpenChat: (c: ChatItem) => void; onNewGroup: () => void; onOpenGroup: (gid: number, chatId: number) => void; onOpenRealtyChat: (chatId: number, listing: RealtyListing) => void; onCreateStatus: () => void; onOpenStatus: (userId: number) => void; onOpenNotifications?: () => void }) {
+function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenNotifications }: { user: User; onOpenChat: (c: ChatItem) => void; onNewGroup: () => void; onOpenGroup: (gid: number, chatId: number) => void; onOpenNotifications?: () => void }) {
   const { t } = useLang();
   const [chats, setChats] = useState<ChatItem[]>([]);
   const [showMenu, setShowMenu] = useState(false);
@@ -891,9 +888,6 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat,
         </div>
       </div>
 
-      {/* Лента статусов */}
-      <StatusBar user={user} onCreateStatus={onCreateStatus} onOpenStatus={onOpenStatus} />
-
       <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-2 bg-white dark:bg-slate-950">
         {visibleChats.length === 0 && (
           <div className="flex flex-col items-center justify-center mt-24 gap-3">
@@ -904,8 +898,6 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenRealtyChat,
             <p className="text-xs text-slate-400 dark:text-slate-500">{search ? t('Попробуй другой запрос') : t('Найди людей через поиск')}</p>
           </div>
         )}
-        {/* Чаты по объявлениям */}
-        <RealtyChatsInline user={user} onOpen={onOpenRealtyChat} />
         {visibleChats.map(c => (
           <div key={c.chat_id} className="relative overflow-hidden rounded-2xl">
             {swipedId === c.chat_id && (
@@ -1035,6 +1027,344 @@ function StatusBar({ user, onCreateStatus, onOpenStatus }: { user: User; onCreat
             </span>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FEED TAB — лента публикаций (фото/видео/текст) + статусы сверху + поиск
+// ══════════════════════════════════════════════════════════════════════════════
+function PostCard({ post, user, onOpenProfile, onChanged }: { post: Post; user: User; onOpenProfile: (id: number) => void; onChanged: (p: Post) => void }) {
+  const { t } = useLang();
+  const [showComments, setShowComments] = useState(false);
+  const [comments, setComments] = useState<PostComment[]>([]);
+  const [commentText, setCommentText] = useState('');
+  const [showLikers, setShowLikers] = useState(false);
+  const [likers, setLikers] = useState<User[]>([]);
+  const viewedRef = useRef(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (viewedRef.current) return;
+    const el = cardRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting && !viewedRef.current) {
+        viewedRef.current = true;
+        api('post_view', 'POST', { user_id: user.id, post_id: post.id });
+        obs.disconnect();
+      }
+    }, { threshold: 0.6 });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [post.id, user.id]);
+
+  const toggleLike = async () => {
+    onChanged({ ...post, liked_by_me: !post.liked_by_me, likes_count: post.likes_count + (post.liked_by_me ? -1 : 1) });
+    const d = await api('post_like', 'POST', { user_id: user.id, post_id: post.id });
+    if (typeof d.likes_count === 'number') onChanged({ ...post, liked_by_me: d.liked as boolean, likes_count: d.likes_count as number });
+  };
+
+  const loadComments = async () => {
+    const d = await api(`post_comments&post_id=${post.id}`);
+    setComments((d.comments as PostComment[]) || []);
+  };
+
+  const sendComment = async () => {
+    const txt = commentText.trim();
+    if (!txt) return;
+    setCommentText('');
+    const d = await api('post_comment_add', 'POST', { user_id: user.id, post_id: post.id, text: txt });
+    if (d.comment) {
+      setComments(c => [...c, d.comment as PostComment]);
+      onChanged({ ...post, comments_count: post.comments_count + 1 });
+    }
+  };
+
+  const loadLikers = async () => {
+    const d = await api(`post_likers&post_id=${post.id}`);
+    setLikers((d.users as User[]) || []);
+    setShowLikers(true);
+  };
+
+  return (
+    <div ref={cardRef} className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 overflow-hidden animate-fade-up">
+      <button onClick={() => onOpenProfile(post.user_id)} className="w-full flex items-center gap-3 px-4 py-3">
+        <Avatar url={post.avatar_url} nick={post.nick} size={40} />
+        <div className="flex-1 text-left min-w-0">
+          <div className="font-semibold text-slate-800 dark:text-slate-100 text-sm flex items-center gap-1">@{post.nick}{post.is_verified && <VerifiedBadge size={13} />}</div>
+          <div className="text-xs text-slate-400 dark:text-slate-500">{fmtTime(post.created_at)}</div>
+        </div>
+      </button>
+
+      {post.type === 'text' && (
+        <p className="px-4 pb-3 text-sm text-slate-700 dark:text-slate-200 whitespace-pre-wrap leading-relaxed">{post.content}</p>
+      )}
+      {post.type === 'photo' && (
+        <img src={post.content} className="w-full max-h-[480px] object-cover" />
+      )}
+      {post.type === 'video' && (
+        <video src={post.content} controls className="w-full max-h-[480px] object-cover bg-black" />
+      )}
+      {post.caption && post.type !== 'text' && (
+        <p className="px-4 pt-2 text-sm text-slate-600 dark:text-slate-300">{post.caption}</p>
+      )}
+
+      <div className="flex items-center gap-4 px-4 py-3">
+        <button onClick={toggleLike} className="flex items-center gap-1.5 active:scale-90 transition-transform">
+          <Icon name="Heart" size={22} className={post.liked_by_me ? 'text-red-500 fill-red-500' : 'text-slate-400 dark:text-slate-500'} />
+          <button onClick={(e) => { e.stopPropagation(); loadLikers(); }} className="text-sm text-slate-500 dark:text-slate-400 font-medium">{post.likes_count}</button>
+        </button>
+        <button onClick={() => { setShowComments(v => !v); if (!showComments) loadComments(); }} className="flex items-center gap-1.5">
+          <Icon name="MessageCircle" size={20} className="text-slate-400 dark:text-slate-500" />
+          <span className="text-sm text-slate-500 dark:text-slate-400 font-medium">{post.comments_count}</span>
+        </button>
+        <div className="flex items-center gap-1.5 ml-auto">
+          <Icon name="Eye" size={18} className="text-slate-300 dark:text-slate-600" />
+          <span className="text-xs text-slate-400 dark:text-slate-500">{post.views_count}</span>
+        </div>
+      </div>
+
+      {showComments && (
+        <div className="px-4 pb-4 border-t border-slate-50 dark:border-slate-800 pt-3 space-y-3">
+          {comments.map(c => (
+            <div key={c.id} className="flex items-start gap-2">
+              <Avatar url={c.avatar_url} nick={c.nick} size={28} />
+              <div className="flex-1 bg-slate-50 dark:bg-slate-800 rounded-2xl px-3 py-2">
+                <div className="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1">
+                  @{c.nick}{c.reply_to_nick && <span className="text-slate-400 font-normal">→ @{c.reply_to_nick}</span>}
+                </div>
+                <div className="text-sm text-slate-600 dark:text-slate-300">{c.text}</div>
+              </div>
+            </div>
+          ))}
+          <div className="flex items-center gap-2">
+            <input value={commentText} onChange={e => setCommentText(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && sendComment()}
+              placeholder={t('Комментарий...')}
+              className="flex-1 bg-slate-50 dark:bg-slate-800 rounded-full px-4 py-2 outline-none text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400" />
+            <button onClick={sendComment} disabled={!commentText.trim()} className="w-9 h-9 shrink-0 rounded-full bg-blue-600 flex items-center justify-center disabled:opacity-40">
+              <Icon name="Send" size={15} className="text-white" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showLikers && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={() => setShowLikers(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-t-3xl w-full max-h-[60vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
+            <h3 className="font-bold text-slate-800 dark:text-slate-100 mb-4">{t('Понравилось')}</h3>
+            {likers.map(u => (
+              <button key={u.id} onClick={() => onOpenProfile(u.id)} className="w-full flex items-center gap-3 py-2">
+                <Avatar url={u.avatar_url} nick={u.nick} size={40} />
+                <span className="font-medium text-slate-800 dark:text-slate-100">@{u.nick}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FeedTab({ user, onOpenProfile, onCreateStatus, onOpenStatus }: { user: User; onOpenProfile: (id: number) => void; onCreateStatus: () => void; onOpenStatus: (userId: number) => void }) {
+  const { t } = useLang();
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [q, setQ] = useState('');
+  const [searchResults, setSearchResults] = useState<Post[]>([]);
+
+  const load = useCallback(async () => {
+    const d = await api(`feed&user_id=${user.id}`);
+    setPosts((d.posts as Post[]) || []);
+    setLoading(false);
+  }, [user.id]);
+
+  useEffect(() => { load(); const iv = setInterval(load, 20000); return () => clearInterval(iv); }, [load]);
+
+  useEffect(() => {
+    if (!q.trim()) { setSearchResults([]); return; }
+    const tm = setTimeout(async () => {
+      const d = await api(`post_search&user_id=${user.id}&q=${encodeURIComponent(q.trim())}`);
+      setSearchResults((d.posts as Post[]) || []);
+    }, 300);
+    return () => clearTimeout(tm);
+  }, [q, user.id]);
+
+  const updatePost = (p: Post) => setPosts(ps => ps.map(x => x.id === p.id ? p : x));
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="shrink-0 px-4 pt-4 pb-2 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100" style={{ letterSpacing: '-0.5px' }}>{t('Лента')}</h1>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowSearch(v => !v)} className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+            <Icon name="Search" size={17} className="text-slate-500 dark:text-slate-300" />
+          </button>
+          <button onClick={() => setShowCreate(true)} className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm shadow-blue-200">
+            <Icon name="Plus" size={18} className="text-white" />
+          </button>
+        </div>
+      </div>
+
+      {showSearch && (
+        <div className="shrink-0 px-4 py-2 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 rounded-2xl px-3 py-2.5">
+            <Icon name="Search" size={16} className="text-slate-400 shrink-0" />
+            <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder={t('Найти публикацию по нику…')}
+              className="flex-1 bg-transparent outline-none text-sm text-slate-700 dark:text-slate-100 placeholder:text-slate-400" />
+            {q && <button onClick={() => setQ('')}><Icon name="X" size={14} className="text-slate-400" /></button>}
+          </div>
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto scrollbar-thin bg-slate-50 dark:bg-slate-950">
+        {!showSearch && <StatusBar user={user} onCreateStatus={onCreateStatus} onOpenStatus={onOpenStatus} />}
+
+        <div className="p-3 space-y-3">
+          {q.trim() ? (
+            searchResults.length === 0
+              ? <p className="text-center text-slate-400 mt-12 text-sm">{t('Ничего не найдено')}</p>
+              : searchResults.map(p => <PostCard key={p.id} post={p} user={user} onOpenProfile={onOpenProfile} onChanged={() => {}} />)
+          ) : loading ? (
+            <div className="flex justify-center pt-12"><div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
+          ) : posts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center mt-16 gap-3">
+              <div className="w-16 h-16 rounded-2xl bg-blue-50 dark:bg-slate-800 flex items-center justify-center">
+                <Icon name="Image" size={32} className="text-blue-300" />
+              </div>
+              <p className="font-semibold text-slate-500 dark:text-slate-400 text-sm">{t('Пока нет публикаций')}</p>
+              <p className="text-xs text-slate-400 dark:text-slate-500">{t('Опубликуй первое фото, видео или текст')}</p>
+            </div>
+          ) : (
+            posts.map(p => <PostCard key={p.id} post={p} user={user} onOpenProfile={onOpenProfile} onChanged={updatePost} />)
+          )}
+        </div>
+      </div>
+
+      {showCreate && <PostCreateModal user={user} onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); load(); }} />}
+    </div>
+  );
+}
+
+function PostCreateModal({ user, onClose, onCreated }: { user: User; onClose: () => void; onCreated: () => void }) {
+  const { t } = useLang();
+  const [type, setType] = useState<'text' | 'photo' | 'video'>('text');
+  const [text, setText] = useState('');
+  const [caption, setCaption] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [error, setError] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const pickFile = (kind: 'photo' | 'video') => {
+    setType(kind);
+    fileRef.current?.click();
+  };
+
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    setFile(f);
+    setPreview(URL.createObjectURL(f));
+  };
+
+  const canPost = type === 'text' ? text.trim().length > 0 : !!file;
+
+  const post = async () => {
+    if (!canPost || posting) return;
+    setPosting(true); setError('');
+    try {
+      if (type === 'text') {
+        const d = await api('post_create', 'POST', { user_id: user.id, type: 'text', content: text.trim() });
+        if (d.error) { setError(d.error as string); return; }
+      } else {
+        const compressed = type === 'photo' ? await compressImage(file!, 1600, 0.85) : null;
+        let b64: string, ext: string;
+        if (compressed) {
+          [, b64] = compressed.split(',');
+          ext = 'jpg';
+        } else {
+          ext = (file!.name.split('.').pop() || 'mp4').toLowerCase();
+          b64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve((reader.result as string).split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(file!);
+          });
+        }
+        const up = await api('upload_post_media', 'POST', { user_id: user.id, data: b64, ext, media_type: type });
+        if (up.error || !up.url) { setError((up.error as string) || t('Ошибка загрузки')); return; }
+        const d = await api('post_create', 'POST', { user_id: user.id, type, content: up.url, caption: caption.trim() || undefined });
+        if (d.error) { setError(d.error as string); return; }
+      }
+      onCreated();
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-white dark:bg-slate-950 flex flex-col" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+      <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+        <button onClick={onClose} className="w-9 h-9 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center">
+          <Icon name="X" size={20} className="text-slate-600 dark:text-slate-300" />
+        </button>
+        <h1 className="font-bold text-slate-800 dark:text-slate-100">{t('Новая публикация')}</h1>
+        <button onClick={post} disabled={!canPost || posting}
+          className="px-4 py-1.5 rounded-full bg-blue-600 text-white text-sm font-semibold disabled:opacity-40">
+          {posting ? t('Публикация...') : t('Опубликовать')}
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4">
+        <input ref={fileRef} type="file" accept={type === 'video' ? 'video/*' : 'image/*'} hidden onChange={onFile} />
+        <div className="flex gap-2 mb-4">
+          {([
+            { key: 'text', icon: 'Type', label: t('Текст') },
+            { key: 'photo', icon: 'Image', label: t('Фото') },
+            { key: 'video', icon: 'Video', label: t('Видео') },
+          ] as const).map(opt => (
+            <button key={opt.key} onClick={() => opt.key === 'text' ? setType('text') : pickFile(opt.key)}
+              className={`flex-1 py-3 rounded-2xl flex flex-col items-center gap-1 border transition-colors ${type === opt.key ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900' : 'bg-slate-50 dark:bg-slate-900 border-slate-100 dark:border-slate-800'}`}>
+              <Icon name={opt.icon} size={20} className={type === opt.key ? 'text-blue-600' : 'text-slate-400'} />
+              <span className={`text-xs font-medium ${type === opt.key ? 'text-blue-600' : 'text-slate-500 dark:text-slate-400'}`}>{opt.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {type === 'text' && (
+          <textarea value={text} onChange={e => setText(e.target.value.slice(0, 2000))} autoFocus rows={8}
+            placeholder={t('Что у вас нового?')}
+            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-blue-500 resize-none text-slate-800 dark:text-slate-100 text-sm" />
+        )}
+
+        {(type === 'photo' || type === 'video') && (
+          <>
+            {preview ? (
+              <div className="relative rounded-3xl overflow-hidden mb-4 bg-black">
+                {type === 'photo' ? <img src={preview} className="w-full max-h-[400px] object-contain" /> : <video src={preview} controls className="w-full max-h-[400px]" />}
+                <button onClick={() => { setFile(null); setPreview(''); }} className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center">
+                  <Icon name="X" size={16} className="text-white" />
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => pickFile(type)} className="w-full aspect-square rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-2 text-slate-400 dark:text-slate-500 mb-4">
+                <Icon name={type === 'photo' ? 'Image' : 'Video'} size={32} />
+                <span className="text-sm font-medium">{t('Выбрать файл')}</span>
+              </button>
+            )}
+            {preview && (
+              <input value={caption} onChange={e => setCaption(e.target.value)} placeholder={t('Добавить подпись...')}
+                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 dark:text-slate-100 text-sm" />
+            )}
+          </>
+        )}
+
+        {error && <p className="text-red-500 text-sm mt-3">{error}</p>}
       </div>
     </div>
   );
@@ -1425,7 +1755,6 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
   const [profile, setProfile] = useState<Profile | null>(null);
   const [editing, setEditing] = useState(false);
   const [city, setCity] = useState('');
-  const [accountOpen, setAccountOpen] = useState(false);
   const { lang: language, setLang: changeLanguage, t } = useLang();
   const [birthdate, setBirthdate] = useState('');
   const [about, setAbout] = useState('');
@@ -1449,9 +1778,56 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
   const [showDoc, setShowDoc] = useState<'privacy'|'terms'|'security'|null>(null);
   const [blocked, setBlocked] = useState<User[]>([]);
 
+  // приватность
+  const [showPrivacy, setShowPrivacy] = useState(false);
+  const [privacyContent, setPrivacyContent] = useState<'all'|'followers'|'selected'>('all');
+  const [privacyCalls, setPrivacyCalls] = useState<'all'|'followers'>('all');
+  const [privacyMessages, setPrivacyMessages] = useState<'all'|'followers'>('all');
+
+  // статистика
+  const [showStats, setShowStats] = useState(false);
+  const [stats, setStats] = useState<{ posts_count: number; total_likes: number; total_comments: number; total_views: number } | null>(null);
+
+  // настройки (сворачиваемая секция)
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // мои публикации
+  const [myPosts, setMyPosts] = useState<Post[]>([]);
+
   const loadBlocked = async () => {
     const d = await api(`blocked&user_id=${user.id}`);
     setBlocked((d.users as User[]) || []);
+  };
+
+  const loadPrivacy = async () => {
+    const d = await api(`privacy_get&user_id=${user.id}`);
+    const p = d.privacy as { privacy_content?: string; privacy_calls?: string; privacy_messages?: string } | undefined;
+    if (p) {
+      setPrivacyContent((p.privacy_content as 'all'|'followers'|'selected') || 'all');
+      setPrivacyCalls((p.privacy_calls as 'all'|'followers') || 'all');
+      setPrivacyMessages((p.privacy_messages as 'all'|'followers') || 'all');
+    }
+  };
+
+  const updatePrivacy = async (fields: Partial<{ privacy_content: string; privacy_calls: string; privacy_messages: string }>) => {
+    await api('privacy_update', 'POST', { user_id: user.id, ...fields });
+  };
+
+  const loadStats = async () => {
+    const d = await api(`profile_stats&user_id=${user.id}`);
+    setStats((d.stats as typeof stats) || null);
+    setShowStats(true);
+  };
+
+  const loadMyPosts = async () => {
+    const d = await api(`user_posts&user_id=${user.id}&owner_id=${user.id}`);
+    setMyPosts((d.posts as Post[]) || []);
+  };
+  useEffect(() => { loadMyPosts(); }, [user.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const deletePost = async (postId: number) => {
+    await api('post_delete', 'POST', { user_id: user.id, post_id: postId });
+    setMyPosts(ps => ps.filter(p => p.id !== postId));
   };
 
   const load = async () => {
@@ -1635,6 +2011,36 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
                 <label className="text-xs text-slate-400 dark:text-slate-500 mb-1 block font-medium">{t('О себе')}</label>
                 <textarea value={about} onChange={(e) => setAbout(e.target.value)} rows={3} className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all resize-none text-slate-800 dark:text-slate-100 text-sm" />
               </div>
+
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button onClick={() => { loadPrivacy(); setShowPrivacy(true); }}
+                  className="w-full flex items-center gap-3 py-2.5 px-1 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                  <div className="w-9 h-9 rounded-2xl bg-purple-100 flex items-center justify-center shrink-0">
+                    <Icon name="Eye" size={17} className="text-purple-500" />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{t('Кто видит фото, видео и текст')}</span>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">
+                      {privacyContent === 'all' ? t('Все') : privacyContent === 'followers' ? t('Только подписчики') : t('Выбранные люди')}
+                    </p>
+                  </div>
+                  <Icon name="ChevronRight" size={16} className="text-slate-300 dark:text-slate-600" />
+                </button>
+                <button onClick={() => { loadPrivacy(); setShowPrivacy(true); }}
+                  className="w-full flex items-center gap-3 py-2.5 px-1 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                  <div className="w-9 h-9 rounded-2xl bg-green-100 flex items-center justify-center shrink-0">
+                    <Icon name="PhoneCall" size={17} className="text-green-600" />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{t('Кто может звонить и писать')}</span>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">
+                      {privacyCalls === 'all' ? t('Все') : t('Только подписчики')}
+                    </p>
+                  </div>
+                  <Icon name="ChevronRight" size={16} className="text-slate-300 dark:text-slate-600" />
+                </button>
+              </div>
+
               <div className="flex gap-2">
                 <button onClick={save} disabled={saving} className="flex-1 py-3 rounded-2xl font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-all text-sm">
                   {saving ? t('Сохраняю...') : t('Сохранить')}
@@ -1644,60 +2050,112 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
             </div>
           )}
 
-          {/* Настройки */}
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 space-y-1 border border-slate-100 dark:border-slate-800">
-            <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider mb-3 px-1">{t('Настройки')}</p>
-            <button onClick={onToggleTheme} className="w-full flex items-center gap-3 py-2 px-1 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-              <div className="w-9 h-9 rounded-2xl bg-amber-100 flex items-center justify-center shrink-0">
-                <Icon name={lightTheme ? 'Sun' : 'Moon'} size={18} className="text-amber-500" />
-              </div>
-              <div className="flex-1 text-left">
-                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{lightTheme ? t('Светлая тема') : t('Тёмная тема')}</span>
-                <p className="text-xs text-slate-400 dark:text-slate-500">{t('Нажмите, чтобы переключить')}</p>
-              </div>
-            </button>
-            <div className="flex items-center gap-3 py-2 px-1">
-              <div className="w-9 h-9 rounded-2xl bg-green-100 flex items-center justify-center shrink-0">
-                <Icon name="Globe" size={18} className="text-green-600" />
-              </div>
-              <div className="flex-1">
-                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{t('Язык')}</span>
-                <p className="text-xs text-slate-400 dark:text-slate-500">{t('Язык приложения')}</p>
-              </div>
-              <div className="flex bg-slate-100 dark:bg-slate-800 rounded-full p-0.5">
-                <button onClick={() => changeLanguage('ru')} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${language === 'ru' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm' : 'text-slate-400 dark:text-slate-500'}`}>RU</button>
-                <button onClick={() => changeLanguage('en')} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${language === 'en' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm' : 'text-slate-400 dark:text-slate-500'}`}>EN</button>
-              </div>
+          {/* Мои публикации */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-100 dark:border-slate-800">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider px-1">{t('Мои публикации')}</p>
+              <button onClick={loadStats} className="text-xs font-semibold text-blue-600 flex items-center gap-1 px-1">
+                <Icon name="BarChart2" size={13} /> {t('Статистика')}
+              </button>
             </div>
+            {myPosts.length === 0 ? (
+              <p className="text-sm text-slate-400 dark:text-slate-500 py-4 text-center">{t('Пока нет публикаций')}</p>
+            ) : (
+              <div className="grid grid-cols-3 gap-1.5">
+                {myPosts.map(p => (
+                  <div key={p.id} className="relative aspect-square rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 group">
+                    {p.type === 'text'
+                      ? <div className="w-full h-full flex items-center justify-center p-2"><span className="text-xs text-slate-500 dark:text-slate-400 line-clamp-4 text-center">{p.content}</span></div>
+                      : p.type === 'video'
+                        ? <video src={p.content} className="w-full h-full object-cover" />
+                        : <img src={p.content} className="w-full h-full object-cover" />}
+                    <button onClick={() => deletePost(p.id)}
+                      className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 flex items-center justify-center opacity-0 group-active:opacity-100 transition-opacity">
+                      <Icon name="Trash2" size={12} className="text-white" />
+                    </button>
+                    <div className="absolute bottom-1 left-1 flex items-center gap-1 bg-black/50 rounded-full px-1.5 py-0.5">
+                      <Icon name="Heart" size={10} className="text-white" />
+                      <span className="text-[10px] text-white font-medium">{p.likes_count}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Аккаунт */}
+          {/* Настройки — сворачиваемая секция со всем внутри */}
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-100 dark:border-slate-800">
-            <button onClick={() => setAccountOpen(v => !v)} className="w-full flex items-center gap-3 py-1 px-1">
-              <div className="w-9 h-9 rounded-2xl bg-blue-100 flex items-center justify-center shrink-0">
-                <Icon name="User" size={18} className="text-blue-500" />
+            <button onClick={() => setSettingsOpen(v => !v)} className="w-full flex items-center gap-3 py-1 px-1">
+              <div className="w-9 h-9 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
+                <Icon name="Settings" size={18} className="text-slate-500 dark:text-slate-300" />
               </div>
-              <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 flex-1 text-left">{t('Аккаунт')}</span>
-              <Icon name={accountOpen ? 'ChevronUp' : 'ChevronDown'} size={18} className="text-slate-400 dark:text-slate-500" />
+              <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 flex-1 text-left">{t('Настройки')}</span>
+              <Icon name={settingsOpen ? 'ChevronUp' : 'ChevronDown'} size={18} className="text-slate-400 dark:text-slate-500" />
             </button>
-            {accountOpen && (
+            {settingsOpen && (
               <div className="space-y-1 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button onClick={onToggleTheme} className="w-full flex items-center gap-3 py-2 px-1 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                  <div className="w-9 h-9 rounded-2xl bg-amber-100 flex items-center justify-center shrink-0">
+                    <Icon name={lightTheme ? 'Sun' : 'Moon'} size={18} className="text-amber-500" />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{lightTheme ? t('Светлая тема') : t('Тёмная тема')}</span>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">{t('Нажмите, чтобы переключить')}</p>
+                  </div>
+                </button>
+                <div className="flex items-center gap-3 py-2 px-1">
+                  <div className="w-9 h-9 rounded-2xl bg-green-100 flex items-center justify-center shrink-0">
+                    <Icon name="Globe" size={18} className="text-green-600" />
+                  </div>
+                  <div className="flex-1">
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{t('Язык')}</span>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">{t('Язык приложения')}</p>
+                  </div>
+                  <div className="flex bg-slate-100 dark:bg-slate-800 rounded-full p-0.5">
+                    <button onClick={() => changeLanguage('ru')} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${language === 'ru' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm' : 'text-slate-400 dark:text-slate-500'}`}>RU</button>
+                    <button onClick={() => changeLanguage('en')} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${language === 'en' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm' : 'text-slate-400 dark:text-slate-500'}`}>EN</button>
+                  </div>
+                </div>
+                <button onClick={() => { loadPrivacy(); setShowPrivacy(true); }} className="w-full flex items-center gap-3 py-2 px-1 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                  <div className="w-9 h-9 rounded-2xl bg-purple-100 flex items-center justify-center shrink-0">
+                    <Icon name="Eye" size={18} className="text-purple-500" />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{t('Приватность')}</span>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">{t('Кто видит фото, видео и текст')}</p>
+                  </div>
+                  <Icon name="ChevronRight" size={16} className="text-slate-300 dark:text-slate-600" />
+                </button>
                 <button onClick={() => { setShowBlocked(true); loadBlocked(); }}
-                  className="w-full flex items-center gap-3 py-3 px-1 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors rounded-xl">
+                  className="w-full flex items-center gap-3 py-2 px-1 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors rounded-xl">
                   <div className="w-9 h-9 rounded-2xl bg-red-100 flex items-center justify-center shrink-0">
                     <Icon name="Ban" size={18} className="text-red-500" />
                   </div>
                   <span className="text-sm text-slate-700 dark:text-slate-200 flex-1 text-left">{t('Заблокированные')}</span>
                   <Icon name="ChevronRight" size={16} className="text-slate-300 dark:text-slate-600" />
                 </button>
-                <button onClick={onLogout} className="w-full flex items-center gap-3 py-3 px-1 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                {[
+                  { label: t('Политика конфиденциальности'), icon: 'Shield', doc: 'privacy' as const },
+                  { label: t('Пользовательское соглашение'), icon: 'FileText', doc: 'terms' as const },
+                  { label: t('Шифрование и безопасность'), icon: 'Lock', doc: 'security' as const },
+                ].map(item => (
+                  <button key={item.doc} onClick={() => setShowDoc(item.doc)}
+                    className="w-full flex items-center gap-3 py-2 px-1 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors rounded-xl">
+                    <div className="w-9 h-9 rounded-2xl bg-indigo-100 flex items-center justify-center shrink-0">
+                      <Icon name={item.icon} size={18} className="text-indigo-500" />
+                    </div>
+                    <span className="text-sm text-slate-700 dark:text-slate-200 flex-1 text-left">{item.label}</span>
+                    <Icon name="ChevronRight" size={16} className="text-slate-300 dark:text-slate-600" />
+                  </button>
+                ))}
+                <button onClick={onLogout} className="w-full flex items-center gap-3 py-2 px-1 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                   <div className="w-9 h-9 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
                     <Icon name="LogOut" size={18} className="text-slate-500 dark:text-slate-400" />
                   </div>
                   <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{t('Выйти')}</span>
                 </button>
                 {!confirmDelete ? (
-                  <button onClick={() => setConfirmDelete(true)} className="w-full flex items-center gap-3 py-3 px-1 rounded-2xl hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
+                  <button onClick={() => setConfirmDelete(true)} className="w-full flex items-center gap-3 py-2 px-1 rounded-2xl hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
                     <div className="w-9 h-9 rounded-2xl bg-red-100 flex items-center justify-center shrink-0">
                       <Icon name="Trash2" size={18} className="text-red-500" />
                     </div>
@@ -1712,30 +2170,11 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
                     </div>
                   </div>
                 )}
+                <div className="pt-2 px-1">
+                  <p className="text-xs text-slate-400 dark:text-slate-500">{t('Вай Мессенджер v1.0 · Соответствует ФЗ-152')}</p>
+                </div>
               </div>
             )}
-          </div>
-
-          {/* О приложении / Документы */}
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 space-y-1 border border-slate-100 dark:border-slate-800">
-            <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider mb-3 px-1">{t('О приложении')}</p>
-            {[
-              { label: t('Политика конфиденциальности'), icon: 'Shield', doc: 'privacy', bg: 'bg-blue-100', color: 'text-blue-500' },
-              { label: t('Пользовательское соглашение'), icon: 'FileText', doc: 'terms', bg: 'bg-indigo-100', color: 'text-indigo-500' },
-              { label: t('Шифрование и безопасность'), icon: 'Lock', doc: 'security', bg: 'bg-purple-100', color: 'text-purple-500' },
-            ].map(item => (
-              <button key={item.doc} onClick={() => setShowDoc(item.doc as 'privacy'|'terms'|'security')}
-                className="w-full flex items-center gap-3 py-3 px-1 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors rounded-xl">
-                <div className={`w-9 h-9 rounded-2xl ${item.bg} flex items-center justify-center shrink-0`}>
-                  <Icon name={item.icon as 'Shield'} size={18} className={item.color} />
-                </div>
-                <span className="text-sm text-slate-700 dark:text-slate-200 flex-1 text-left">{item.label}</span>
-                <Icon name="ChevronRight" size={16} className="text-slate-300 dark:text-slate-600" />
-              </button>
-            ))}
-            <div className="pt-2 px-1">
-              <p className="text-xs text-slate-400 dark:text-slate-500">{t('Вай Мессенджер v1.0 · Соответствует ФЗ-152')}</p>
-            </div>
           </div>
         </div>
       )}
@@ -1818,6 +2257,85 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
                 <p><span className="font-semibold">{t('Сессии.')}</span> {t('Ваш сеанс хранится локально на устройстве. При выходе из аккаунта сессия завершается и статус «онлайн» сбрасывается.')}</p>
                 <p className="text-xs text-slate-400 pt-2">{t('Если вы обнаружили уязвимость — сообщите нам через поддержку в приложении.')}</p>
               </>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Модальное окно приватности */}
+      {showPrivacy && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={() => setShowPrivacy(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-t-3xl w-full max-h-[80vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-800 dark:text-slate-100">{t('Приватность')}</h3>
+              <button onClick={() => setShowPrivacy(false)}><Icon name="X" size={20} className="text-slate-400 dark:text-slate-500" /></button>
+            </div>
+
+            <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2 px-1">{t('Кто видит мои фото, видео и текст')}</p>
+            <div className="space-y-1 mb-5">
+              {([
+                { key: 'all' as const, label: t('Все') },
+                { key: 'followers' as const, label: t('Только подписчики') },
+                { key: 'selected' as const, label: t('Выбранные люди') },
+              ]).map(opt => (
+                <button key={opt.key} onClick={() => { setPrivacyContent(opt.key); updatePrivacy({ privacy_content: opt.key }); }}
+                  className="w-full flex items-center gap-3 py-2.5 px-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${privacyContent === opt.key ? 'border-blue-600' : 'border-slate-300 dark:border-slate-600'}`}>
+                    {privacyContent === opt.key && <div className="w-2.5 h-2.5 rounded-full bg-blue-600" />}
+                  </div>
+                  <span className="text-sm text-slate-700 dark:text-slate-200">{opt.label}</span>
+                </button>
+              ))}
+            </div>
+
+            <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2 px-1">{t('Кто может мне звонить и писать')}</p>
+            <div className="space-y-1">
+              {([
+                { key: 'all' as const, label: t('Все') },
+                { key: 'followers' as const, label: t('Только подписчики') },
+              ]).map(opt => (
+                <button key={opt.key} onClick={() => { setPrivacyCalls(opt.key); setPrivacyMessages(opt.key); updatePrivacy({ privacy_calls: opt.key, privacy_messages: opt.key }); }}
+                  className="w-full flex items-center gap-3 py-2.5 px-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${privacyCalls === opt.key ? 'border-blue-600' : 'border-slate-300 dark:border-slate-600'}`}>
+                    {privacyCalls === opt.key && <div className="w-2.5 h-2.5 rounded-full bg-blue-600" />}
+                  </div>
+                  <span className="text-sm text-slate-700 dark:text-slate-200">{opt.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Модальное окно статистики */}
+      {showStats && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={() => setShowStats(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-t-3xl w-full p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-bold text-slate-800 dark:text-slate-100">{t('Статистика')}</h3>
+              <button onClick={() => setShowStats(false)}><Icon name="X" size={20} className="text-slate-400 dark:text-slate-500" /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 flex flex-col items-center gap-1">
+                <Icon name="Image" size={20} className="text-blue-500" />
+                <span className="font-bold text-xl text-slate-800 dark:text-slate-100">{stats?.posts_count ?? 0}</span>
+                <span className="text-xs text-slate-400 dark:text-slate-500">{t('Публикаций')}</span>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 flex flex-col items-center gap-1">
+                <Icon name="Heart" size={20} className="text-red-500" />
+                <span className="font-bold text-xl text-slate-800 dark:text-slate-100">{stats?.total_likes ?? 0}</span>
+                <span className="text-xs text-slate-400 dark:text-slate-500">{t('Лайков')}</span>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 flex flex-col items-center gap-1">
+                <Icon name="MessageCircle" size={20} className="text-green-500" />
+                <span className="font-bold text-xl text-slate-800 dark:text-slate-100">{stats?.total_comments ?? 0}</span>
+                <span className="text-xs text-slate-400 dark:text-slate-500">{t('Комментариев')}</span>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 flex flex-col items-center gap-1">
+                <Icon name="Eye" size={20} className="text-purple-500" />
+                <span className="font-bold text-xl text-slate-800 dark:text-slate-100">{stats?.total_views ?? 0}</span>
+                <span className="text-xs text-slate-400 dark:text-slate-500">{t('Просмотров')}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -2387,236 +2905,7 @@ function IncomingCallBanner({ caller, kind, onAccept, onReject }: {
   );
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// НЕДВИЖИМОСТЬ — ВКЛАДКА
-// ══════════════════════════════════════════════════════════════════════════════
-const CITIES = ['Магас','Назрань','Малгобек','Карабулак','Сунжа','Грозный','Нальчик','Владикавказ','Черкесск','Махачкала','Ставрополь','Москва','Санкт-Петербург','Краснодар','Ростов-на-Дону','Минеральные Воды','Пятигорск','Кисловодск','Моздок','Прохладный'];
-
-function fmtPrice(p: number) {
-  if (p >= 1_000_000) return (p / 1_000_000).toFixed(1).replace(/\.0$/,'') + ' млн ₽';
-  if (p >= 1_000) return Math.round(p / 1_000) + ' тыс ₽';
-  return p + ' ₽';
-}
-
-// ── Чаты по объявлениям в списке чатов ───────────────────────────────────────
-function RealtyChatsInline({ user, onOpen }: { user: User; onOpen: (chatId: number, listing: RealtyListing) => void }) {
-  const { t } = useLang();
-  const [chats, setChats] = useState<{ chat_id: number; listing_id: number; city: string; district?: string; deal_type: string; rooms?: number; price: number; photos?: string[]; peer_nick: string; peer_avatar?: string|null; last_text?: string; last_at?: string }[]>([]);
-
-  useEffect(() => {
-    api(`realty_my_chats&user_id=${user.id}`).then(d => setChats((d.chats as typeof chats) || []));
-  }, [user.id]);
-
-  if (chats.length === 0) return null;
-
-  return (
-    <>
-      <div className="px-2 py-2 mt-2">
-        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{t('Чаты по объявлениям')}</p>
-      </div>
-      {chats.map(c => (
-        <button key={c.chat_id} onClick={() => onOpen(c.chat_id, { id: c.listing_id, deal_type: c.deal_type as 'sale'|'rent', city: c.city, district: c.district, rooms: c.rooms, price: c.price, photos: c.photos, is_paid: true, created_at: '', seller_id: 0, seller_nick: c.peer_nick, seller_avatar: c.peer_avatar } as RealtyListing)}
-          className="w-full flex items-center gap-3 px-2 py-3 rounded-2xl hover:bg-blue-50 transition-colors mb-1">
-          <div className="w-12 h-12 rounded-2xl overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center">
-            {c.photos && c.photos[0] ? <img src={c.photos[0]} className="w-full h-full object-cover" /> : <span className="text-2xl">🏠</span>}
-          </div>
-          <div className="flex-1 min-w-0 text-left">
-            <p className="font-semibold text-slate-800 text-sm truncate">{c.city} · {fmtPrice(c.price)}</p>
-            <p className="text-xs text-slate-400 truncate mt-0.5">{c.last_text || t('Нет сообщений')}</p>
-          </div>
-          {c.last_at && <span className="text-[11px] text-slate-400 shrink-0">{new Date(c.last_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}</span>}
-        </button>
-      ))}
-      <div className="border-t border-slate-100 mt-2 mb-2" />
-    </>
-  );
-}
-
-function RealtyTab({ user, onOpenChat }: { user: User; onOpenChat: (chatId: number, listing: RealtyListing) => void }) {
-  const { t } = useLang();
-  const [listings, setListings] = useState<RealtyListing[]>([]);
-  const [favorites, setFavorites] = useState<RealtyListing[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [q, setQ] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [selectedListing, setSelectedListing] = useState<RealtyListing | null>(null);
-  const [activeTab, setActiveTab] = useState<'feed'|'favorites'>('feed');
-  const [filters, setFilters] = useState({ deal_type: '', city: '', district: '', rooms: '', price_min: '', price_max: '' });
-
-  const load = async (f = filters, search = q) => {
-    setLoading(true);
-    const p = new URLSearchParams({ ...(f.deal_type ? { deal_type: f.deal_type } : {}), ...(f.city ? { city: f.city } : {}), ...(f.district ? { district: f.district } : {}), ...(f.rooms ? { rooms: f.rooms } : {}), ...(f.price_min ? { price_min: f.price_min } : {}), ...(f.price_max ? { price_max: f.price_max } : {}), ...(search ? { q: search } : {}) });
-    const d = await api(`realty_list&${p.toString()}`);
-    setListings((d.listings as RealtyListing[]) || []);
-    setLoading(false);
-  };
-
-  const loadFavorites = async () => {
-    const d = await api(`realty_favorites&user_id=${user.id}`);
-    setFavorites((d.listings as RealtyListing[]) || []);
-  };
-
-  useEffect(() => { load(); loadFavorites(); }, []);
-
-  const displayedListings = activeTab === 'favorites' ? favorites : listings;
-
-  return (
-    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950">
-      {/* Header */}
-      <div className="shrink-0 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-4 pt-4 pb-3">
-        <div className="flex items-center justify-between mb-3">
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100" style={{ letterSpacing: '-0.5px' }}>🏡 {t('Недвижимость')}</h1>
-          <button onClick={() => setShowForm(true)}
-            className="flex items-center gap-1.5 bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-2xl active:bg-blue-700 transition-colors">
-            <Icon name="Plus" size={16} /> {t('Подать')}
-          </button>
-        </div>
-        {/* Вкладки */}
-        <div className="flex gap-1 mb-3">
-          <button onClick={() => setActiveTab('feed')}
-            className={`flex-1 py-2 rounded-2xl text-sm font-semibold transition-colors ${activeTab === 'feed' ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'}`}>
-            {t('Лента')}
-          </button>
-          <button onClick={() => { setActiveTab('favorites'); loadFavorites(); }}
-            className={`flex-1 py-2 rounded-2xl text-sm font-semibold transition-colors flex items-center justify-center gap-1.5 ${activeTab === 'favorites' ? 'bg-red-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'}`}>
-            ❤️ {favorites.length > 0 && <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${activeTab === 'favorites' ? 'bg-white/25 text-white' : 'bg-red-100 text-red-600'}`}>{favorites.length}</span>}
-          </button>
-
-        </div>
-        {activeTab === 'feed' && <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Icon name="Search" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-            <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && load(filters, q)}
-              placeholder={t('Поиск по городу, описанию...')}
-              className="w-full bg-slate-100 dark:bg-slate-800 rounded-2xl pl-9 pr-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 dark:text-slate-100" />
-          </div>
-          <button onClick={() => setShowFilters(true)}
-            className="px-3 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-300">
-            <Icon name="SlidersHorizontal" size={15} /> {t('Фильтры')}
-          </button>
-        </div>}
-      </div>
-
-      {/* Лента / Избранное */}
-      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
-        {loading && activeTab === 'feed' && <div className="flex justify-center mt-16"><div className="w-7 h-7 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>}
-        {!loading && displayedListings.length === 0 && (
-          <div className="flex flex-col items-center mt-20 gap-3">
-            <div className="w-16 h-16 rounded-2xl bg-blue-50 dark:bg-slate-800 flex items-center justify-center text-3xl">{activeTab === 'favorites' ? '❤️' : '🏠'}</div>
-            <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">{activeTab === 'favorites' ? t('Нет избранных объявлений') : t('Объявлений пока нет')}</p>
-            {activeTab === 'feed' && <button onClick={() => setShowForm(true)} className="text-blue-600 text-sm font-semibold">{t('Подать первое')} →</button>}
-          </div>
-        )}
-        {displayedListings.map(l => (
-          <button key={l.id} onClick={() => setSelectedListing(l)}
-            className="w-full bg-white dark:bg-slate-900 rounded-3xl overflow-hidden border border-slate-100 dark:border-slate-800 shadow-sm active:scale-[0.99] transition-transform text-left">
-            {l.photos && l.photos.length > 0
-              ? <img src={l.photos[0]} alt="" className="w-full h-44 object-cover" />
-              : <div className="w-full h-44 bg-gradient-to-br from-blue-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 flex items-center justify-center text-4xl">🏠</div>
-            }
-            <div className="p-4">
-              <div className="flex items-start justify-between gap-2">
-                <p className="font-bold text-xl text-slate-900 dark:text-slate-100">{fmtPrice(l.price)}</p>
-                <span className={`text-xs font-semibold px-2 py-1 rounded-full ${l.deal_type === 'sale' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-                  {l.deal_type === 'sale' ? t('Продажа') : t('Аренда')}
-                </span>
-              </div>
-              <p className="text-sm text-slate-700 dark:text-slate-200 mt-1 font-medium">
-                {[l.rooms ? `${l.rooms}-${t('комн.')}` : null, l.area ? `${l.area} ${t('м²')}` : null].filter(Boolean).join(' · ')}
-              </p>
-              <p className="text-sm text-slate-400 dark:text-slate-500 mt-0.5 flex items-center gap-1">
-                <Icon name="MapPin" size={12} className="shrink-0" />
-                {[l.city, l.district, l.street].filter(Boolean).join(', ')}
-              </p>
-            </div>
-          </button>
-        ))}
-      </div>
-
-      {/* Фильтры */}
-      {showFilters && <RealtyFilters filters={filters} onApply={f => { setFilters(f); setShowFilters(false); load(f, q); }} onClose={() => setShowFilters(false)} />}
-
-      {/* Форма публикации */}
-      {showForm && <RealtyForm user={user} onClose={() => setShowForm(false)} onPublished={() => { setShowForm(false); load(); }} />}
-
-      {/* Карточка объявления */}
-      {selectedListing && <RealtyCard listing={selectedListing} user={user}
-        onClose={() => setSelectedListing(null)}
-        onOpenChat={onOpenChat}
-        onDeleted={() => { load(); loadFavorites(); setSelectedListing(null); }} />}
-    </div>
-  );
-}
-
-// ── Фильтры ───────────────────────────────────────────────────────────────────
-function RealtyFilters({ filters, onApply, onClose }: { filters: Record<string,string>; onApply: (f: Record<string,string>) => void; onClose: () => void }) {
-  const { t } = useLang();
-  const [f, setF] = useState({ ...filters });
-  const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
-  return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={onClose}>
-      <div className="bg-white dark:bg-slate-900 rounded-t-3xl w-full max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 dark:border-slate-800">
-          <h3 className="font-bold text-lg text-slate-900 dark:text-slate-100">{t('Фильтры')}</h3>
-          <button onClick={onClose}><Icon name="X" size={20} className="text-slate-400 dark:text-slate-500" /></button>
-        </div>
-        <div className="px-5 py-4 space-y-5">
-          <div>
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Тип сделки')}</p>
-            <div className="flex gap-2">
-              {[['',t('Все')],['sale',t('Купить')],['rent',t('Снять')]].map(([v,l]) => (
-                <button key={v} onClick={() => set('deal_type', v)}
-                  className={`flex-1 py-2.5 rounded-2xl text-sm font-semibold border transition-colors ${f.deal_type === v ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'}`}>{l}</button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Город')}</p>
-            <select value={f.city} onChange={e => set('city', e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm outline-none dark:text-slate-100">
-              <option value="">{t('Любой')}</option>
-              {CITIES.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Район')}</p>
-            <input value={f.district} onChange={e => set('district', e.target.value)} placeholder={t('Введите район...')}
-              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 dark:text-slate-100" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Комнат')}</p>
-            <div className="flex gap-2">
-              {[['',t('Любое')],['1','1'],['2','2'],['3','3'],['4','4'],['5','5+']].map(([v,l]) => (
-                <button key={v} onClick={() => set('rooms', v)}
-                  className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-colors ${f.rooms === v ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'}`}>{l}</button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Цена')} (₽)</p>
-            <div className="flex gap-2 items-center">
-              <input value={f.price_min} onChange={e => set('price_min', e.target.value)} placeholder={t('от')}
-                type="number" className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 dark:text-slate-100" />
-              <span className="text-slate-400 dark:text-slate-500">—</span>
-              <input value={f.price_max} onChange={e => set('price_max', e.target.value)} placeholder={t('до')}
-                type="number" className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 dark:text-slate-100" />
-            </div>
-          </div>
-        </div>
-        <div className="flex gap-3 px-5 pb-8">
-          <button onClick={() => { const e = {deal_type:'',city:'',district:'',rooms:'',price_min:'',price_max:''}; setF(e); onApply(e); }}
-            className="flex-1 py-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-600 dark:text-slate-300">{t('Сбросить')}</button>
-          <button onClick={() => onApply(f)}
-            className="flex-1 py-3.5 rounded-2xl bg-blue-600 text-white text-sm font-bold">{t('Применить')}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Общая функция загрузки фото объявления ───────────────────────────────────
-// Сжимает фото через Canvas до maxSize px и качества quality
+// ── Сжатие изображений перед загрузкой ────────────────────────────────────
 function compressImage(file: File, maxSize = 1200, quality = 0.82): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -2643,725 +2932,6 @@ function compressImage(file: File, maxSize = 1200, quality = 0.82): Promise<stri
     };
     reader.readAsDataURL(file);
   });
-}
-
-async function uploadRealtyPhoto(file: File, userId: number): Promise<string | null> {
-  try {
-    const compressed = await compressImage(file, 1200, 0.82);
-    const b64 = compressed.split(',')[1];
-    const d = await api('realty_upload_photo', 'POST', { user_id: userId, data: b64, ext: 'jpg' });
-    return d.url ? (d.url as string) : null;
-  } catch { return null; }
-}
-
-// ── Форма публикации ──────────────────────────────────────────────────────────
-function RealtyForm({ user, onClose, onPublished }: { user: User; onClose: () => void; onPublished: () => void }) {
-  const { t } = useLang();
-  const [step, setStep] = useState<'form'|'pay'|'waiting'>('form');
-  const [saving, setSaving] = useState(false);
-  const [payError, setPayError] = useState('');
-  const [payUrl, setPayUrl] = useState('');
-  const [listingId, setListingId] = useState<number|null>(null);
-  const [photos, setPhotos] = useState<string[]>([]);
-  const [form, setForm] = useState({ deal_type: 'sale', city: '', district: '', street: '', rooms: '', area: '', price: '', description: '', phone: '' });
-  const fileRef = useRef<HTMLInputElement>(null);
-  const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
-
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const photosRef = useRef<string[]>([]);
-  photosRef.current = photos;
-
-  const uploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    e.target.value = '';
-    if (!files.length) return;
-    const canAdd = 10 - photosRef.current.length;
-    if (canAdd <= 0) return;
-    setUploadingPhoto(true);
-    for (const f of files.slice(0, canAdd)) {
-      const url = await uploadRealtyPhoto(f, user.id);
-      if (url) setPhotos(p => [...p, url]);
-    }
-    setUploadingPhoto(false);
-  };
-
-  const submit = async () => {
-    if (!form.city || !form.price) return;
-    setSaving(true);
-    const d = await api('realty_create', 'POST', { user_id: user.id, listing: { ...form, rooms: form.rooms ? +form.rooms : null, area: form.area ? +form.area : null, price: +form.price, photos } });
-    setListingId(d.id as number);
-    setSaving(false);
-    setStep('pay');
-  };
-
-  const pay = async () => {
-    if (!listingId || saving) return;
-    setSaving(true);
-    setPayError('');
-    // Открываем окно СРАЗУ (синхронно, в ответ на клик), иначе Safari на iOS заблокирует поп-ап,
-    // так как после await запрос уже не считается прямым действием пользователя.
-    const payWindow = window.open('', '_blank');
-    const d = await api('realty_pay_create', 'POST', { listing_id: listingId, user_id: user.id, return_url: window.location.href });
-    setSaving(false);
-    if (d.error) { payWindow?.close(); setPayError(d.error as string); return; }
-    if (d.already_paid) { payWindow?.close(); onPublished(); return; }
-    if (d.confirmation_url) {
-      setStep('waiting');
-      setPayUrl(d.confirmation_url as string);
-      if (payWindow) {
-        payWindow.location.href = d.confirmation_url as string;
-      } else {
-        // Поп-ап всё же заблокирован — открываем в текущей вкладке
-        window.location.href = d.confirmation_url as string;
-      }
-    } else {
-      payWindow?.close();
-      setPayError(t('Не удалось создать платёж. Попробуйте позже.'));
-    }
-  };
-
-  // Опрос статуса платежа пока пользователь на экране "ожидание оплаты"
-  useEffect(() => {
-    if (step !== 'waiting' || !listingId) return;
-    const iv = setInterval(async () => {
-      const d = await api(`realty_pay_status&listing_id=${listingId}&user_id=${user.id}`);
-      if (d.paid) { clearInterval(iv); onPublished(); }
-    }, 2500);
-    return () => clearInterval(iv);
-  }, [step, listingId, user.id, onPublished]);
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={onClose}>
-      <div className="bg-white dark:bg-slate-900 rounded-t-3xl w-full max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
-          <h3 className="font-bold text-lg dark:text-slate-100">{step === 'form' ? t('Новое объявление') : t('Оплата публикации')}</h3>
-          <button onClick={onClose}><Icon name="X" size={20} className="text-slate-400 dark:text-slate-500" /></button>
-        </div>
-
-        {step === 'form' && (
-          <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
-            {/* Фото */}
-            <div>
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Фото (до 10 шт.)')}</p>
-              <div className="flex gap-2 flex-wrap">
-                {photos.map((p, i) => (
-                  <div key={i} className="relative w-20 h-20 rounded-2xl overflow-hidden">
-                    <img src={p} className="w-full h-full object-cover" />
-                    <button onClick={() => setPhotos(ps => ps.filter((_,j) => j !== i))}
-                      className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center">
-                      <Icon name="X" size={10} className="text-white" />
-                    </button>
-                  </div>
-                ))}
-                {photos.length < 10 && (
-                  <button onClick={() => fileRef.current?.click()} disabled={uploadingPhoto}
-                    className="w-20 h-20 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-1 text-slate-400 dark:text-slate-500 disabled:opacity-60">
-                    {uploadingPhoto
-                      ? <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-                      : <Icon name="Camera" size={20} />
-                    }
-                    <span className="text-[10px]">{uploadingPhoto ? t('Загрузка...') : t('Добавить')}</span>
-                  </button>
-                )}
-                <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={uploadPhoto} />
-              </div>
-            </div>
-            {/* Тип */}
-            <div>
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Тип сделки')}</p>
-              <div className="flex gap-2">
-                {[['sale',t('Продажа')],['rent',t('Аренда')]].map(([v,l]) => (
-                  <button key={v} onClick={() => set('deal_type', v)}
-                    className={`flex-1 py-2.5 rounded-2xl text-sm font-semibold border ${form.deal_type === v ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`}>{l}</button>
-                ))}
-              </div>
-            </div>
-            {/* Город */}
-            <div>
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Город')} *</p>
-              <select value={form.city} onChange={e => set('city', e.target.value)}
-                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 dark:text-slate-100">
-                <option value="">{t('Выберите город')}</option>
-                {CITIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            {[['district',t('Район'),''],['street',t('Улица, дом'),'']].map(([k,l,ph]) => (
-              <div key={k}>
-                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{l}</p>
-                <input value={(form as Record<string,string>)[k]} onChange={e => set(k, e.target.value)} placeholder={ph}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 dark:text-slate-100" />
-              </div>
-            ))}
-            {/* Комнаты + площадь */}
-            <div className="flex gap-3">
-              <div className="flex-1">
-                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Комнат')}</p>
-                <input value={form.rooms} onChange={e => set('rooms', e.target.value)} type="number" placeholder="1"
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 dark:text-slate-100" />
-              </div>
-              <div className="flex-1">
-                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Площадь')} (м²)</p>
-                <input value={form.area} onChange={e => set('area', e.target.value)} type="number" placeholder="50"
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 dark:text-slate-100" />
-              </div>
-            </div>
-            {/* Цена */}
-            <div>
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Цена')} (₽) *</p>
-              <input value={form.price} onChange={e => set('price', e.target.value)} type="number" placeholder="3500000"
-                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 dark:text-slate-100" />
-            </div>
-            {/* Описание */}
-            <div>
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Описание')}</p>
-              <textarea value={form.description} onChange={e => set('description', e.target.value)} placeholder={t('Опишите объект...')} maxLength={500} rows={3}
-                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 resize-none dark:text-slate-100" />
-              <p className="text-right text-xs text-slate-400 dark:text-slate-500 mt-1">{form.description.length}/500</p>
-            </div>
-            {/* Телефон */}
-            <div>
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Телефон продавца')}</p>
-              <input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+7 (___) ___-__-__" type="tel"
-                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 dark:text-slate-100" />
-            </div>
-            <button onClick={submit} disabled={saving || !form.city || !form.price}
-              className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold text-base disabled:opacity-40">
-              {saving ? t('Сохранение...') : `${t('Далее — Оплата')} 50 ₽ →`}
-            </button>
-          </div>
-        )}
-
-        {step === 'pay' && (
-          <div className="flex-1 flex flex-col items-center justify-center px-6 gap-6">
-            <div className="w-20 h-20 rounded-3xl bg-green-50 flex items-center justify-center text-4xl">💳</div>
-            <div className="text-center">
-              <h3 className="font-bold text-xl text-slate-900 dark:text-slate-100 mb-2">{t('Оплата публикации')}</h3>
-              <p className="text-slate-500 dark:text-slate-400 text-sm">{t('После оплаты объявление сразу появится в ленте и получит значок')} ✅</p>
-            </div>
-            <div className="w-full bg-slate-50 dark:bg-slate-800 rounded-3xl p-5 text-center">
-              <p className="text-4xl font-bold text-slate-900 dark:text-slate-100">50 ₽</p>
-              <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">{t('Размещение на 30 дней')}</p>
-            </div>
-            <button onClick={pay} disabled={saving}
-              className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold text-lg disabled:opacity-40">
-              {saving ? '...' : `${t('Оплатить')} 50 ₽`}
-            </button>
-            <div className="flex items-center gap-2 text-slate-400 dark:text-slate-500">
-              <Icon name="ShieldCheck" size={14} />
-              <span className="text-xs">{t('Безопасная оплата через ЮKassa · СБП и T-Pay')}</span>
-            </div>
-            {payError && <p className="text-sm text-red-500 text-center">{payError}</p>}
-          </div>
-        )}
-
-        {step === 'waiting' && (
-          <div className="flex-1 flex flex-col items-center justify-center px-6 gap-6">
-            <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <div className="text-center">
-              <h3 className="font-bold text-xl text-slate-900 dark:text-slate-100 mb-2">{t('Ожидаем оплату...')}</h3>
-              <p className="text-slate-500 dark:text-slate-400 text-sm">{t('Заверши оплату в открывшемся окне. Как только платёж пройдёт — объявление опубликуется автоматически.')}</p>
-            </div>
-            {payUrl && (
-              <a href={payUrl} target="_blank" rel="noopener noreferrer"
-                className="w-full py-3.5 rounded-2xl bg-blue-600 text-white font-bold text-center text-base">
-                {t('Открыть окно оплаты')}
-              </a>
-            )}
-            <button onClick={() => setStep('pay')} className="text-sm text-blue-600 font-semibold">{t('Назад к оплате')}</button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Форма редактирования объявления ──────────────────────────────────────────
-function RealtyEditForm({ listing, user, onClose, onSaved }: { listing: RealtyListing; user: User; onClose: () => void; onSaved: () => void }) {
-  const { t } = useLang();
-  const [saving, setSaving] = useState(false);
-  const [photos, setPhotos] = useState<string[]>(listing.photos || []);
-  const [form, setForm] = useState({
-    deal_type: listing.deal_type,
-    city: listing.city || '',
-    district: listing.district || '',
-    street: listing.street || '',
-    rooms: listing.rooms ? String(listing.rooms) : '',
-    area: listing.area ? String(listing.area) : '',
-    price: String(listing.price),
-    description: listing.description || '',
-    phone: listing.phone || '',
-  });
-  const fileRef = useRef<HTMLInputElement>(null);
-  const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const photosRef = useRef<string[]>([]);
-  photosRef.current = photos;
-
-  const uploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    e.target.value = '';
-    if (!files.length) return;
-    const canAdd = 10 - photosRef.current.length;
-    if (canAdd <= 0) return;
-    setUploadingPhoto(true);
-    for (const f of files.slice(0, canAdd)) {
-      const url = await uploadRealtyPhoto(f, user.id);
-      if (url) setPhotos(p => [...p, url]);
-    }
-    setUploadingPhoto(false);
-  };
-
-  const save = async () => {
-    if (!form.city || !form.price) return;
-    setSaving(true);
-    await api('realty_edit', 'POST', {
-      user_id: user.id,
-      listing_id: listing.id,
-      listing: { ...form, rooms: form.rooms ? +form.rooms : null, area: form.area ? +form.area : null, price: +form.price, photos }
-    });
-    setSaving(false);
-    onSaved();
-  };
-
-  return (
-    <div className="fixed inset-0 z-[110] bg-black/50 flex items-end" onClick={onClose}>
-      <div className="bg-white dark:bg-slate-900 rounded-t-3xl w-full max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
-          <h3 className="font-bold text-lg dark:text-slate-100">{t('Редактировать объявление')}</h3>
-          <button onClick={onClose}><Icon name="X" size={20} className="text-slate-400 dark:text-slate-500" /></button>
-        </div>
-        <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
-          {/* Фото */}
-          <div>
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Фото')}</p>
-            <div className="flex gap-2 flex-wrap">
-              {photos.map((p, i) => (
-                <div key={i} className="relative w-20 h-20 rounded-2xl overflow-hidden">
-                  <img src={p} className="w-full h-full object-cover" />
-                  <button onClick={() => setPhotos(ps => ps.filter((_,j) => j !== i))}
-                    className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center">
-                    <Icon name="X" size={10} className="text-white" />
-                  </button>
-                </div>
-              ))}
-              {photos.length < 10 && (
-                <button onClick={() => fileRef.current?.click()} disabled={uploadingPhoto}
-                  className="w-20 h-20 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-1 text-slate-400 dark:text-slate-500 disabled:opacity-60">
-                  {uploadingPhoto
-                    ? <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-                    : <Icon name="Camera" size={20} />
-                  }
-                  <span className="text-[10px]">{uploadingPhoto ? t('Загрузка...') : t('Добавить')}</span>
-                </button>
-              )}
-              <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={uploadPhoto} />
-            </div>
-          </div>
-          {/* Тип */}
-          <div>
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Тип сделки')}</p>
-            <div className="flex gap-2">
-              {[['sale',t('Продажа')],['rent',t('Аренда')]].map(([v,l]) => (
-                <button key={v} onClick={() => set('deal_type', v)}
-                  className={`flex-1 py-2.5 rounded-2xl text-sm font-semibold border ${form.deal_type === v ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`}>{l}</button>
-              ))}
-            </div>
-          </div>
-          {/* Поля */}
-          {[['city',`${t('Город')} *`],['district',t('Район')],['street',t('Улица, дом')]].map(([k,l]) => (
-            <div key={k}>
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{l}</p>
-              <input value={(form as Record<string,string>)[k]} onChange={e => set(k, e.target.value)}
-                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 dark:text-slate-100" />
-            </div>
-          ))}
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Комнат')}</p>
-              <input value={form.rooms} onChange={e => set('rooms', e.target.value)} type="number"
-                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 dark:text-slate-100" />
-            </div>
-            <div className="flex-1">
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Площадь')} (м²)</p>
-              <input value={form.area} onChange={e => set('area', e.target.value)} type="number"
-                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 dark:text-slate-100" />
-            </div>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Цена')} (₽) *</p>
-            <input value={form.price} onChange={e => set('price', e.target.value)} type="number"
-              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 dark:text-slate-100" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Описание')}</p>
-            <textarea value={form.description} onChange={e => set('description', e.target.value)} maxLength={500} rows={3}
-              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 resize-none dark:text-slate-100" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{t('Телефон')}</p>
-            <input value={form.phone} onChange={e => set('phone', e.target.value)} type="tel"
-              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 text-sm outline-none focus:border-blue-500 dark:text-slate-100" />
-          </div>
-          <button onClick={save} disabled={saving || !form.city || !form.price}
-            className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold text-base disabled:opacity-40 mb-4">
-            {saving ? t('Сохраняем...') : t('Сохранить изменения')}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Карточка объявления ───────────────────────────────────────────────────────
-function RealtyCard({ listing: l, user, onClose, onOpenChat, onDeleted }: { listing: RealtyListing; user: User; onClose: () => void; onOpenChat: (chatId: number, listing: RealtyListing) => void; onDeleted?: () => void }) {
-  const { t } = useLang();
-  const [photoIdx, setPhotoIdx] = useState(0);
-  const [fullPhoto, setFullPhoto] = useState(false);
-  const [opening, setOpening] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [savingFav, setSavingFav] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [showEdit, setShowEdit] = useState(false);
-  const photos = l.photos && l.photos.length > 0 ? l.photos : [];
-
-  useEffect(() => {
-    api(`realty_fav_check&user_id=${user.id}&listing_id=${l.id}`).then(d => setSaved(!!d.saved));
-  }, [l.id, user.id]);
-
-  const toggleFav = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setSavingFav(true);
-    const d = await api('realty_fav_toggle', 'POST', { user_id: user.id, listing_id: l.id });
-    setSaved(!!d.saved);
-    setSavingFav(false);
-  };
-
-  const deleteListing = async () => {
-    setDeleting(true);
-    await api('realty_delete', 'POST', { user_id: user.id, listing_id: l.id });
-    setDeleting(false);
-    onClose();
-    onDeleted?.();
-  };
-
-  // свайп по фото
-  const swipeRef = useRef<{ x: number } | null>(null);
-  const onPhotoTouchStart = (e: React.TouchEvent) => { swipeRef.current = { x: e.touches[0].clientX }; };
-  const onPhotoTouchEnd = (e: React.TouchEvent) => {
-    if (!swipeRef.current) return;
-    const dx = e.changedTouches[0].clientX - swipeRef.current.x;
-    if (dx < -40 && photoIdx < photos.length - 1) setPhotoIdx(i => i + 1);
-    if (dx > 40 && photoIdx > 0) setPhotoIdx(i => i - 1);
-    swipeRef.current = null;
-  };
-
-  const openChat = async () => {
-    if (l.seller_id === user.id) return;
-    setOpening(true);
-    const d = await api('realty_open_chat', 'POST', { listing_id: l.id, buyer_id: user.id });
-    setOpening(false);
-    onClose();
-    onOpenChat(d.chat_id as number, l);
-  };
-
-  return (
-    <>
-      <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={onClose}>
-        <div className="bg-white dark:bg-slate-900 rounded-t-3xl w-full max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
-
-          {/* Галерея со свайпом */}
-          <div className="relative shrink-0 h-60 bg-slate-100 dark:bg-slate-800 overflow-hidden rounded-t-3xl cursor-pointer"
-            onTouchStart={onPhotoTouchStart} onTouchEnd={onPhotoTouchEnd}
-            onClick={() => photos.length > 0 && setFullPhoto(true)}>
-            {photos.length > 0
-              ? <img src={photos[photoIdx]} alt="" className="w-full h-full object-cover" />
-              : <div className="w-full h-full flex items-center justify-center text-6xl">🏠</div>
-            }
-            {/* Счётчик фото */}
-            {photos.length > 1 && (
-              <div className="absolute top-4 right-14 bg-black/50 text-white text-xs font-semibold px-2.5 py-1 rounded-full">
-                {photoIdx + 1}/{photos.length}
-              </div>
-            )}
-            {/* Точки */}
-            {photos.length > 1 && (
-              <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
-                {photos.map((_,i) => (
-                  <div key={i} onClick={e => { e.stopPropagation(); setPhotoIdx(i); }}
-                    className={`w-2 h-2 rounded-full transition-all ${i === photoIdx ? 'bg-white scale-125' : 'bg-white/50'}`} />
-                ))}
-              </div>
-            )}
-            <button onClick={e => { e.stopPropagation(); onClose(); }}
-              className="absolute top-4 right-4 w-9 h-9 rounded-full bg-black/40 flex items-center justify-center">
-              <Icon name="X" size={18} className="text-white" />
-            </button>
-            {l.is_paid && <div className="absolute top-4 left-4 bg-green-500 text-white text-xs font-bold px-2.5 py-1 rounded-full">✅ {t('Оплачено')}</div>}
-            {photos.length > 0 && (
-              <div className="absolute bottom-8 right-4 w-8 h-8 rounded-full bg-black/40 flex items-center justify-center">
-                <Icon name="Maximize2" size={14} className="text-white" />
-              </div>
-            )}
-          </div>
-
-          <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-3xl font-bold text-slate-900 dark:text-slate-100">{fmtPrice(l.price)}</p>
-                {l.deal_type === 'rent' && <p className="text-sm text-slate-400 dark:text-slate-500">{t('в месяц')}</p>}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`text-xs font-bold px-3 py-1.5 rounded-full ${l.deal_type === 'sale' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-                  {l.deal_type === 'sale' ? t('Продажа') : t('Аренда')}
-                </span>
-                {/* Избранное */}
-                <button onClick={toggleFav} disabled={savingFav}
-                  className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${saved ? 'bg-red-50 text-red-500' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500'}`}>
-                  <span className="text-lg">{saved ? '❤️' : '🤍'}</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="flex gap-3 flex-wrap">
-              {l.rooms && <div className="bg-slate-100 dark:bg-slate-800 rounded-2xl px-3 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200">{l.rooms} {t('комн.')}</div>}
-              {l.area && <div className="bg-slate-100 dark:bg-slate-800 rounded-2xl px-3 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200">{l.area} {t('м²')}</div>}
-            </div>
-
-            <div className="flex items-start gap-2 text-slate-600 dark:text-slate-300">
-              <Icon name="MapPin" size={16} className="text-blue-500 mt-0.5 shrink-0" />
-              <p className="text-sm">{[l.city, l.district, l.street].filter(Boolean).join(', ')}</p>
-            </div>
-
-            {l.description && <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">{l.description}</p>}
-
-            <div className="flex items-center gap-3 py-3 border-t border-slate-100 dark:border-slate-800">
-              <Avatar url={l.seller_avatar} nick={l.seller_nick} size={40} />
-              <div>
-                <p className="font-semibold text-sm text-slate-800 dark:text-slate-100">@{l.seller_nick}</p>
-                <p className="text-xs text-slate-400 dark:text-slate-500">{t('Продавец')}</p>
-              </div>
-            </div>
-
-            {/* Телефон — всегда виден если есть */}
-            {l.phone && (
-              <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
-                    <Icon name="Phone" size={18} className="text-green-600" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-400 dark:text-slate-500 mb-0.5">{t('Телефон продавца')}</p>
-                    <p className="font-bold text-slate-900 dark:text-slate-100 text-base">{l.phone}</p>
-                  </div>
-                </div>
-                <a href={`tel:${l.phone}`} onClick={e => e.stopPropagation()}
-                  className="bg-green-500 text-white text-sm font-semibold px-4 py-2 rounded-xl flex items-center gap-1.5 active:bg-green-600">
-                  <Icon name="Phone" size={14} /> {t('Позвонить')}
-                </a>
-              </div>
-            )}
-
-            {/* Кнопки действий */}
-            <div className="pb-4 space-y-2">
-              {l.seller_id !== user.id && (
-                <button onClick={openChat} disabled={opening}
-                  className="w-full py-3.5 rounded-2xl bg-blue-600 text-white font-bold flex items-center justify-center gap-2 disabled:opacity-50">
-                  <Icon name="MessageCircle" size={18} />
-                  {opening ? t('Открываем...') : t('Написать продавцу')}
-                </button>
-              )}
-              {/* Кнопка редактирования — только для владельца */}
-              {l.seller_id === user.id && (
-                <button onClick={() => setShowEdit(true)}
-                  className="w-full py-3.5 rounded-2xl border border-blue-200 dark:border-blue-800 text-blue-600 font-semibold flex items-center justify-center gap-2 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors">
-                  <Icon name="Pencil" size={18} /> {t('Редактировать')}
-                </button>
-              )}
-              {/* Кнопка удаления — только для владельца */}
-              {l.seller_id === user.id && (
-                <button onClick={() => setConfirmDelete(true)}
-                  className="w-full py-3.5 rounded-2xl border border-red-200 dark:border-red-900 text-red-500 font-semibold flex items-center justify-center gap-2 hover:bg-red-50 dark:hover:bg-slate-800 transition-colors">
-                  <Icon name="Trash2" size={18} /> {t('Удалить объявление')}
-                </button>
-              )}
-            </div>
-
-            {/* Подтверждение удаления */}
-            {confirmDelete && (
-              <div className="fixed inset-0 z-[110] bg-black/50 flex items-center justify-center px-6" onClick={() => setConfirmDelete(false)}>
-                <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-sm space-y-4" onClick={e => e.stopPropagation()}>
-                  <div className="text-center">
-                    <div className="text-4xl mb-3">🗑️</div>
-                    <p className="font-bold text-lg text-slate-900 dark:text-slate-100">{t('Удалить объявление?')}</p>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{t('Объявление исчезнет из ленты и из избранного у всех пользователей.')}</p>
-                  </div>
-                  <button onClick={deleteListing} disabled={deleting}
-                    className="w-full py-3.5 rounded-2xl bg-red-500 text-white font-bold disabled:opacity-50">
-                    {deleting ? t('Удаляем...') : t('Да, удалить')}
-                  </button>
-                  <button onClick={() => setConfirmDelete(false)}
-                    className="w-full py-3 rounded-2xl text-slate-500 dark:text-slate-400 font-medium">
-                    {t('Отмена')}
-                  </button>
-                </div>
-              </div>
-            )}
-            {/* Форма редактирования */}
-            {showEdit && (
-              <RealtyEditForm listing={l} user={user} onClose={() => setShowEdit(false)} onSaved={() => { setShowEdit(false); onDeleted?.(); }} />
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Полноэкранный просмотр фото */}
-      {fullPhoto && photos.length > 0 && (
-        <div className="fixed inset-0 z-[100] bg-black flex flex-col"
-          onTouchStart={onPhotoTouchStart} onTouchEnd={onPhotoTouchEnd}>
-          <div className="flex items-center justify-between px-4 pb-2"
-            style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
-            <button onClick={() => setFullPhoto(false)}
-              className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
-              <Icon name="X" size={22} className="text-white" />
-            </button>
-            <span className="text-white font-semibold">{photoIdx + 1} / {photos.length}</span>
-            <div className="w-10" />
-          </div>
-          <div className="flex-1 flex items-center justify-center px-2">
-            <img src={photos[photoIdx]} alt="" className="max-w-full max-h-full object-contain rounded-xl" />
-          </div>
-          {/* Стрелки */}
-          <div className="flex justify-between px-4 py-6 gap-4">
-            <button onClick={() => setPhotoIdx(i => Math.max(0, i-1))} disabled={photoIdx === 0}
-              className="flex-1 py-3 rounded-2xl bg-white/15 text-white font-semibold disabled:opacity-30 flex items-center justify-center gap-2">
-              <Icon name="ChevronLeft" size={20} /> {t('Пред.')}
-            </button>
-            <button onClick={() => setPhotoIdx(i => Math.min(photos.length-1, i+1))} disabled={photoIdx === photos.length-1}
-              className="flex-1 py-3 rounded-2xl bg-white/15 text-white font-semibold disabled:opacity-30 flex items-center justify-center gap-2">
-              {t('След.')} <Icon name="ChevronRight" size={20} />
-            </button>
-          </div>
-          {/* Точки */}
-          {photos.length > 1 && (
-            <div className="flex justify-center gap-2 pb-8">
-              {photos.map((_,i) => (
-                <button key={i} onClick={() => setPhotoIdx(i)}
-                  className={`w-2.5 h-2.5 rounded-full transition-all ${i === photoIdx ? 'bg-white scale-125' : 'bg-white/40'}`} />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </>
-  );
-}
-
-// ── Чат по объявлению ─────────────────────────────────────────────────────────
-function RealtyChatScreen({ user, chatId, listing, onBack }: { user: User; chatId: number; listing: RealtyListing; onBack: () => void }) {
-  const { t } = useLang();
-  const [messages, setMessages] = useState<{ id: number; sender_id: number; sender_nick: string; sender_avatar?: string|null; text: string; created_at: string }[]>([]);
-  const [input, setInput] = useState('');
-  const [confirmDeleteChat, setConfirmDeleteChat] = useState(false);
-  const lastIdRef = useRef(0);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  const load = async () => {
-    const d = await api(`realty_messages&chat_id=${chatId}&after=${lastIdRef.current}`);
-    const fresh = (d.messages as typeof messages) || [];
-    if (fresh.length) { lastIdRef.current = fresh[fresh.length - 1].id; setMessages(m => [...m, ...fresh]); }
-  };
-
-  useEffect(() => {
-    load();
-    const iv = setInterval(() => { if (!document.hidden) load(); }, 2000);
-    return () => clearInterval(iv);
-  }, [chatId]);
-
-  useEffect(() => { scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight); }, [messages]);
-
-  const send = async () => {
-    const txt = input.trim(); if (!txt) return;
-    setInput('');
-    await api('realty_send', 'POST', { chat_id: chatId, user_id: user.id, text: txt });
-    load();
-  };
-
-  return (
-    <div className="fixed inset-0 flex flex-col bg-slate-50 dark:bg-slate-950">
-      {/* Header */}
-      <header className="shrink-0 flex items-center gap-2 px-2 bg-blue-600"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 6px)', paddingBottom: '12px', borderRadius: '0 0 18px 18px', boxShadow: '0 4px 20px rgba(37,99,235,0.35)', zIndex: 10 }}>
-        <button onClick={onBack} className="w-10 h-10 rounded-full hover:bg-white/15 flex items-center justify-center">
-          <Icon name="ArrowLeft" size={22} className="text-white" />
-        </button>
-        <div className="flex-1 min-w-0">
-          <p className="font-bold text-white text-[15px] truncate">{listing.city} · {fmtPrice(listing.price)}</p>
-          <p className="text-blue-200 text-xs truncate">{[listing.rooms ? `${listing.rooms} ${t('комн.')}` : null, listing.area ? `${listing.area}${t('м²')}` : null].filter(Boolean).join(' · ')}</p>
-        </div>
-        <button onClick={() => setConfirmDeleteChat(true)}
-          className="w-10 h-10 rounded-full hover:bg-white/15 flex items-center justify-center">
-          <Icon name="Trash2" size={18} className="text-white/70" />
-        </button>
-      </header>
-
-      {/* Сообщения */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 space-y-2">
-        {messages.length === 0 && (
-          <div className="text-center mt-12">
-            <div className="text-4xl mb-3">🏠</div>
-            <p className="text-sm text-slate-400 dark:text-slate-500">{t('Начните переписку по объявлению')}</p>
-          </div>
-        )}
-        {messages.map(m => {
-          const mine = m.sender_id === user.id;
-          return (
-            <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[78%] px-4 py-2.5 rounded-2xl text-[15px] ${mine ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 rounded-bl-sm shadow-sm border border-slate-100 dark:border-slate-800'}`}>
-                {!mine && <p className="text-xs font-semibold text-blue-500 mb-1">@{m.sender_nick}</p>}
-                <p className="leading-relaxed break-words">{m.text}</p>
-                <p className={`text-[10px] mt-1 text-right ${mine ? 'text-white/60' : 'text-slate-400 dark:text-slate-500'}`}>{new Date(m.created_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}</p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Ввод */}
-      <div className="shrink-0 px-3 py-3 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800"
-        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}>
-        <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 rounded-2xl px-4 py-2">
-          <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
-            placeholder={t('Написать сообщение...')} className="flex-1 bg-transparent outline-none text-sm text-slate-800 dark:text-slate-100" />
-          <button onClick={send} disabled={!input.trim()}
-            className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center disabled:opacity-40 transition-opacity shrink-0">
-            <Icon name="Send" size={16} className="text-white" />
-          </button>
-        </div>
-      </div>
-
-      {/* Подтверждение удаления чата */}
-      {confirmDeleteChat && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-6">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-sm space-y-4">
-            <div className="text-center">
-              <div className="text-4xl mb-3">🗑️</div>
-              <p className="font-bold text-lg text-slate-900 dark:text-slate-100">{t('Удалить чат?')}</p>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{t('История переписки по этому объявлению исчезнет у тебя.')}</p>
-            </div>
-            <button onClick={async () => { await api('realty_delete_chat', 'POST', { chat_id: chatId, user_id: user.id }); onBack(); }}
-              className="w-full py-3.5 rounded-2xl bg-red-500 text-white font-bold">
-              {t('Да, удалить')}
-            </button>
-            <button onClick={() => setConfirmDeleteChat(false)}
-              className="w-full py-3 rounded-2xl text-slate-500 dark:text-slate-400 font-medium">
-              {t('Отмена')}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
 }
 
 // ── VOICE PLAYER ─────────────────────────────────────────────────────────────
@@ -3768,7 +3338,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
   const subtitleColor = peerOnline && !groupName && typing.length === 0 ? 'text-green-300' : 'text-blue-200';
 
   return (
-    <div className="fixed inset-0 flex flex-col" style={{ backgroundColor: '#dbe4d3', backgroundImage: "url('https://cdn.poehali.dev/projects/59076a76-2862-4ba6-9c95-c02c43e87c88/bucket/2d1b9392-f223-4893-b9e1-bf82887796ab.jpg')", backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }} onClick={() => { setSelectedMsg(null); setEmojiTarget(null); setShowAttach(false); setShowComposerEmoji(false); }}>
+    <div className="fixed top-0 left-0 right-0 flex flex-col" style={{ height: 'var(--app-height, 100dvh)', backgroundColor: '#dbe4d3', backgroundImage: "url('https://cdn.poehali.dev/projects/59076a76-2862-4ba6-9c95-c02c43e87c88/bucket/2d1b9392-f223-4893-b9e1-bf82887796ab.jpg')", backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }} onClick={() => { setSelectedMsg(null); setEmojiTarget(null); setShowAttach(false); setShowComposerEmoji(false); }}>
       {/* Header — Telegram стиль: скруглён снизу, тень */}
       <header className="shrink-0 flex items-center gap-1 px-1 bg-blue-600"
         style={{

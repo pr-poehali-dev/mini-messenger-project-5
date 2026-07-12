@@ -179,6 +179,18 @@ def handler(event: dict, context) -> dict:
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
+        def _privacy_allows(owner_id: int, viewer_id: int, field: str) -> bool:
+            """Проверка privacy_calls / privacy_messages: может ли viewer связаться с owner."""
+            if owner_id == viewer_id:
+                return True
+            cur.execute(f"SELECT {field} AS mode FROM users WHERE id=%s", (owner_id,))
+            row = cur.fetchone()
+            mode = row['mode'] if row else 'all'
+            if mode == 'all':
+                return True
+            cur.execute("SELECT 1 FROM follows WHERE follower_id=%s AND following_id=%s", (viewer_id, owner_id))
+            return cur.fetchone() is not None
+
         # ── AUTH ──────────────────────────────────────────
         if action == 'login' and method == 'POST':
             nick = (body.get('nick') or '').strip().lower()
@@ -708,6 +720,13 @@ def handler(event: dict, context) -> dict:
             media_url = body.get('media_url')
             if not chat_id or not sender or (not text and not image_url and not media_url):
                 return _resp(400, {'error': 'Пустое сообщение'})
+            # Приватность: может ли sender писать получателю (только для личных чатов)
+            cur.execute("SELECT user_a, user_b, group_id FROM chats WHERE id=%s", (chat_id,))
+            chat_check = cur.fetchone()
+            if chat_check and not chat_check['group_id']:
+                other_id = chat_check['user_b'] if chat_check['user_a'] == sender else chat_check['user_a']
+                if not _privacy_allows(other_id, sender, 'privacy_messages'):
+                    return _resp(403, {'error': 'Этот пользователь ограничил круг тех, кто может ему писать'})
             cur.execute(
                 """INSERT INTO messages (chat_id, sender_id, text, image_url, media_type, media_url)
                    VALUES (%s, %s, %s, %s, %s, %s)
@@ -1276,6 +1295,8 @@ def handler(event: dict, context) -> dict:
             kind      = body.get('kind', 'audio')
             if not call_id or not from_uid or not to_uid or not sig_type:
                 return _resp(400, {'error': 'Неверные параметры'})
+            if sig_type == 'offer' and not _privacy_allows(to_uid, from_uid, 'privacy_calls'):
+                return _resp(403, {'error': 'Этот пользователь ограничил круг тех, кто может ему звонить'})
             cur.execute(
                 "INSERT INTO call_signals (call_id, from_user_id, to_user_id, type, payload) VALUES (%s,%s,%s,%s,%s)",
                 (call_id, from_uid, to_uid, sig_type, payload)
@@ -1364,371 +1385,277 @@ def handler(event: dict, context) -> dict:
             return _resp(200, {'result': result})
 
         # ══════════════════════════════════════════════════
-        # НЕДВИЖИМОСТЬ
+        # ЛЕНТА ПУБЛИКАЦИЙ (посты: фото / видео / текст)
         # ══════════════════════════════════════════════════
 
-        # ── Список объявлений с фильтрами ─────────────────
-        if action == 'realty_list' and method == 'GET':
-            deal_type = params.get('deal_type', '')
-            city      = params.get('city', '')
-            district  = params.get('district', '')
-            rooms     = params.get('rooms', '')
-            price_min = params.get('price_min', '')
-            price_max = params.get('price_max', '')
-            q         = params.get('q', '')
-            conditions = ["l.is_paid=TRUE", "l.is_blocked=FALSE"]
-            args = []
-            if deal_type: conditions.append("l.deal_type=%s"); args.append(deal_type)
-            if city:      conditions.append("l.city ILIKE %s"); args.append(f'%{city}%')
-            if district:  conditions.append("l.district ILIKE %s"); args.append(f'%{district}%')
-            if rooms:     conditions.append("l.rooms=%s"); args.append(int(rooms))
-            if price_min: conditions.append("l.price>=%s"); args.append(int(price_min))
-            if price_max: conditions.append("l.price<=%s"); args.append(int(price_max))
-            if q:         conditions.append("(l.city ILIKE %s OR l.description ILIKE %s OR l.street ILIKE %s)"); args += [f'%{q}%']*3
-            where = ' AND '.join(conditions)
-            cur.execute(f"""
-                SELECT l.id, l.deal_type, l.city, l.district, l.street,
-                       l.rooms, l.area, l.price, l.description, l.phone, l.photos,
-                       l.is_paid, l.created_at,
-                       u.id AS seller_id, u.nick AS seller_nick, u.avatar_url AS seller_avatar
-                FROM realty_listings l JOIN users u ON u.id=l.user_id
-                WHERE {where} ORDER BY l.created_at DESC LIMIT 50
-            """, args)
-            return _resp(200, {'listings': cur.fetchall()})
-
-        # ── Одно объявление ───────────────────────────────
-        if action == 'realty_get' and method == 'GET':
-            lid = int(params.get('id') or 0)
-            cur.execute("""
-                SELECT l.*, u.id AS seller_id, u.nick AS seller_nick, u.avatar_url AS seller_avatar
-                FROM realty_listings l JOIN users u ON u.id=l.user_id WHERE l.id=%s
-            """, (lid,))
+        def _can_view_post(owner_id: int, viewer_id: int) -> bool:
+            """Проверка приватности: может ли viewer видеть посты owner."""
+            if owner_id == viewer_id:
+                return True
+            cur.execute("SELECT privacy_content FROM users WHERE id=%s", (owner_id,))
             row = cur.fetchone()
-            if not row: return _resp(404, {'error': 'Не найдено'})
-            return _resp(200, {'listing': row})
+            mode = row['privacy_content'] if row else 'all'
+            if mode == 'all':
+                return True
+            cur.execute("SELECT 1 FROM follows WHERE follower_id=%s AND following_id=%s", (viewer_id, owner_id))
+            is_follower = cur.fetchone() is not None
+            if mode == 'followers':
+                return is_follower
+            if mode == 'selected':
+                cur.execute("SELECT 1 FROM profile_content_allowed WHERE owner_id=%s AND viewer_id=%s", (owner_id, viewer_id))
+                return cur.fetchone() is not None
+            return True
 
-        # ── Создать объявление ────────────────────────────
-        if action == 'realty_create' and method == 'POST':
-            uid  = int(body.get('user_id') or 0)
-            data = body.get('listing', {})
-            cur.execute("""
-                INSERT INTO realty_listings
-                  (user_id,deal_type,city,district,street,rooms,area,price,description,phone,photos)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
-            """, (uid, data.get('deal_type','sale'), data.get('city',''),
-                  data.get('district'), data.get('street'), data.get('rooms'),
-                  data.get('area'), int(data.get('price',0)),
-                  data.get('description'), data.get('phone'),
-                  data.get('photos',[])))
-            lid = cur.fetchone()['id']
-            conn.commit()
-            return _resp(200, {'id': lid})
-
-        # ── Создать платёж ЮKassa за объявление (50 ₽, СБП/T-Pay) ──
-        if action == 'realty_pay_create' and method == 'POST':
-            lid = int(body.get('listing_id') or 0)
+        # ── Создать публикацию ────────────────────────────
+        if action == 'post_create' and method == 'POST':
             uid = int(body.get('user_id') or 0)
-            return_url = body.get('return_url') or 'https://vaimessenger.ru/'
-            cur.execute("SELECT id,user_id,is_paid FROM realty_listings WHERE id=%s", (lid,))
-            row = cur.fetchone()
-            if not row: return _resp(404, {'error': 'Объявление не найдено'})
-            if row['user_id'] != uid: return _resp(403, {'error': 'Нет доступа'})
-            if row['is_paid']: return _resp(200, {'ok': True, 'already_paid': True})
-            try:
-                payment = _yookassa_create_payment(
-                    amount='50.00',
-                    description=f'Публикация объявления №{lid} — Вай Мессенджер',
-                    return_url=return_url,
-                    metadata={'listing_id': str(lid), 'user_id': str(uid)},
-                    user_id=uid,
-                )
-            except Exception as e:
-                print(f'[YOOKASSA] create_payment error: {e}')
-                return _resp(502, {'error': 'Не удалось создать платёж. Попробуйте позже.'})
-            yk_id = payment.get('id')
-            confirmation_url = (payment.get('confirmation') or {}).get('confirmation_url')
-            if not yk_id or not confirmation_url:
-                print(f'[YOOKASSA] unexpected response: {payment}')
-                return _resp(502, {'error': 'Некорректный ответ платёжной системы'})
+            p_type = body.get('type', 'text')
+            content = (body.get('content') or '').strip()
+            caption = (body.get('caption') or '').strip() or None
+            if not uid or p_type not in ('photo', 'video', 'text') or not content:
+                return _resp(400, {'error': 'Некорректные данные публикации'})
+            if p_type == 'text' and len(content) > 2000:
+                return _resp(400, {'error': 'Текст максимум 2000 символов'})
             cur.execute(
-                """INSERT INTO realty_payments (listing_id, user_id, yookassa_payment_id, amount, status, confirmation_url)
-                   VALUES (%s, %s, %s, 50.00, %s, %s)""",
-                (lid, uid, yk_id, payment.get('status', 'pending'), confirmation_url),
+                """INSERT INTO posts (user_id, type, content, caption, created_at)
+                   VALUES (%s, %s, %s, %s, NOW())
+                   RETURNING id, user_id, type, content, caption, created_at""",
+                (uid, p_type, content, caption),
             )
+            post = cur.fetchone()
             conn.commit()
-            return _resp(200, {'ok': True, 'payment_id': yk_id, 'confirmation_url': confirmation_url})
+            return _resp(200, {'post': post})
 
-        # ── Проверить статус платежа (фронт опрашивает после возврата) ──
-        if action == 'realty_pay_status' and method == 'GET':
-            lid = int(params.get('listing_id') or 0)
-            uid = int(params.get('user_id') or 0)
-            cur.execute("SELECT id,user_id,is_paid FROM realty_listings WHERE id=%s", (lid,))
-            listing = cur.fetchone()
-            if not listing: return _resp(404, {'error': 'Не найдено'})
-            if listing['user_id'] != uid: return _resp(403, {'error': 'Нет доступа'})
-            if listing['is_paid']:
-                return _resp(200, {'paid': True})
-            cur.execute(
-                "SELECT yookassa_payment_id, status FROM realty_payments WHERE listing_id=%s ORDER BY id DESC LIMIT 1",
-                (lid,),
-            )
-            pay_row = cur.fetchone()
-            if not pay_row:
-                return _resp(200, {'paid': False})
-            # Подстраховка: если вебхук ещё не пришёл — спросим у ЮKassa напрямую
-            try:
-                yk_status = _yookassa_get_payment(pay_row['yookassa_payment_id'])
-                if yk_status.get('status') == 'succeeded' and yk_status.get('paid'):
-                    cur.execute("UPDATE realty_listings SET is_paid=TRUE WHERE id=%s", (lid,))
-                    cur.execute(
-                        "UPDATE realty_payments SET status='succeeded', paid_at=NOW() WHERE yookassa_payment_id=%s",
-                        (pay_row['yookassa_payment_id'],),
-                    )
-                    conn.commit()
-                    return _resp(200, {'paid': True})
-            except Exception as e:
-                print(f'[YOOKASSA] status check error: {e}')
-            return _resp(200, {'paid': False})
-
-        # ── Webhook от ЮKassa: уведомление об оплате ──────
-        if action == 'realty_payment_webhook' and method == 'POST':
-            event_type = body.get('event', '')
-            payment_obj = body.get('object', {}) or {}
-            yk_id = payment_obj.get('id', '')
-            print(f'[YOOKASSA WEBHOOK] event={event_type} payment_id={yk_id}')
-            if not yk_id:
-                return _resp(400, {'error': 'Нет payment id'})
-            try:
-                verified = _yookassa_get_payment(yk_id)
-            except Exception as e:
-                print(f'[YOOKASSA WEBHOOK] verify error: {e}')
-                return _resp(200, {'ok': True})
-            cur.execute("SELECT listing_id FROM realty_payments WHERE yookassa_payment_id=%s", (yk_id,))
-            pay_row = cur.fetchone()
-            if not pay_row:
-                print(f'[YOOKASSA WEBHOOK] payment {yk_id} не найден в БД')
-                return _resp(200, {'ok': True})
-            status = verified.get('status', '')
-            cur.execute("UPDATE realty_payments SET status=%s WHERE yookassa_payment_id=%s", (status, yk_id))
-            if status == 'succeeded' and verified.get('paid'):
-                cur.execute("UPDATE realty_payments SET paid_at=NOW() WHERE yookassa_payment_id=%s", (yk_id,))
-                cur.execute("UPDATE realty_listings SET is_paid=TRUE WHERE id=%s", (pay_row['listing_id'],))
-            conn.commit()
-            return _resp(200, {'ok': True})
-
-        # ── Загрузить фото объявления ─────────────────────
-        if action == 'realty_upload_photo' and method == 'POST':
-            uid  = int(body.get('user_id') or 0)
-            data = body.get('data', '')
-            ext  = body.get('ext', 'jpg')
-            print(f'[PHOTO] uid={uid} data_len={len(data)} ext={ext}')
-            if not data:
-                print('[PHOTO] data пустой!')
-                return _resp(400, {'error': 'Нет данных фото'})
-            try:
-                img_bytes = base64.b64decode(data)
-            except Exception as e:
-                print(f'[PHOTO] base64 decode error: {e}')
-                return _resp(400, {'error': 'Ошибка декодирования фото'})
+        # ── Загрузка медиа для публикации (фото/видео) ────
+        if action == 'upload_post_media' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            data_b64 = body.get('data', '')
+            ext = (body.get('ext') or 'jpg').lower()
+            media_type = body.get('media_type', 'photo')
+            if not uid or not data_b64:
+                return _resp(400, {'error': 'Нет данных'})
+            raw = base64.b64decode(data_b64)
+            key = f"posts/{uid}/{secrets.token_hex(8)}.{ext}"
             s3 = _s3()
-            key = f"realty/{uid}_{secrets.token_hex(8)}.jpg"
-            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=img_bytes, ContentType='image/jpeg')
-            url = _s3_url(key)
-            print(f'[PHOTO] OK url={url}')
-            return _resp(200, {'url': url})
+            content_type = 'video/mp4' if media_type == 'video' else 'image/jpeg'
+            s3.put_object(Bucket=REGRU_BUCKET, Key=key, Body=raw, ContentType=content_type)
+            return _resp(200, {'url': _s3_url(key)})
 
-        # ── Чат по объявлению: открыть/получить ──────────
-        if action == 'realty_open_chat' and method == 'POST':
-            lid       = int(body.get('listing_id') or 0)
-            buyer_id  = int(body.get('buyer_id') or 0)
-            cur.execute("SELECT id,user_id FROM realty_listings WHERE id=%s", (lid,))
-            listing = cur.fetchone()
-            if not listing: return _resp(404, {'error': 'Объявление не найдено'})
-            seller_id = listing['user_id']
-            if buyer_id == seller_id: return _resp(400, {'error': 'Нельзя писать себе'})
-            cur.execute("SELECT id FROM realty_chats WHERE listing_id=%s AND buyer_id=%s", (lid, buyer_id))
-            row = cur.fetchone()
-            if not row:
-                cur.execute("INSERT INTO realty_chats (listing_id,buyer_id,seller_id) VALUES (%s,%s,%s) RETURNING id",
-                            (lid, buyer_id, seller_id))
-                row = cur.fetchone()
-                conn.commit()
-            return _resp(200, {'chat_id': row['id'], 'seller_id': seller_id})
-
-        # ── Сообщения чата по объявлению ─────────────────
-        if action == 'realty_messages' and method == 'GET':
-            cid   = int(params.get('chat_id') or 0)
+        # ── Лента: посты свои + тех, на кого подписан ─────
+        if action == 'feed' and method == 'GET':
+            me = int(params.get('user_id') or 0)
             after = int(params.get('after') or 0)
-            cur.execute("""
-                SELECT m.id, m.sender_id, u.nick AS sender_nick, u.avatar_url AS sender_avatar,
-                       m.text, m.created_at
-                FROM realty_messages m JOIN users u ON u.id=m.sender_id
-                WHERE m.chat_id=%s AND m.id>%s ORDER BY m.id ASC LIMIT 100
-            """, (cid, after))
-            return _resp(200, {'messages': cur.fetchall()})
-
-        # ── Отправить сообщение в чат объявления ─────────
-        if action == 'realty_send' and method == 'POST':
-            cid    = int(body.get('chat_id') or 0)
-            uid    = int(body.get('user_id') or 0)
-            text   = body.get('text', '').strip()
-            if not text: return _resp(400, {'error': 'Пустое сообщение'})
-            cur.execute("INSERT INTO realty_messages (chat_id,sender_id,text) VALUES (%s,%s,%s) RETURNING id",
-                        (cid, uid, text))
-            conn.commit()
-            return _resp(200, {'ok': True})
-
-        # ── Мои объявления ────────────────────────────────
-        if action == 'realty_my' and method == 'GET':
-            uid = int(params.get('user_id') or 0)
-            cur.execute("""
-                SELECT l.*, u.nick AS seller_nick FROM realty_listings l
-                JOIN users u ON u.id=l.user_id WHERE l.user_id=%s ORDER BY l.created_at DESC
-            """, (uid,))
-            return _resp(200, {'listings': cur.fetchall()})
-
-        # ── Мои чаты по объявлениям ───────────────────────
-        if action == 'realty_my_chats' and method == 'GET':
-            uid = int(params.get('user_id') or 0)
-            cur.execute("""
-                SELECT rc.id AS chat_id, rl.id AS listing_id,
-                       rl.city, rl.district, rl.street, rl.deal_type, rl.rooms, rl.price, rl.photos,
-                       CASE WHEN rc.buyer_id=%s THEN u2.id ELSE u1.id END AS peer_id,
-                       CASE WHEN rc.buyer_id=%s THEN u2.nick ELSE u1.nick END AS peer_nick,
-                       CASE WHEN rc.buyer_id=%s THEN u2.avatar_url ELSE u1.avatar_url END AS peer_avatar,
-                       (SELECT text FROM realty_messages rm WHERE rm.chat_id=rc.id ORDER BY rm.id DESC LIMIT 1) AS last_text,
-                       (SELECT created_at FROM realty_messages rm WHERE rm.chat_id=rc.id ORDER BY rm.id DESC LIMIT 1) AS last_at
-                FROM realty_chats rc
-                JOIN realty_listings rl ON rl.id=rc.listing_id
-                JOIN users u1 ON u1.id=rc.buyer_id
-                JOIN users u2 ON u2.id=rc.seller_id
-                WHERE (rc.buyer_id=%s OR rc.seller_id=%s)
-                  AND NOT (%s = ANY(rc.hidden_for_users))
-                ORDER BY last_at DESC NULLS LAST
-            """, (uid, uid, uid, uid, uid, uid))
-            return _resp(200, {'chats': cur.fetchall()})
-
-        # ── АДМИН: все объявления ─────────────────────────
-        if action == 'realty_admin_list' and method == 'GET':
-            cur.execute("""
-                SELECT l.*, u.nick AS seller_nick, u.avatar_url AS seller_avatar
-                FROM realty_listings l JOIN users u ON u.id=l.user_id
-                ORDER BY l.created_at DESC LIMIT 200
-            """)
-            listings = cur.fetchall()
-            cur.execute("SELECT COUNT(*) AS total FROM realty_listings")
-            total = cur.fetchone()['total']
-            cur.execute("SELECT COUNT(*) AS paid FROM realty_listings WHERE is_paid=TRUE")
-            paid = cur.fetchone()['paid']
-            return _resp(200, {'listings': listings, 'stats': {'total': total, 'paid': paid}})
-
-        # ── АДМИН: удалить/заблокировать ─────────────────
-        if action == 'realty_admin_action' and method == 'POST':
-            lid          = int(body.get('listing_id') or 0)
-            admin_action = body.get('admin_action', '')
-            if admin_action == 'block':
-                cur.execute("UPDATE realty_listings SET is_blocked=TRUE WHERE id=%s", (lid,))
-            elif admin_action == 'unblock':
-                cur.execute("UPDATE realty_listings SET is_blocked=FALSE WHERE id=%s", (lid,))
-            elif admin_action == 'delete':
-                # Реальное удаление объявления — сначала чистим все зависимые записи (FK)
-                cur.execute("SELECT id FROM realty_chats WHERE listing_id=%s", (lid,))
-                chat_ids = [r['id'] for r in cur.fetchall()]
-                for cid in chat_ids:
-                    cur.execute("DELETE FROM realty_messages WHERE chat_id=%s", (cid,))
-                cur.execute("DELETE FROM realty_chats WHERE listing_id=%s", (lid,))
-                cur.execute("DELETE FROM realty_favorites WHERE listing_id=%s", (lid,))
-                cur.execute("DELETE FROM realty_payments WHERE listing_id=%s", (lid,))
-                cur.execute("DELETE FROM realty_listings WHERE id=%s", (lid,))
-            conn.commit()
-            return _resp(200, {'ok': True})
-
-        # ── Избранное: добавить/убрать (toggle) ──────────
-        if action == 'realty_fav_toggle' and method == 'POST':
-            uid = int(body.get('user_id') or 0)
-            lid = int(body.get('listing_id') or 0)
-            cur.execute("SELECT 1 FROM realty_favorites WHERE user_id=%s AND listing_id=%s", (uid, lid))
-            if cur.fetchone():
-                cur.execute("UPDATE realty_favorites SET created_at=NOW() WHERE user_id=%s AND listing_id=%s", (uid, lid))
-                # реально удаляем через обходной путь — обновление не работает как удаление,
-                # поэтому вставим маркер в отдельный флаг и вернём статус
-                cur.execute("DELETE FROM realty_favorites WHERE user_id=%s AND listing_id=%s", (uid, lid))
-                conn.commit()
-                return _resp(200, {'saved': False})
-            else:
-                cur.execute("INSERT INTO realty_favorites (user_id, listing_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (uid, lid))
-                conn.commit()
-                return _resp(200, {'saved': True})
-
-        # ── Избранное: список ─────────────────────────────
-        if action == 'realty_favorites' and method == 'GET':
-            uid = int(params.get('user_id') or 0)
-            cur.execute("""
-                SELECT l.id, l.deal_type, l.city, l.district, l.street,
-                       l.rooms, l.area, l.price, l.description, l.phone, l.photos,
-                       l.is_paid, l.is_blocked, l.created_at,
-                       u.id AS seller_id, u.nick AS seller_nick, u.avatar_url AS seller_avatar
-                FROM realty_favorites f
-                JOIN realty_listings l ON l.id = f.listing_id
-                JOIN users u ON u.id = l.user_id
-                WHERE f.user_id=%s AND l.is_blocked=FALSE
-                ORDER BY f.created_at DESC
-            """, (uid,))
-            return _resp(200, {'listings': cur.fetchall()})
-
-        # ── Избранное: проверить статус одного ───────────
-        if action == 'realty_fav_check' and method == 'GET':
-            uid = int(params.get('user_id') or 0)
-            lid = int(params.get('listing_id') or 0)
-            cur.execute("SELECT 1 FROM realty_favorites WHERE user_id=%s AND listing_id=%s", (uid, lid))
-            return _resp(200, {'saved': bool(cur.fetchone())})
-
-        # ── Удалить объявление (только владелец) ──────────
-        if action == 'realty_delete' and method == 'POST':
-            uid = int(body.get('user_id') or 0)
-            lid = int(body.get('listing_id') or 0)
-            cur.execute("SELECT user_id FROM realty_listings WHERE id=%s", (lid,))
-            row = cur.fetchone()
-            if not row: return _resp(404, {'error': 'Не найдено'})
-            if row['user_id'] != uid: return _resp(403, {'error': 'Нет доступа'})
-            cur.execute("UPDATE realty_listings SET is_blocked=TRUE WHERE id=%s", (lid,))
-            conn.commit()
-            return _resp(200, {'ok': True})
-
-        # ── Редактировать объявление (только владелец) ────
-        if action == 'realty_edit' and method == 'POST':
-            uid  = int(body.get('user_id') or 0)
-            lid  = int(body.get('listing_id') or 0)
-            data = body.get('listing', {})
-            cur.execute("SELECT user_id FROM realty_listings WHERE id=%s", (lid,))
-            row = cur.fetchone()
-            if not row: return _resp(404, {'error': 'Не найдено'})
-            if row['user_id'] != uid: return _resp(403, {'error': 'Нет доступа'})
-            cur.execute("""
-                UPDATE realty_listings SET
-                  deal_type=%s, city=%s, district=%s, street=%s,
-                  rooms=%s, area=%s, price=%s, description=%s, phone=%s, photos=%s
-                WHERE id=%s
-            """, (
-                data.get('deal_type','sale'), data.get('city',''),
-                data.get('district'), data.get('street'),
-                data.get('rooms'), data.get('area'),
-                int(data.get('price',0)), data.get('description'),
-                data.get('phone'), data.get('photos',[]), lid
-            ))
-            conn.commit()
-            return _resp(200, {'ok': True})
-
-        # ── Удалить чат по объявлению (скрыть у себя) ─────
-        if action == 'realty_delete_chat' and method == 'POST':
-            cid = int(body.get('chat_id') or 0)
-            uid = int(body.get('user_id') or 0)
-            cur.execute("SELECT id FROM realty_chats WHERE id=%s AND (buyer_id=%s OR seller_id=%s)", (cid, uid, uid))
-            if not cur.fetchone(): return _resp(403, {'error': 'Нет доступа'})
             cur.execute(
-                "UPDATE realty_chats SET hidden_for_users = array_append(hidden_for_users, %s) WHERE id=%s AND NOT (%s = ANY(hidden_for_users))",
-                (uid, cid, uid)
+                """
+                SELECT p.id, p.user_id, u.nick, u.avatar_url, u.is_verified,
+                       p.type, p.content, p.caption, p.created_at,
+                       (SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id=p.id) AS likes_count,
+                       (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id=p.id) AS comments_count,
+                       (SELECT COUNT(*) FROM post_views pv WHERE pv.post_id=p.id) AS views_count,
+                       EXISTS(SELECT 1 FROM post_likes pl2 WHERE pl2.post_id=p.id AND pl2.user_id=%s) AS liked_by_me
+                FROM posts p
+                JOIN users u ON u.id = p.user_id
+                WHERE p.is_removed = FALSE
+                  AND (p.user_id = %s OR p.user_id IN (SELECT following_id FROM follows WHERE follower_id=%s))
+                  AND (%s = 0 OR p.id < %s)
+                ORDER BY p.id DESC
+                LIMIT 20
+                """,
+                (me, me, me, after, after),
             )
+            posts = cur.fetchall()
+            return _resp(200, {'posts': posts})
+
+        # ── Поиск публикаций по нику автора ───────────────
+        if action == 'post_search' and method == 'GET':
+            me = int(params.get('user_id') or 0)
+            q = (params.get('q') or '').strip().lower()
+            if not q:
+                return _resp(200, {'posts': []})
+            cur.execute(
+                """
+                SELECT p.id, p.user_id, u.nick, u.avatar_url, u.is_verified,
+                       p.type, p.content, p.caption, p.created_at, u.privacy_content
+                FROM posts p
+                JOIN users u ON u.id = p.user_id
+                WHERE p.is_removed = FALSE AND u.nick ILIKE %s
+                ORDER BY p.id DESC LIMIT 40
+                """,
+                (f'%{q}%',),
+            )
+            rows = cur.fetchall()
+            posts = [r for r in rows if _can_view_post(r['user_id'], me)]
+            for r in posts:
+                r.pop('privacy_content', None)
+            return _resp(200, {'posts': posts})
+
+        # ── Посты конкретного пользователя (для профиля) ──
+        if action == 'user_posts' and method == 'GET':
+            me = int(params.get('user_id') or 0)
+            owner = int(params.get('owner_id') or 0)
+            if not _can_view_post(owner, me):
+                return _resp(200, {'posts': [], 'restricted': True})
+            cur.execute(
+                """
+                SELECT p.id, p.user_id, u.nick, u.avatar_url, u.is_verified,
+                       p.type, p.content, p.caption, p.created_at,
+                       (SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id=p.id) AS likes_count,
+                       (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id=p.id) AS comments_count,
+                       (SELECT COUNT(*) FROM post_views pv WHERE pv.post_id=p.id) AS views_count,
+                       EXISTS(SELECT 1 FROM post_likes pl2 WHERE pl2.post_id=p.id AND pl2.user_id=%s) AS liked_by_me
+                FROM posts p
+                JOIN users u ON u.id = p.user_id
+                WHERE p.is_removed = FALSE AND p.user_id = %s
+                ORDER BY p.id DESC
+                """,
+                (me, owner),
+            )
+            posts = cur.fetchall()
+            return _resp(200, {'posts': posts, 'restricted': False})
+
+        # ── Лайк / дизлайк ─────────────────────────────────
+        if action == 'post_like' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            pid = int(body.get('post_id') or 0)
+            cur.execute("SELECT 1 FROM post_likes WHERE post_id=%s AND user_id=%s", (pid, uid))
+            already = cur.fetchone() is not None
+            if already:
+                cur.execute("DELETE FROM post_likes WHERE post_id=%s AND user_id=%s", (pid, uid))
+                liked = False
+            else:
+                cur.execute("INSERT INTO post_likes (post_id, user_id, created_at) VALUES (%s,%s,NOW()) ON CONFLICT DO NOTHING", (pid, uid))
+                liked = True
+                cur.execute("SELECT user_id FROM posts WHERE id=%s", (pid,))
+                owner = cur.fetchone()
+                if owner and owner['user_id'] != uid:
+                    cur.execute("SELECT nick FROM users WHERE id=%s", (uid,))
+                    liker = cur.fetchone()
+                    cur.execute(
+                        "INSERT INTO notifications (user_id, type, from_user_id, created_at, is_read) VALUES (%s,'post_like',%s,NOW(),FALSE)",
+                        (owner['user_id'], uid),
+                    )
+            conn.commit()
+            cur.execute("SELECT COUNT(*) AS c FROM post_likes WHERE post_id=%s", (pid,))
+            cnt = cur.fetchone()['c']
+            return _resp(200, {'liked': liked, 'likes_count': cnt})
+
+        # ── Комментарии: добавить ──────────────────────────
+        if action == 'post_comment_add' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            pid = int(body.get('post_id') or 0)
+            text = (body.get('text') or '').strip()
+            reply_to = body.get('reply_to_user_id')
+            if not text:
+                return _resp(400, {'error': 'Пустой комментарий'})
+            cur.execute(
+                """INSERT INTO post_comments (post_id, user_id, text, reply_to_user_id, created_at)
+                   VALUES (%s,%s,%s,%s,NOW())
+                   RETURNING id, post_id, user_id, text, reply_to_user_id, created_at""",
+                (pid, uid, text, reply_to),
+            )
+            comment = cur.fetchone()
+            cur.execute("SELECT nick, avatar_url FROM users WHERE id=%s", (uid,))
+            author = cur.fetchone()
+            comment['nick'] = author['nick']
+            comment['avatar_url'] = author['avatar_url']
+            cur.execute("SELECT user_id FROM posts WHERE id=%s", (pid,))
+            owner = cur.fetchone()
+            if owner and owner['user_id'] != uid:
+                cur.execute(
+                    "INSERT INTO notifications (user_id, type, from_user_id, created_at, is_read) VALUES (%s,'post_comment',%s,NOW(),FALSE)",
+                    (owner['user_id'], uid),
+                )
+            conn.commit()
+            return _resp(200, {'comment': comment})
+
+        # ── Комментарии: список ────────────────────────────
+        if action == 'post_comments' and method == 'GET':
+            pid = int(params.get('post_id') or 0)
+            cur.execute(
+                """SELECT c.id, c.post_id, c.user_id, u.nick, u.avatar_url, u.is_verified,
+                          c.text, c.reply_to_user_id, ru.nick AS reply_to_nick, c.created_at
+                   FROM post_comments c
+                   JOIN users u ON u.id=c.user_id
+                   LEFT JOIN users ru ON ru.id=c.reply_to_user_id
+                   WHERE c.post_id=%s ORDER BY c.id ASC""",
+                (pid,),
+            )
+            return _resp(200, {'comments': cur.fetchall()})
+
+        # ── Просмотр: зафиксировать ─────────────────────────
+        if action == 'post_view' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            pid = int(body.get('post_id') or 0)
+            cur.execute("INSERT INTO post_views (post_id, user_id, created_at) VALUES (%s,%s,NOW()) ON CONFLICT DO NOTHING", (pid, uid))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── Кто лайкнул / кто смотрел (для статистики) ────
+        if action == 'post_likers' and method == 'GET':
+            pid = int(params.get('post_id') or 0)
+            cur.execute(
+                """SELECT u.id, u.nick, u.avatar_url, u.is_verified FROM post_likes pl
+                   JOIN users u ON u.id=pl.user_id WHERE pl.post_id=%s ORDER BY pl.created_at DESC""",
+                (pid,),
+            )
+            return _resp(200, {'users': cur.fetchall()})
+
+        # ── Удалить публикацию ──────────────────────────────
+        if action == 'post_delete' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            pid = int(body.get('post_id') or 0)
+            cur.execute("UPDATE posts SET is_removed=TRUE WHERE id=%s AND user_id=%s", (pid, uid))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── Статистика профиля (мои посты: лайки/комменты/просмотры) ──
+        if action == 'profile_stats' and method == 'GET':
+            uid = int(params.get('user_id') or 0)
+            cur.execute(
+                """
+                SELECT COUNT(*) AS posts_count,
+                       COALESCE((SELECT COUNT(*) FROM post_likes pl JOIN posts p ON p.id=pl.post_id WHERE p.user_id=%s),0) AS total_likes,
+                       COALESCE((SELECT COUNT(*) FROM post_comments pc JOIN posts p ON p.id=pc.post_id WHERE p.user_id=%s),0) AS total_comments,
+                       COALESCE((SELECT COUNT(*) FROM post_views pv JOIN posts p ON p.id=pv.post_id WHERE p.user_id=%s),0) AS total_views
+                FROM posts WHERE user_id=%s AND is_removed=FALSE
+                """,
+                (uid, uid, uid, uid),
+            )
+            stats = cur.fetchone()
+            return _resp(200, {'stats': stats})
+
+        # ══════════════════════════════════════════════════
+        # ПРИВАТНОСТЬ ПРОФИЛЯ
+        # ══════════════════════════════════════════════════
+
+        # ── Получить настройки приватности ────────────────
+        if action == 'privacy_get' and method == 'GET':
+            uid = int(params.get('user_id') or 0)
+            cur.execute("SELECT privacy_content, privacy_calls, privacy_messages FROM users WHERE id=%s", (uid,))
+            row = cur.fetchone()
+            cur.execute("SELECT viewer_id FROM profile_content_allowed WHERE owner_id=%s", (uid,))
+            allowed = [r['viewer_id'] for r in cur.fetchall()]
+            return _resp(200, {'privacy': row, 'allowed_viewers': allowed})
+
+        # ── Обновить настройки приватности ────────────────
+        if action == 'privacy_update' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            fields = []
+            values = []
+            for key in ('privacy_content', 'privacy_calls', 'privacy_messages'):
+                if key in body:
+                    val = body[key]
+                    if val not in ('all', 'followers', 'selected'):
+                        continue
+                    fields.append(f"{key}=%s")
+                    values.append(val)
+            if fields:
+                values.append(uid)
+                cur.execute(f"UPDATE users SET {', '.join(fields)} WHERE id=%s", values)
+            if 'allowed_viewers' in body and isinstance(body['allowed_viewers'], list):
+                cur.execute("DELETE FROM profile_content_allowed WHERE owner_id=%s", (uid,))
+                for vid in body['allowed_viewers']:
+                    cur.execute("INSERT INTO profile_content_allowed (owner_id, viewer_id, created_at) VALUES (%s,%s,NOW()) ON CONFLICT DO NOTHING", (uid, int(vid)))
             conn.commit()
             return _resp(200, {'ok': True})
 
