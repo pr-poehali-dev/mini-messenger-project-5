@@ -1052,6 +1052,7 @@ function PostCard({ post, user, onOpenProfile, onChanged, onDeleted, onEdit }: {
   const viewedRef = useRef(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const commentInputRef = useRef<HTMLInputElement>(null);
+  const touchStartX = useRef<number | null>(null);
 
   const photos = post.media_urls && post.media_urls.length > 0 ? post.media_urls : (post.type === 'photo' ? [post.content] : []);
   const isMine = post.user_id === user.id;
@@ -1187,27 +1188,27 @@ function PostCard({ post, user, onOpenProfile, onChanged, onDeleted, onEdit }: {
         <p className="px-4 pb-3 text-sm text-slate-700 dark:text-slate-200 whitespace-pre-wrap leading-relaxed">{post.content}</p>
       )}
       {post.type === 'photo' && photos.length > 0 && (
-        <div className="relative">
-          <img src={photos[photoIdx]} className="w-full max-h-[480px] object-cover cursor-pointer"
+        <div className="relative aspect-square bg-slate-100 dark:bg-slate-800 overflow-hidden"
+          onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX; }}
+          onTouchEnd={(e) => {
+            if (touchStartX.current === null) return;
+            const diff = touchStartX.current - e.changedTouches[0].clientX;
+            if (Math.abs(diff) > 40) {
+              if (diff > 0 && photoIdx < photos.length - 1) setPhotoIdx(i => i + 1);
+              else if (diff < 0 && photoIdx > 0) setPhotoIdx(i => i - 1);
+            }
+            touchStartX.current = null;
+          }}>
+          <img src={photos[photoIdx]} className="w-full h-full object-cover cursor-pointer"
             onClick={() => setMediaView({ src: photos[photoIdx], type: 'image' })} />
           {photos.length > 1 && (
             <>
               <div className="absolute top-3 right-3 bg-black/50 rounded-full px-2.5 py-1 text-white text-xs font-medium">
                 {photoIdx + 1}/{photos.length}
               </div>
-              {photoIdx > 0 && (
-                <button onClick={() => setPhotoIdx(i => i - 1)} className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 flex items-center justify-center">
-                  <Icon name="ChevronLeft" size={18} className="text-white" />
-                </button>
-              )}
-              {photoIdx < photos.length - 1 && (
-                <button onClick={() => setPhotoIdx(i => i + 1)} className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 flex items-center justify-center">
-                  <Icon name="ChevronRight" size={18} className="text-white" />
-                </button>
-              )}
               <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
                 {photos.map((_, i) => (
-                  <span key={i} className={`w-1.5 h-1.5 rounded-full ${i === photoIdx ? 'bg-white' : 'bg-white/40'}`} />
+                  <span key={i} className={`h-1.5 rounded-full transition-all ${i === photoIdx ? 'bg-white w-4' : 'bg-white/40 w-1.5'}`} />
                 ))}
               </div>
             </>
@@ -1215,7 +1216,7 @@ function PostCard({ post, user, onOpenProfile, onChanged, onDeleted, onEdit }: {
         </div>
       )}
       {post.type === 'video' && (
-        <video src={post.content} controls className="w-full max-h-[480px] object-cover bg-black"
+        <video src={post.content} controls className="w-full aspect-square object-cover bg-black"
           onClick={() => setMediaView({ src: post.content, type: 'video' })} />
       )}
       {post.caption && post.type !== 'text' && (
@@ -1331,23 +1332,41 @@ function SharePostModal({ post, user, onClose }: { post: Post; user: User; onClo
   };
 
   return (
-    <div className="fixed inset-0 z-[70] bg-black/40 flex items-end" onClick={onClose}>
-      <div className="bg-white dark:bg-slate-900 rounded-t-3xl w-full max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 dark:border-slate-800">
-          <h3 className="font-bold text-slate-800 dark:text-slate-100">{t('Поделиться')}</h3>
-          <button onClick={onClose}><Icon name="X" size={20} className="text-slate-400" /></button>
+    <div className="fixed inset-0 z-[70] bg-black/50 flex items-end animate-fade-up" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-900 rounded-t-[28px] w-full max-h-[75vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-center pt-2.5 pb-1 shrink-0">
+          <div className="w-10 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700" />
         </div>
-        <div className="overflow-y-auto flex-1 py-2">
+        <div className="flex items-center justify-between px-5 pb-3 shrink-0">
+          <h3 className="font-bold text-slate-800 dark:text-slate-100 text-lg">{t('Поделиться')}</h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+            <Icon name="X" size={16} className="text-slate-500 dark:text-slate-300" />
+          </button>
+        </div>
+        <div className="overflow-y-auto flex-1 pb-6" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}>
           {followers.length === 0 ? (
-            <p className="text-center text-slate-400 text-sm py-8">{t('Нет подписчиков')}</p>
-          ) : followers.map(u => (
-            <button key={u.id} onClick={() => shareTo(u.id)} disabled={sentTo.has(u.id)}
-              className="w-full flex items-center gap-3 px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50">
-              <Avatar url={u.avatar_url} nick={u.nick} size={44} />
-              <span className="font-semibold text-slate-800 dark:text-slate-100 text-sm flex-1 text-left">@{u.nick}</span>
-              {sentTo.has(u.id) && <Icon name="Check" size={18} className="text-green-500" />}
-            </button>
-          ))}
+            <div className="flex flex-col items-center py-12 gap-2">
+              <Icon name="Users" size={32} className="text-slate-300" />
+              <p className="text-slate-400 text-sm">{t('Нет подписчиков')}</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-4 gap-3 px-5">
+              {followers.map(u => (
+                <button key={u.id} onClick={() => shareTo(u.id)} disabled={sentTo.has(u.id)}
+                  className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform disabled:opacity-60">
+                  <div className="relative">
+                    <Avatar url={u.avatar_url} nick={u.nick} size={58} />
+                    {sentTo.has(u.id) && (
+                      <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-green-500 border-2 border-white dark:border-slate-900 flex items-center justify-center">
+                        <Icon name="Check" size={11} className="text-white" />
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate w-full text-center">@{u.nick}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
