@@ -83,7 +83,7 @@
       overflow: hidden;
     }
     #root {
-      height: var(--app-height, 100dvh);
+      height: 100dvh;
       overflow: hidden;
     }
   </style>
@@ -94,46 +94,21 @@
   <script type="module" src="/src/main.tsx"></script>
 
   <script>
-    // ── Service Worker — автообновление без участия пользователя ──────────────
-    // Как только приходит новая версия sw.js — она активируется (skipWaiting в sw.js)
-    // и страница автоматически перезагружается сама, подтягивая свежий билд.
+    // ── Service Worker — обновляется тихо в фоне, без авто-перезагрузки ───────
+    // Новая версия применится сама при следующем обычном открытии сайта.
     if ('serviceWorker' in navigator) {
-      var reloadedForUpdate = false;
-      navigator.serviceWorker.addEventListener('controllerchange', function() {
-        if (reloadedForUpdate) return;
-        reloadedForUpdate = true;
-        window.location.reload();
-      });
       navigator.serviceWorker.register('/sw.js', { scope: '/' })
-        .then(function(reg) {
-          reg.update();
-          // Проверяем наличие новой версии каждые 60 секунд, пока приложение открыто
-          setInterval(function() { reg.update(); }, 60000);
-        })
+        .then(function(reg) { reg.update(); })
         .catch(function() {});
     }
 
     // splash убран — функция-заглушка чтобы не было ошибок в React
     window.__hideSplash = function() {};
 
-    // ── Клавиатура на мобильных: композер должен оставаться видимым над ней ───
-    // 100dvh не пересчитывается при появлении клавиатуры в PWA на iOS, поэтому
-    // высота #root подстраивается под visualViewport — БЕЗ CSS transition и БЕЗ
-    // скролла страницы, так что шапка (position: sticky) физически не сдвигается,
-    // а нижняя часть (композер) просто оказывается видимой над клавиатурой.
-    (function() {
-      function setAppHeight() {
-        var vv = window.visualViewport;
-        var h = vv ? vv.height : window.innerHeight;
-        document.documentElement.style.setProperty('--app-height', h + 'px');
-      }
-      setAppHeight();
-      if (window.visualViewport) {
-        window.visualViewport.addEventListener('resize', setAppHeight);
-      } else {
-        window.addEventListener('resize', setAppHeight);
-      }
-    })();
+    // ── Фикс "убегающей" шапки при открытии клавиатуры на iOS ─────────────────
+    // Шапка зафиксирована через position:fixed с top:0 напрямую в CSS (см. ниже),
+    // поэтому она физически не может сдвинуться — просто не трогаем её через JS.
+    // Единственное что нужно — не дать странице проскроллиться самой по себе.
     document.addEventListener('scroll', function() { window.scrollTo(0, 0); }, { passive: true });
 
     // Автоматическая тёмная тема как у Т-Банка
