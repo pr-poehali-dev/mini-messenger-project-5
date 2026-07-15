@@ -94,11 +94,22 @@
   <script type="module" src="/src/main.tsx"></script>
 
   <script>
-    // ── Service Worker — обновляется тихо в фоне, без авто-перезагрузки ───────
-    // Новая версия применится сама при следующем обычном открытии сайта.
+    // ── Service Worker — автообновление без участия пользователя ──────────────
+    // Как только приходит новая версия sw.js — она активируется (skipWaiting в sw.js)
+    // и страница автоматически перезагружается сама, подтягивая свежий билд.
     if ('serviceWorker' in navigator) {
+      var reloadedForUpdate = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function() {
+        if (reloadedForUpdate) return;
+        reloadedForUpdate = true;
+        window.location.reload();
+      });
       navigator.serviceWorker.register('/sw.js', { scope: '/' })
-        .then(function(reg) { reg.update(); })
+        .then(function(reg) {
+          reg.update();
+          // Проверяем наличие новой версии каждые 60 секунд, пока приложение открыто
+          setInterval(function() { reg.update(); }, 60000);
+        })
         .catch(function() {});
     }
 

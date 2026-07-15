@@ -117,6 +117,24 @@
       "expectedStatus": 400,
       "expectedBody": {"error": "Некорректные данные публикации"},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Post edit - not found",
+      "method": "POST",
+      "path": "/?action=post_edit",
+      "body": {"user_id": 0, "post_id": 999999, "content": "test"},
+      "expectedStatus": 404,
+      "expectedBody": {"error": "Публикация не найдена"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Post comment add - empty text",
+      "method": "POST",
+      "path": "/?action=post_comment_add",
+      "body": {"user_id": 0, "post_id": 999999, "text": ""},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "Пустой комментарий"},
+      "bodyMatcher": "partial"
     }
   ]
 }

@@ -1412,19 +1412,49 @@ def handler(event: dict, context) -> dict:
             p_type = body.get('type', 'text')
             content = (body.get('content') or '').strip()
             caption = (body.get('caption') or '').strip() or None
+            media_urls = body.get('media_urls') or None
             if not uid or p_type not in ('photo', 'video', 'text') or not content:
                 return _resp(400, {'error': 'Некорректные данные публикации'})
             if p_type == 'text' and len(content) > 2000:
                 return _resp(400, {'error': 'Текст максимум 2000 символов'})
             cur.execute(
-                """INSERT INTO posts (user_id, type, content, caption, created_at)
-                   VALUES (%s, %s, %s, %s, NOW())
-                   RETURNING id, user_id, type, content, caption, created_at""",
-                (uid, p_type, content, caption),
+                """INSERT INTO posts (user_id, type, content, caption, media_urls, created_at)
+                   VALUES (%s, %s, %s, %s, %s, NOW())
+                   RETURNING id, user_id, type, content, caption, media_urls, created_at""",
+                (uid, p_type, content, caption, media_urls),
             )
             post = cur.fetchone()
             conn.commit()
+            cur.execute("SELECT nick, avatar_url, is_verified FROM users WHERE id=%s", (uid,))
+            author = cur.fetchone()
+            post['nick'] = author['nick']
+            post['avatar_url'] = author['avatar_url']
+            post['is_verified'] = author['is_verified']
+            post['likes_count'] = 0
+            post['comments_count'] = 0
+            post['views_count'] = 0
+            post['liked_by_me'] = False
             return _resp(200, {'post': post})
+
+        # ── Редактировать публикацию ──────────────────────
+        if action == 'post_edit' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            pid = int(body.get('post_id') or 0)
+            caption = body.get('caption')
+            text_content = body.get('content')
+            cur.execute("SELECT user_id, type FROM posts WHERE id=%s", (pid,))
+            row = cur.fetchone()
+            if not row or row['user_id'] != uid:
+                return _resp(404, {'error': 'Публикация не найдена'})
+            if row['type'] == 'text' and text_content is not None:
+                text_content = text_content.strip()
+                if not text_content:
+                    return _resp(400, {'error': 'Текст не может быть пустым'})
+                cur.execute("UPDATE posts SET content=%s WHERE id=%s", (text_content, pid))
+            elif caption is not None:
+                cur.execute("UPDATE posts SET caption=%s WHERE id=%s", ((caption or '').strip() or None, pid))
+            conn.commit()
+            return _resp(200, {'ok': True})
 
         # ── Загрузка медиа для публикации (фото/видео) ────
         if action == 'upload_post_media' and method == 'POST':
@@ -1448,7 +1478,7 @@ def handler(event: dict, context) -> dict:
             cur.execute(
                 """
                 SELECT p.id, p.user_id, u.nick, u.avatar_url, u.is_verified,
-                       p.type, p.content, p.caption, p.created_at,
+                       p.type, p.content, p.caption, p.media_urls, p.created_at,
                        (SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id=p.id) AS likes_count,
                        (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id=p.id) AS comments_count,
                        (SELECT COUNT(*) FROM post_views pv WHERE pv.post_id=p.id) AS views_count,
@@ -1475,13 +1505,17 @@ def handler(event: dict, context) -> dict:
             cur.execute(
                 """
                 SELECT p.id, p.user_id, u.nick, u.avatar_url, u.is_verified,
-                       p.type, p.content, p.caption, p.created_at, u.privacy_content
+                       p.type, p.content, p.caption, p.media_urls, p.created_at, u.privacy_content,
+                       (SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id=p.id) AS likes_count,
+                       (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id=p.id) AS comments_count,
+                       (SELECT COUNT(*) FROM post_views pv WHERE pv.post_id=p.id) AS views_count,
+                       EXISTS(SELECT 1 FROM post_likes pl2 WHERE pl2.post_id=p.id AND pl2.user_id=%s) AS liked_by_me
                 FROM posts p
                 JOIN users u ON u.id = p.user_id
                 WHERE p.is_removed = FALSE AND u.nick ILIKE %s
                 ORDER BY p.id DESC LIMIT 40
                 """,
-                (f'%{q}%',),
+                (me, f'%{q}%'),
             )
             rows = cur.fetchall()
             posts = [r for r in rows if _can_view_post(r['user_id'], me)]
@@ -1498,7 +1532,7 @@ def handler(event: dict, context) -> dict:
             cur.execute(
                 """
                 SELECT p.id, p.user_id, u.nick, u.avatar_url, u.is_verified,
-                       p.type, p.content, p.caption, p.created_at,
+                       p.type, p.content, p.caption, p.media_urls, p.created_at,
                        (SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id=p.id) AS likes_count,
                        (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id=p.id) AS comments_count,
                        (SELECT COUNT(*) FROM post_views pv WHERE pv.post_id=p.id) AS views_count,
@@ -1522,58 +1556,90 @@ def handler(event: dict, context) -> dict:
             if already:
                 cur.execute("DELETE FROM post_likes WHERE post_id=%s AND user_id=%s", (pid, uid))
                 liked = False
+                cur.execute("DELETE FROM notifications WHERE post_id=%s AND from_user_id=%s AND type='post_like'", (pid, uid))
             else:
                 cur.execute("INSERT INTO post_likes (post_id, user_id, created_at) VALUES (%s,%s,NOW()) ON CONFLICT DO NOTHING", (pid, uid))
                 liked = True
                 cur.execute("SELECT user_id FROM posts WHERE id=%s", (pid,))
                 owner = cur.fetchone()
                 if owner and owner['user_id'] != uid:
-                    cur.execute("SELECT nick FROM users WHERE id=%s", (uid,))
-                    liker = cur.fetchone()
                     cur.execute(
-                        "INSERT INTO notifications (user_id, type, from_user_id, created_at, is_read) VALUES (%s,'post_like',%s,NOW(),FALSE)",
-                        (owner['user_id'], uid),
+                        "INSERT INTO notifications (user_id, type, from_user_id, post_id, created_at, is_read) VALUES (%s,'post_like',%s,%s,NOW(),FALSE)",
+                        (owner['user_id'], uid, pid),
                     )
             conn.commit()
             cur.execute("SELECT COUNT(*) AS c FROM post_likes WHERE post_id=%s", (pid,))
             cnt = cur.fetchone()['c']
             return _resp(200, {'liked': liked, 'likes_count': cnt})
 
-        # ── Комментарии: добавить ──────────────────────────
+        # ── Комментарии: добавить (с поддержкой отметки/ответа человеку) ──
         if action == 'post_comment_add' and method == 'POST':
             uid = int(body.get('user_id') or 0)
             pid = int(body.get('post_id') or 0)
             text = (body.get('text') or '').strip()
             reply_to = body.get('reply_to_user_id')
+            reply_to = int(reply_to) if reply_to else None
             if not text:
                 return _resp(400, {'error': 'Пустой комментарий'})
             cur.execute(
                 """INSERT INTO post_comments (post_id, user_id, text, reply_to_user_id, created_at)
                    VALUES (%s,%s,%s,%s,NOW())
-                   RETURNING id, post_id, user_id, text, reply_to_user_id, created_at""",
+                   RETURNING id, post_id, user_id, text, reply_to_user_id, created_at, is_edited""",
                 (pid, uid, text, reply_to),
             )
             comment = cur.fetchone()
-            cur.execute("SELECT nick, avatar_url FROM users WHERE id=%s", (uid,))
+            cur.execute("SELECT nick, avatar_url, is_verified FROM users WHERE id=%s", (uid,))
             author = cur.fetchone()
             comment['nick'] = author['nick']
             comment['avatar_url'] = author['avatar_url']
+            comment['is_verified'] = author['is_verified']
+            comment['reply_to_nick'] = None
+            if reply_to:
+                cur.execute("SELECT nick FROM users WHERE id=%s", (reply_to,))
+                rr = cur.fetchone()
+                comment['reply_to_nick'] = rr['nick'] if rr else None
             cur.execute("SELECT user_id FROM posts WHERE id=%s", (pid,))
             owner = cur.fetchone()
+            notified = set()
             if owner and owner['user_id'] != uid:
                 cur.execute(
-                    "INSERT INTO notifications (user_id, type, from_user_id, created_at, is_read) VALUES (%s,'post_comment',%s,NOW(),FALSE)",
-                    (owner['user_id'], uid),
+                    "INSERT INTO notifications (user_id, type, from_user_id, post_id, created_at, is_read) VALUES (%s,'post_comment',%s,%s,NOW(),FALSE)",
+                    (owner['user_id'], uid, pid),
+                )
+                notified.add(owner['user_id'])
+            if reply_to and reply_to != uid and reply_to not in notified:
+                cur.execute(
+                    "INSERT INTO notifications (user_id, type, from_user_id, post_id, created_at, is_read) VALUES (%s,'post_mention',%s,%s,NOW(),FALSE)",
+                    (reply_to, uid, pid),
                 )
             conn.commit()
             return _resp(200, {'comment': comment})
+
+        # ── Комментарии: редактировать (только свои) ──────
+        if action == 'post_comment_edit' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            cid = int(body.get('comment_id') or 0)
+            text = (body.get('text') or '').strip()
+            if not text:
+                return _resp(400, {'error': 'Пустой комментарий'})
+            cur.execute("UPDATE post_comments SET text=%s, is_edited=TRUE WHERE id=%s AND user_id=%s", (text, cid, uid))
+            conn.commit()
+            return _resp(200, {'ok': True})
+
+        # ── Комментарии: удалить (только свои) ────────────
+        if action == 'post_comment_delete' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            cid = int(body.get('comment_id') or 0)
+            cur.execute("DELETE FROM post_comments WHERE id=%s AND user_id=%s", (cid, uid))
+            conn.commit()
+            return _resp(200, {'ok': True})
 
         # ── Комментарии: список ────────────────────────────
         if action == 'post_comments' and method == 'GET':
             pid = int(params.get('post_id') or 0)
             cur.execute(
                 """SELECT c.id, c.post_id, c.user_id, u.nick, u.avatar_url, u.is_verified,
-                          c.text, c.reply_to_user_id, ru.nick AS reply_to_nick, c.created_at
+                          c.text, c.reply_to_user_id, ru.nick AS reply_to_nick, c.created_at, c.is_edited
                    FROM post_comments c
                    JOIN users u ON u.id=c.user_id
                    LEFT JOIN users ru ON ru.id=c.reply_to_user_id
@@ -1600,11 +1666,12 @@ def handler(event: dict, context) -> dict:
             )
             return _resp(200, {'users': cur.fetchall()})
 
-        # ── Удалить публикацию ──────────────────────────────
+        # ── Удалить публикацию (+ каскадно уведомления) ────
         if action == 'post_delete' and method == 'POST':
             uid = int(body.get('user_id') or 0)
             pid = int(body.get('post_id') or 0)
             cur.execute("UPDATE posts SET is_removed=TRUE WHERE id=%s AND user_id=%s", (pid, uid))
+            cur.execute("DELETE FROM notifications WHERE post_id=%s", (pid,))
             conn.commit()
             return _resp(200, {'ok': True})
 

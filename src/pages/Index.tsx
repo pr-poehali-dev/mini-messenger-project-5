@@ -109,8 +109,8 @@ type Profile = User & { city?: string; birthdate?: string; about?: string; is_on
 type ChatItem = { chat_id: number; kind: 'dm' | 'group'; peer_id?: number; peer_nick?: string; peer_avatar?: string | null; peer_online?: boolean; peer_verified?: boolean; group_id?: number; group_name?: string; group_avatar?: string | null; last_text?: string | null; last_at?: string | null; unread_count?: number };
 type Message = { id: number; sender_id: number; sender_nick: string; sender_avatar?: string | null; sender_verified?: boolean; text?: string | null; image_url?: string | null; media_type?: string | null; media_url?: string | null; created_at: string; is_removed?: boolean; is_read?: boolean; reactions?: { emoji: string; user_id: number }[] };
 type Tab = 'feed' | 'search' | 'chats' | 'notifications' | 'profile';
-type Post = { id: number; user_id: number; nick: string; avatar_url?: string | null; is_verified?: boolean; type: 'photo' | 'video' | 'text'; content: string; caption?: string | null; created_at: string; likes_count: number; comments_count: number; views_count: number; liked_by_me: boolean };
-type PostComment = { id: number; post_id: number; user_id: number; nick: string; avatar_url?: string | null; is_verified?: boolean; text: string; reply_to_user_id?: number | null; reply_to_nick?: string | null; created_at: string };
+type Post = { id: number; user_id: number; nick: string; avatar_url?: string | null; is_verified?: boolean; type: 'photo' | 'video' | 'text'; content: string; caption?: string | null; media_urls?: string[] | null; created_at: string; likes_count: number; comments_count: number; views_count: number; liked_by_me: boolean };
+type PostComment = { id: number; post_id: number; user_id: number; nick: string; avatar_url?: string | null; is_verified?: boolean; text: string; reply_to_user_id?: number | null; reply_to_nick?: string | null; created_at: string; is_edited?: boolean };
 type Notif = { id: number; type: string; from_user_id?: number; from_nick?: string; from_avatar?: string | null; chat_id?: number; group_id?: number; payload?: string; is_read: boolean; created_at: string };
 type GroupInfo = { id: number; name: string; about?: string; photo_url?: string | null; invite_token: string; owner_id: number; my_role?: string; member_count: number; is_public?: boolean };
 type GroupMember = User & { role: string };
@@ -1035,15 +1035,26 @@ function StatusBar({ user, onCreateStatus, onOpenStatus }: { user: User; onCreat
 // ══════════════════════════════════════════════════════════════════════════════
 // FEED TAB — лента публикаций (фото/видео/текст) + статусы сверху + поиск
 // ══════════════════════════════════════════════════════════════════════════════
-function PostCard({ post, user, onOpenProfile, onChanged }: { post: Post; user: User; onOpenProfile: (id: number) => void; onChanged: (p: Post) => void }) {
+function PostCard({ post, user, onOpenProfile, onChanged, onDeleted, onEdit }: { post: Post; user: User; onOpenProfile: (id: number) => void; onChanged: (p: Post) => void; onDeleted?: (id: number) => void; onEdit?: (p: Post) => void }) {
   const { t } = useLang();
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<PostComment[]>([]);
   const [commentText, setCommentText] = useState('');
+  const [replyTo, setReplyTo] = useState<{ id: number; nick: string } | null>(null);
+  const [editingComment, setEditingComment] = useState<{ id: number; text: string } | null>(null);
   const [showLikers, setShowLikers] = useState(false);
   const [likers, setLikers] = useState<User[]>([]);
+  const [showMenu, setShowMenu] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [photoIdx, setPhotoIdx] = useState(0);
+  const [mediaView, setMediaView] = useState<{ src: string; type: 'image' | 'video' } | null>(null);
+  const [showShare, setShowShare] = useState(false);
   const viewedRef = useRef(false);
   const cardRef = useRef<HTMLDivElement>(null);
+  const commentInputRef = useRef<HTMLInputElement>(null);
+
+  const photos = post.media_urls && post.media_urls.length > 0 ? post.media_urls : (post.type === 'photo' ? [post.content] : []);
+  const isMine = post.user_id === user.id;
 
   useEffect(() => {
     if (viewedRef.current) return;
@@ -1074,12 +1085,38 @@ function PostCard({ post, user, onOpenProfile, onChanged }: { post: Post; user: 
   const sendComment = async () => {
     const txt = commentText.trim();
     if (!txt) return;
-    setCommentText('');
-    const d = await api('post_comment_add', 'POST', { user_id: user.id, post_id: post.id, text: txt });
+    if (editingComment) {
+      setComments(c => c.map(x => x.id === editingComment.id ? { ...x, text: txt, is_edited: true } : x));
+      setCommentText(''); setEditingComment(null);
+      await api('post_comment_edit', 'POST', { user_id: user.id, comment_id: editingComment.id, text: txt });
+      return;
+    }
+    setCommentText(''); setReplyTo(null);
+    const d = await api('post_comment_add', 'POST', { user_id: user.id, post_id: post.id, text: txt, reply_to_user_id: replyTo?.id });
     if (d.comment) {
       setComments(c => [...c, d.comment as PostComment]);
       onChanged({ ...post, comments_count: post.comments_count + 1 });
     }
+  };
+
+  const startReply = (c: PostComment) => {
+    setReplyTo({ id: c.user_id, nick: c.nick });
+    setEditingComment(null);
+    setCommentText('');
+    setTimeout(() => commentInputRef.current?.focus(), 50);
+  };
+
+  const startEditComment = (c: PostComment) => {
+    setEditingComment({ id: c.id, text: c.text });
+    setReplyTo(null);
+    setCommentText(c.text);
+    setTimeout(() => commentInputRef.current?.focus(), 50);
+  };
+
+  const deleteComment = async (cid: number) => {
+    setComments(c => c.filter(x => x.id !== cid));
+    onChanged({ ...post, comments_count: Math.max(0, post.comments_count - 1) });
+    await api('post_comment_delete', 'POST', { user_id: user.id, comment_id: cid });
   };
 
   const loadLikers = async () => {
@@ -1088,24 +1125,98 @@ function PostCard({ post, user, onOpenProfile, onChanged }: { post: Post; user: 
     setShowLikers(true);
   };
 
+  const deletePost = async () => {
+    setConfirmDelete(false); setShowMenu(false);
+    onDeleted?.(post.id);
+    await api('post_delete', 'POST', { user_id: user.id, post_id: post.id });
+  };
+
   return (
-    <div ref={cardRef} className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 overflow-hidden animate-fade-up">
-      <button onClick={() => onOpenProfile(post.user_id)} className="w-full flex items-center gap-3 px-4 py-3">
-        <Avatar url={post.avatar_url} nick={post.nick} size={40} />
-        <div className="flex-1 text-left min-w-0">
-          <div className="font-semibold text-slate-800 dark:text-slate-100 text-sm flex items-center gap-1">@{post.nick}{post.is_verified && <VerifiedBadge size={13} />}</div>
-          <div className="text-xs text-slate-400 dark:text-slate-500">{fmtTime(post.created_at)}</div>
+    <div ref={cardRef} className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 overflow-hidden animate-fade-up relative">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <button onClick={() => onOpenProfile(post.user_id)} className="flex-1 flex items-center gap-3 min-w-0">
+          <Avatar url={post.avatar_url} nick={post.nick} size={40} />
+          <div className="flex-1 text-left min-w-0">
+            <div className="font-semibold text-slate-800 dark:text-slate-100 text-sm flex items-center gap-1">@{post.nick}{post.is_verified && <VerifiedBadge size={13} />}</div>
+            <div className="text-xs text-slate-400 dark:text-slate-500">{fmtTime(post.created_at)}</div>
+          </div>
+        </button>
+        <div className="relative">
+          <button onClick={(e) => { e.stopPropagation(); setShowMenu(v => !v); }} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800">
+            <Icon name="MoreHorizontal" size={18} className="text-slate-400 dark:text-slate-500" />
+          </button>
+          {showMenu && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setShowMenu(false)} />
+              <div className="absolute right-0 top-9 bg-white dark:bg-slate-900 rounded-2xl p-1 z-40 w-48 shadow-xl border border-slate-100 dark:border-slate-800 animate-fade-up">
+                <button onClick={() => { setShowMenu(false); setShowShare(true); }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 text-sm text-slate-700 dark:text-slate-200">
+                  <Icon name="Send" size={15} className="text-blue-600" /> {t('Поделиться')}
+                </button>
+                {isMine && (
+                  <>
+                    <button onClick={() => { setShowMenu(false); onEdit?.(post); }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 text-sm text-slate-700 dark:text-slate-200">
+                      <Icon name="Pencil" size={15} className="text-blue-600" /> {t('Редактировать')}
+                    </button>
+                    <button onClick={() => { setConfirmDelete(true); }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-950/30 text-sm text-red-500">
+                      <Icon name="Trash2" size={15} /> {t('Удалить')}
+                    </button>
+                  </>
+                )}
+              </div>
+            </>
+          )}
         </div>
-      </button>
+      </div>
+
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-6" onClick={() => setConfirmDelete(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 w-full max-w-xs" onClick={e => e.stopPropagation()}>
+            <p className="text-sm text-slate-700 dark:text-slate-200 mb-4 text-center">{t('Удалить публикацию навсегда?')}</p>
+            <div className="flex gap-2">
+              <button onClick={deletePost} className="flex-1 py-2.5 rounded-2xl bg-red-500 text-white text-sm font-semibold">{t('Удалить')}</button>
+              <button onClick={() => setConfirmDelete(false)} className="flex-1 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-sm font-medium">{t('Отмена')}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {post.type === 'text' && (
         <p className="px-4 pb-3 text-sm text-slate-700 dark:text-slate-200 whitespace-pre-wrap leading-relaxed">{post.content}</p>
       )}
-      {post.type === 'photo' && (
-        <img src={post.content} className="w-full max-h-[480px] object-cover" />
+      {post.type === 'photo' && photos.length > 0 && (
+        <div className="relative">
+          <img src={photos[photoIdx]} className="w-full max-h-[480px] object-cover cursor-pointer"
+            onClick={() => setMediaView({ src: photos[photoIdx], type: 'image' })} />
+          {photos.length > 1 && (
+            <>
+              <div className="absolute top-3 right-3 bg-black/50 rounded-full px-2.5 py-1 text-white text-xs font-medium">
+                {photoIdx + 1}/{photos.length}
+              </div>
+              {photoIdx > 0 && (
+                <button onClick={() => setPhotoIdx(i => i - 1)} className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 flex items-center justify-center">
+                  <Icon name="ChevronLeft" size={18} className="text-white" />
+                </button>
+              )}
+              {photoIdx < photos.length - 1 && (
+                <button onClick={() => setPhotoIdx(i => i + 1)} className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 flex items-center justify-center">
+                  <Icon name="ChevronRight" size={18} className="text-white" />
+                </button>
+              )}
+              <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
+                {photos.map((_, i) => (
+                  <span key={i} className={`w-1.5 h-1.5 rounded-full ${i === photoIdx ? 'bg-white' : 'bg-white/40'}`} />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       )}
       {post.type === 'video' && (
-        <video src={post.content} controls className="w-full max-h-[480px] object-cover bg-black" />
+        <video src={post.content} controls className="w-full max-h-[480px] object-cover bg-black"
+          onClick={() => setMediaView({ src: post.content, type: 'video' })} />
       )}
       {post.caption && post.type !== 'text' && (
         <p className="px-4 pt-2 text-sm text-slate-600 dark:text-slate-300">{post.caption}</p>
@@ -1120,6 +1231,9 @@ function PostCard({ post, user, onOpenProfile, onChanged }: { post: Post; user: 
           <Icon name="MessageCircle" size={20} className="text-slate-400 dark:text-slate-500" />
           <span className="text-sm text-slate-500 dark:text-slate-400 font-medium">{post.comments_count}</span>
         </button>
+        <button onClick={() => setShowShare(true)} className="flex items-center gap-1.5">
+          <Icon name="Send" size={19} className="text-slate-400 dark:text-slate-500" />
+        </button>
         <div className="flex items-center gap-1.5 ml-auto">
           <Icon name="Eye" size={18} className="text-slate-300 dark:text-slate-600" />
           <span className="text-xs text-slate-400 dark:text-slate-500">{post.views_count}</span>
@@ -1129,24 +1243,46 @@ function PostCard({ post, user, onOpenProfile, onChanged }: { post: Post; user: 
       {showComments && (
         <div className="px-4 pb-4 border-t border-slate-50 dark:border-slate-800 pt-3 space-y-3">
           {comments.map(c => (
-            <div key={c.id} className="flex items-start gap-2">
-              <Avatar url={c.avatar_url} nick={c.nick} size={28} />
-              <div className="flex-1 bg-slate-50 dark:bg-slate-800 rounded-2xl px-3 py-2">
-                <div className="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1">
-                  @{c.nick}{c.reply_to_nick && <span className="text-slate-400 font-normal">→ @{c.reply_to_nick}</span>}
+            <div key={c.id} className="flex items-start gap-2 group">
+              <button onClick={() => onOpenProfile(c.user_id)} className="shrink-0"><Avatar url={c.avatar_url} nick={c.nick} size={28} /></button>
+              <div className="flex-1 min-w-0">
+                <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl px-3 py-2">
+                  <button onClick={() => onOpenProfile(c.user_id)} className="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1">
+                    @{c.nick}{c.is_verified && <VerifiedBadge size={11} />}
+                    {c.reply_to_nick && <span className="text-blue-500 font-normal">→ @{c.reply_to_nick}</span>}
+                  </button>
+                  <div className="text-sm text-slate-600 dark:text-slate-300">{c.text} {c.is_edited && <span className="text-[10px] text-slate-400">({t('изм.')})</span>}</div>
                 </div>
-                <div className="text-sm text-slate-600 dark:text-slate-300">{c.text}</div>
+                <div className="flex items-center gap-3 mt-1 px-1">
+                  <button onClick={() => startReply(c)} className="text-xs text-slate-400 font-medium">{t('Ответить')}</button>
+                  {c.user_id === user.id && (
+                    <>
+                      <button onClick={() => startEditComment(c)} className="text-xs text-slate-400 font-medium">{t('Изменить')}</button>
+                      <button onClick={() => deleteComment(c.id)} className="text-xs text-red-400 font-medium">{t('Удалить')}</button>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           ))}
-          <div className="flex items-center gap-2">
-            <input value={commentText} onChange={e => setCommentText(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && sendComment()}
-              placeholder={t('Комментарий...')}
-              className="flex-1 bg-slate-50 dark:bg-slate-800 rounded-full px-4 py-2 outline-none text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400" />
-            <button onClick={sendComment} disabled={!commentText.trim()} className="w-9 h-9 shrink-0 rounded-full bg-blue-600 flex items-center justify-center disabled:opacity-40">
-              <Icon name="Send" size={15} className="text-white" />
-            </button>
+          <div>
+            {(replyTo || editingComment) && (
+              <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-950/30 rounded-xl px-3 py-1.5 mb-1.5">
+                <span className="text-xs text-blue-600 font-medium">
+                  {editingComment ? t('Редактирование комментария') : `${t('Ответ')} @${replyTo!.nick}`}
+                </span>
+                <button onClick={() => { setReplyTo(null); setEditingComment(null); setCommentText(''); }}><Icon name="X" size={13} className="text-blue-400" /></button>
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <input ref={commentInputRef} value={commentText} onChange={e => setCommentText(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && sendComment()}
+                placeholder={t('Комментарий...')}
+                className="flex-1 bg-slate-50 dark:bg-slate-800 rounded-full px-4 py-2 outline-none text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400" />
+              <button onClick={sendComment} disabled={!commentText.trim()} className="w-9 h-9 shrink-0 rounded-full bg-blue-600 flex items-center justify-center disabled:opacity-40">
+                <Icon name="Send" size={15} className="text-white" />
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1164,6 +1300,56 @@ function PostCard({ post, user, onOpenProfile, onChanged }: { post: Post; user: 
           </div>
         </div>
       )}
+
+      {mediaView && <MediaViewer src={mediaView.src} type={mediaView.type} onClose={() => setMediaView(null)} />}
+      {showShare && <SharePostModal post={post} user={user} onClose={() => setShowShare(false)} />}
+    </div>
+  );
+}
+
+function SharePostModal({ post, user, onClose }: { post: Post; user: User; onClose: () => void }) {
+  const { t } = useLang();
+  const [followers, setFollowers] = useState<User[]>([]);
+  const [sentTo, setSentTo] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    api(`followers&user_id=${user.id}`).then(d => setFollowers((d.users as User[]) || []));
+  }, [user.id]);
+
+  const shareTo = async (peerId: number) => {
+    const chat = await api('open_chat', 'POST', { user_id: user.id, peer_id: peerId });
+    const chatId = chat.chat_id as number;
+    if (!chatId) return;
+    const label = post.type === 'photo' ? '📷 Публикация' : post.type === 'video' ? '🎥 Публикация' : '📝 Публикация';
+    await api('send', 'POST', {
+      chat_id: chatId, user_id: user.id,
+      text: `${label} от @${post.nick}\n${post.type === 'text' ? post.content.slice(0, 200) : (post.caption || '')}`.trim(),
+      media_url: post.type !== 'text' ? post.content : undefined,
+      media_type: post.type !== 'text' ? post.type : undefined,
+    });
+    setSentTo(s => new Set(s).add(peerId));
+  };
+
+  return (
+    <div className="fixed inset-0 z-[70] bg-black/40 flex items-end" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-900 rounded-t-3xl w-full max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 dark:border-slate-800">
+          <h3 className="font-bold text-slate-800 dark:text-slate-100">{t('Поделиться')}</h3>
+          <button onClick={onClose}><Icon name="X" size={20} className="text-slate-400" /></button>
+        </div>
+        <div className="overflow-y-auto flex-1 py-2">
+          {followers.length === 0 ? (
+            <p className="text-center text-slate-400 text-sm py-8">{t('Нет подписчиков')}</p>
+          ) : followers.map(u => (
+            <button key={u.id} onClick={() => shareTo(u.id)} disabled={sentTo.has(u.id)}
+              className="w-full flex items-center gap-3 px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50">
+              <Avatar url={u.avatar_url} nick={u.nick} size={44} />
+              <span className="font-semibold text-slate-800 dark:text-slate-100 text-sm flex-1 text-left">@{u.nick}</span>
+              {sentTo.has(u.id) && <Icon name="Check" size={18} className="text-green-500" />}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1173,17 +1359,26 @@ function FeedTab({ user, onOpenProfile, onCreateStatus, onOpenStatus }: { user: 
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [editingPost, setEditingPost] = useState<Post | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [q, setQ] = useState('');
   const [searchResults, setSearchResults] = useState<Post[]>([]);
+  const postsRef = useRef<Post[]>([]);
+  postsRef.current = posts;
 
   const load = useCallback(async () => {
     const d = await api(`feed&user_id=${user.id}`);
-    setPosts((d.posts as Post[]) || []);
+    const fresh = (d.posts as Post[]) || [];
+    setPosts(prev => {
+      const prevIds = new Set(prev.map(p => p.id));
+      const freshIds = new Set(fresh.map(p => p.id));
+      const same = prev.length === fresh.length && [...prevIds].every(id => freshIds.has(id));
+      return same ? prev : fresh;
+    });
     setLoading(false);
   }, [user.id]);
 
-  useEffect(() => { load(); const iv = setInterval(load, 20000); return () => clearInterval(iv); }, [load]);
+  useEffect(() => { load(); const iv = setInterval(load, 4000); return () => clearInterval(iv); }, [load]);
 
   useEffect(() => {
     if (!q.trim()) { setSearchResults([]); return; }
@@ -1195,6 +1390,7 @@ function FeedTab({ user, onOpenProfile, onCreateStatus, onOpenStatus }: { user: 
   }, [q, user.id]);
 
   const updatePost = (p: Post) => setPosts(ps => ps.map(x => x.id === p.id ? p : x));
+  const removePost = (id: number) => setPosts(ps => ps.filter(x => x.id !== id));
 
   return (
     <div className="flex flex-col h-full">
@@ -1228,7 +1424,7 @@ function FeedTab({ user, onOpenProfile, onCreateStatus, onOpenStatus }: { user: 
           {q.trim() ? (
             searchResults.length === 0
               ? <p className="text-center text-slate-400 mt-12 text-sm">{t('Ничего не найдено')}</p>
-              : searchResults.map(p => <PostCard key={p.id} post={p} user={user} onOpenProfile={onOpenProfile} onChanged={() => {}} />)
+              : searchResults.map(p => <PostCard key={p.id} post={p} user={user} onOpenProfile={onOpenProfile} onChanged={() => {}} onDeleted={() => setSearchResults(rs => rs.filter(x => x.id !== p.id))} onEdit={setEditingPost} />)
           ) : loading ? (
             <div className="flex justify-center pt-12"><div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
           ) : posts.length === 0 ? (
@@ -1240,71 +1436,138 @@ function FeedTab({ user, onOpenProfile, onCreateStatus, onOpenStatus }: { user: 
               <p className="text-xs text-slate-400 dark:text-slate-500">{t('Опубликуй первое фото, видео или текст')}</p>
             </div>
           ) : (
-            posts.map(p => <PostCard key={p.id} post={p} user={user} onOpenProfile={onOpenProfile} onChanged={updatePost} />)
+            posts.map(p => <PostCard key={p.id} post={p} user={user} onOpenProfile={onOpenProfile} onChanged={updatePost} onDeleted={removePost} onEdit={setEditingPost} />)
           )}
         </div>
       </div>
 
-      {showCreate && <PostCreateModal user={user} onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); load(); }} />}
+      {showCreate && (
+        <PostCreateModal user={user} onClose={() => setShowCreate(false)}
+          onCreated={(newPost) => {
+            setShowCreate(false);
+            if (newPost) setPosts(ps => [newPost, ...ps]); else load();
+          }} />
+      )}
+      {editingPost && (
+        <PostCreateModal user={user} editPost={editingPost} onClose={() => setEditingPost(null)}
+          onCreated={(updated) => {
+            if (updated) updatePost(updated);
+            setEditingPost(null);
+          }} />
+      )}
     </div>
   );
 }
 
-function PostCreateModal({ user, onClose, onCreated }: { user: User; onClose: () => void; onCreated: () => void }) {
+const POST_VIDEO_CHUNK_SIZE = 1024 * 1024; // 1 МБ — грузим видео чанками, обходим лимит 413
+
+function PostCreateModal({ user, onClose, onCreated, editPost }: { user: User; onClose: () => void; onCreated: (p?: Post) => void; editPost?: Post | null }) {
   const { t } = useLang();
-  const [type, setType] = useState<'text' | 'photo' | 'video'>('text');
-  const [text, setText] = useState('');
-  const [caption, setCaption] = useState('');
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState('');
+  const isEditing = !!editPost;
+  const [type, setType] = useState<'text' | 'photo' | 'video'>(editPost?.type || 'text');
+  const [text, setText] = useState(editPost?.type === 'text' ? editPost.content : '');
+  const [caption, setCaption] = useState(editPost?.caption || '');
+  const [files, setFiles] = useState<File[]>([]);
+  const [previews, setPreviews] = useState<string[]>(editPost?.media_urls || (editPost?.type === 'photo' ? [editPost.content] : []));
+  const [videoPreview, setVideoPreview] = useState(editPost?.type === 'video' ? editPost.content : '');
   const [posting, setPosting] = useState(false);
+  const [progress, setProgress] = useState('');
   const [error, setError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   const pickFile = (kind: 'photo' | 'video') => {
     setType(kind);
-    fileRef.current?.click();
+    if (fileRef.current) {
+      fileRef.current.accept = kind === 'video' ? 'video/*' : 'image/*';
+      fileRef.current.multiple = kind === 'photo';
+      fileRef.current.click();
+    }
   };
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0]; e.target.value = '';
-    if (!f) return;
-    setFile(f);
-    setPreview(URL.createObjectURL(f));
+    const picked = Array.from(e.target.files || []); e.target.value = '';
+    if (!picked.length) return;
+    if (type === 'photo') {
+      const room = 5 - files.length;
+      if (room <= 0) return;
+      const toAdd = picked.slice(0, room);
+      setFiles(f => [...f, ...toAdd]);
+      setPreviews(p => [...p, ...toAdd.map(f => URL.createObjectURL(f))]);
+    } else {
+      setFiles([picked[0]]);
+      setVideoPreview(URL.createObjectURL(picked[0]));
+    }
   };
 
-  const canPost = type === 'text' ? text.trim().length > 0 : !!file;
+  const removePhoto = (idx: number) => {
+    setFiles(f => f.filter((_, i) => i !== idx));
+    setPreviews(p => p.filter((_, i) => i !== idx));
+  };
+
+  const canPost = isEditing
+    ? (editPost!.type === 'text' ? text.trim().length > 0 : true)
+    : type === 'text' ? text.trim().length > 0 : type === 'photo' ? previews.length > 0 : !!videoPreview;
+
+  // Загрузка видео чанками через UPLOAD_API — обходит лимит размера тела запроса (413)
+  const uploadVideoChunked = async (file: File): Promise<string | null> => {
+    const uploadId = `post_${user.id}_${Date.now()}`;
+    const total = Math.ceil(file.size / POST_VIDEO_CHUNK_SIZE);
+    for (let i = 0; i < total; i++) {
+      const chunk = file.slice(i * POST_VIDEO_CHUNK_SIZE, (i + 1) * POST_VIDEO_CHUNK_SIZE);
+      const buf = await chunk.arrayBuffer();
+      setProgress(`${i + 1}/${total}`);
+      const r = await apiChunk(user.id, uploadId, i, buf);
+      if (!r.ok) { setError(t('Ошибка загрузки видео')); return null; }
+    }
+    setProgress(t('Сборка...'));
+    const ext = (file.name.split('.').pop() || 'mp4').toLowerCase();
+    const asm = await apiAssemble({ user_id: user.id, upload_id: uploadId, total_chunks: total, ext, media_type: 'video' });
+    if (asm.error || !asm.url) { setError((asm.error as string) || t('Ошибка сборки видео')); return null; }
+    return asm.url as string;
+  };
 
   const post = async () => {
     if (!canPost || posting) return;
-    setPosting(true); setError('');
+    setPosting(true); setError(''); setProgress('');
     try {
+      if (isEditing) {
+        const d = await api('post_edit', 'POST', {
+          user_id: user.id, post_id: editPost!.id,
+          content: editPost!.type === 'text' ? text.trim() : undefined,
+          caption: editPost!.type !== 'text' ? caption.trim() : undefined,
+        });
+        if (d.error) { setError(d.error as string); return; }
+        onCreated({ ...editPost!, content: editPost!.type === 'text' ? text.trim() : editPost!.content, caption: caption.trim() || null });
+        return;
+      }
       if (type === 'text') {
         const d = await api('post_create', 'POST', { user_id: user.id, type: 'text', content: text.trim() });
         if (d.error) { setError(d.error as string); return; }
-      } else {
-        const compressed = type === 'photo' ? await compressImage(file!, 1600, 0.85) : null;
-        let b64: string, ext: string;
-        if (compressed) {
-          [, b64] = compressed.split(',');
-          ext = 'jpg';
-        } else {
-          ext = (file!.name.split('.').pop() || 'mp4').toLowerCase();
-          b64 = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve((reader.result as string).split(',')[1]);
-            reader.onerror = reject;
-            reader.readAsDataURL(file!);
-          });
+        onCreated(d.post as Post);
+      } else if (type === 'photo') {
+        const urls: string[] = [];
+        for (let i = 0; i < files.length; i++) {
+          setProgress(`${t('Фото')} ${i + 1}/${files.length}`);
+          const compressed = await compressImage(files[i], 1600, 0.85);
+          const [, b64] = compressed.split(',');
+          const up = await api('upload_post_media', 'POST', { user_id: user.id, data: b64, ext: 'jpg', media_type: 'photo' });
+          if (up.error || !up.url) { setError((up.error as string) || t('Ошибка загрузки')); return; }
+          urls.push(up.url as string);
         }
-        const up = await api('upload_post_media', 'POST', { user_id: user.id, data: b64, ext, media_type: type });
-        if (up.error || !up.url) { setError((up.error as string) || t('Ошибка загрузки')); return; }
-        const d = await api('post_create', 'POST', { user_id: user.id, type, content: up.url, caption: caption.trim() || undefined });
+        const d = await api('post_create', 'POST', { user_id: user.id, type: 'photo', content: urls[0], media_urls: urls.length > 1 ? urls : undefined, caption: caption.trim() || undefined });
         if (d.error) { setError(d.error as string); return; }
+        onCreated(d.post as Post);
+      } else {
+        // Видео — грузим чанками, чтобы не упереться в лимит размера запроса (413)
+        const url = await uploadVideoChunked(files[0]);
+        if (!url) return;
+        const d = await api('post_create', 'POST', { user_id: user.id, type: 'video', content: url, caption: caption.trim() || undefined });
+        if (d.error) { setError(d.error as string); return; }
+        onCreated(d.post as Post);
       }
-      onCreated();
     } finally {
       setPosting(false);
+      setProgress('');
     }
   };
 
@@ -1314,27 +1577,30 @@ function PostCreateModal({ user, onClose, onCreated }: { user: User; onClose: ()
         <button onClick={onClose} className="w-9 h-9 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center">
           <Icon name="X" size={20} className="text-slate-600 dark:text-slate-300" />
         </button>
-        <h1 className="font-bold text-slate-800 dark:text-slate-100">{t('Новая публикация')}</h1>
+        <h1 className="font-bold text-slate-800 dark:text-slate-100">{isEditing ? t('Редактировать') : t('Новая публикация')}</h1>
         <button onClick={post} disabled={!canPost || posting}
           className="px-4 py-1.5 rounded-full bg-blue-600 text-white text-sm font-semibold disabled:opacity-40">
-          {posting ? t('Публикация...') : t('Опубликовать')}
+          {posting ? (progress || t('Публикация...')) : isEditing ? t('Сохранить') : t('Опубликовать')}
         </button>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
-        <input ref={fileRef} type="file" accept={type === 'video' ? 'video/*' : 'image/*'} hidden onChange={onFile} />
-        <div className="flex gap-2 mb-4">
-          {([
-            { key: 'text', icon: 'Type', label: t('Текст') },
-            { key: 'photo', icon: 'Image', label: t('Фото') },
-            { key: 'video', icon: 'Video', label: t('Видео') },
-          ] as const).map(opt => (
-            <button key={opt.key} onClick={() => opt.key === 'text' ? setType('text') : pickFile(opt.key)}
-              className={`flex-1 py-3 rounded-2xl flex flex-col items-center gap-1 border transition-colors ${type === opt.key ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900' : 'bg-slate-50 dark:bg-slate-900 border-slate-100 dark:border-slate-800'}`}>
-              <Icon name={opt.icon} size={20} className={type === opt.key ? 'text-blue-600' : 'text-slate-400'} />
-              <span className={`text-xs font-medium ${type === opt.key ? 'text-blue-600' : 'text-slate-500 dark:text-slate-400'}`}>{opt.label}</span>
-            </button>
-          ))}
-        </div>
+        <input ref={fileRef} type="file" hidden onChange={onFile} />
+
+        {!isEditing && (
+          <div className="flex gap-2 mb-4">
+            {([
+              { key: 'text', icon: 'Type', label: t('Текст') },
+              { key: 'photo', icon: 'Image', label: t('Фото') },
+              { key: 'video', icon: 'Video', label: t('Видео') },
+            ] as const).map(opt => (
+              <button key={opt.key} onClick={() => opt.key === 'text' ? setType('text') : pickFile(opt.key)}
+                className={`flex-1 py-3 rounded-2xl flex flex-col items-center gap-1 border transition-colors ${type === opt.key ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900' : 'bg-slate-50 dark:bg-slate-900 border-slate-100 dark:border-slate-800'}`}>
+                <Icon name={opt.icon} size={20} className={type === opt.key ? 'text-blue-600' : 'text-slate-400'} />
+                <span className={`text-xs font-medium ${type === opt.key ? 'text-blue-600' : 'text-slate-500 dark:text-slate-400'}`}>{opt.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {type === 'text' && (
           <textarea value={text} onChange={e => setText(e.target.value.slice(0, 2000))} autoFocus rows={8}
@@ -1342,26 +1608,58 @@ function PostCreateModal({ user, onClose, onCreated }: { user: User; onClose: ()
             className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-blue-500 resize-none text-slate-800 dark:text-slate-100 text-sm" />
         )}
 
-        {(type === 'photo' || type === 'video') && (
+        {type === 'photo' && !isEditing && (
           <>
-            {preview ? (
-              <div className="relative rounded-3xl overflow-hidden mb-4 bg-black">
-                {type === 'photo' ? <img src={preview} className="w-full max-h-[400px] object-contain" /> : <video src={preview} controls className="w-full max-h-[400px]" />}
-                <button onClick={() => { setFile(null); setPreview(''); }} className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center">
-                  <Icon name="X" size={16} className="text-white" />
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">
+              {t('Фото')} · {previews.length}/5
+            </p>
+            <div className="flex gap-2 flex-wrap mb-4">
+              {previews.map((p, i) => (
+                <div key={i} className="relative w-20 h-20 rounded-2xl overflow-hidden bg-black">
+                  <img src={p} className="w-full h-full object-cover" />
+                  <button onClick={() => removePhoto(i)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center">
+                    <Icon name="X" size={10} className="text-white" />
+                  </button>
+                </div>
+              ))}
+              {previews.length < 5 && (
+                <button onClick={() => pickFile('photo')}
+                  className="w-20 h-20 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-1 text-slate-400 dark:text-slate-500">
+                  <Icon name="Plus" size={20} />
+                  <span className="text-[10px]">{t('Добавить')}</span>
                 </button>
-              </div>
-            ) : (
-              <button onClick={() => pickFile(type)} className="w-full aspect-square rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-2 text-slate-400 dark:text-slate-500 mb-4">
-                <Icon name={type === 'photo' ? 'Image' : 'Video'} size={32} />
-                <span className="text-sm font-medium">{t('Выбрать файл')}</span>
-              </button>
-            )}
-            {preview && (
-              <input value={caption} onChange={e => setCaption(e.target.value)} placeholder={t('Добавить подпись...')}
-                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 dark:text-slate-100 text-sm" />
-            )}
+              )}
+            </div>
           </>
+        )}
+
+        {type === 'video' && !isEditing && (
+          videoPreview ? (
+            <div className="relative rounded-3xl overflow-hidden mb-4 bg-black">
+              <video src={videoPreview} controls className="w-full max-h-[400px]" />
+              <button onClick={() => { setFiles([]); setVideoPreview(''); }} className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center">
+                <Icon name="X" size={16} className="text-white" />
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => pickFile('video')} className="w-full aspect-square rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-2 text-slate-400 dark:text-slate-500 mb-4">
+              <Icon name="Video" size={32} />
+              <span className="text-sm font-medium">{t('Выбрать файл')}</span>
+            </button>
+          )
+        )}
+
+        {isEditing && editPost!.type !== 'text' && (
+          <div className="relative rounded-3xl overflow-hidden mb-4 bg-black">
+            {editPost!.type === 'photo'
+              ? <img src={editPost!.content} className="w-full max-h-[300px] object-contain" />
+              : <video src={editPost!.content} controls className="w-full max-h-[300px]" />}
+          </div>
+        )}
+
+        {(type !== 'text' && (previews.length > 0 || videoPreview || isEditing)) && (
+          <input value={caption} onChange={e => setCaption(e.target.value)} placeholder={t('Добавить подпись...')}
+            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 dark:text-slate-100 text-sm" />
         )}
 
         {error && <p className="text-red-500 text-sm mt-3">{error}</p>}
@@ -1423,12 +1721,20 @@ const NOTIF_LABELS: Record<string, string> = {
   new_message: 'Новое сообщение',
   follow: 'Подписался на тебя',
   group_invite: 'Добавлен в группу',
+  post_like: 'Понравилась публикация',
+  post_comment: 'Комментарий к публикации',
+  post_mention: 'Отметил тебя в комментарии',
+  post_share: 'Поделился публикацией',
 };
 const NOTIF_ICONS: Record<string, string> = {
   missed_call: 'PhoneMissed',
   new_message: 'MessageCircle',
   follow: 'UserPlus',
   group_invite: 'Users',
+  post_like: 'Heart',
+  post_comment: 'MessageCircle',
+  post_mention: 'AtSign',
+  post_share: 'Share2',
 };
 
 function NotificationsTab({ user, onOpenChat, onOpenProfile, onCall, onBack }: {
@@ -1616,12 +1922,18 @@ function UserProfileScreen({ me, userId, onBack, onOpenChat, onFollowers, onCall
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [showPhoto, setShowPhoto] = useState(false);
+  const [userPosts, setUserPosts] = useState<Post[]>([]);
+  const [viewPost, setViewPost] = useState<Post | null>(null);
 
   const load = async () => {
     const d = await api(`profile&user_id=${userId}&me=${me.id}`);
     setProfile(d.user); setLoading(false);
   };
   useEffect(() => { load(); }, [userId]);
+
+  useEffect(() => {
+    api(`user_posts&user_id=${me.id}&owner_id=${userId}`).then(d => setUserPosts((d.posts as Post[]) || []));
+  }, [userId, me.id]);
 
   const follow = async () => { await api('follow', 'POST', { user_id: me.id, target_id: userId }); load(); };
   const unfollow = async () => { await api('unfollow', 'POST', { user_id: me.id, target_id: userId }); load(); };
@@ -1702,6 +2014,50 @@ function UserProfileScreen({ me, userId, onBack, onOpenChat, onFollowers, onCall
                 <Icon name="Ban" size={18} className="inline mr-2" />{t('Разблокировать')}
               </button>
             )}
+          </div>
+
+          {/* Публикации пользователя */}
+          {!profile.i_blocked && userPosts.length > 0 && (
+            <div className="px-4 pb-8">
+              <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider px-1 mb-3">{t('Публикации')}</p>
+              <div className="grid grid-cols-3 gap-1.5">
+                {userPosts.map(p => (
+                  <button key={p.id} onClick={() => setViewPost(p)} className="relative aspect-square rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800">
+                    {p.type === 'text'
+                      ? <div className="w-full h-full flex items-center justify-center p-2"><span className="text-xs text-slate-500 dark:text-slate-400 line-clamp-4 text-center">{p.content}</span></div>
+                      : p.type === 'video'
+                        ? <video src={p.content} className="w-full h-full object-cover" />
+                        : <img src={p.media_urls?.[0] || p.content} className="w-full h-full object-cover" />}
+                    {p.type === 'video' && (
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center">
+                          <Icon name="Play" size={14} className="text-white ml-0.5" />
+                        </div>
+                      </div>
+                    )}
+                    <div className="absolute bottom-1 left-1 flex items-center gap-1 bg-black/50 rounded-full px-1.5 py-0.5">
+                      <Icon name="Heart" size={10} className="text-white" />
+                      <span className="text-[10px] text-white font-medium">{p.likes_count}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {viewPost && (
+        <div className="fixed inset-0 z-50 bg-white dark:bg-slate-950 overflow-y-auto" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+          <div className="shrink-0 flex items-center px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+            <button onClick={() => setViewPost(null)} className="w-9 h-9 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center">
+              <Icon name="ArrowLeft" size={20} className="text-slate-600 dark:text-slate-300" />
+            </button>
+          </div>
+          <div className="p-3">
+            <PostCard post={viewPost} user={me} onOpenProfile={() => {}}
+              onChanged={(p) => { setViewPost(p); setUserPosts(ps => ps.map(x => x.id === p.id ? p : x)); }}
+              onDeleted={(id) => { setViewPost(null); setUserPosts(ps => ps.filter(x => x.id !== id)); }} />
           </div>
         </div>
       )}
@@ -1793,6 +2149,9 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
 
   // мои публикации
   const [myPosts, setMyPosts] = useState<Post[]>([]);
+  const [viewPost, setViewPost] = useState<Post | null>(null);
+  const [postMenuId, setPostMenuId] = useState<number | null>(null);
+  const [editingPost, setEditingPost] = useState<Post | null>(null);
 
   const loadBlocked = async () => {
     const d = await api(`blocked&user_id=${user.id}`);
@@ -2050,40 +2409,7 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
             </div>
           )}
 
-          {/* Мои публикации */}
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-100 dark:border-slate-800">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider px-1">{t('Мои публикации')}</p>
-              <button onClick={loadStats} className="text-xs font-semibold text-blue-600 flex items-center gap-1 px-1">
-                <Icon name="BarChart2" size={13} /> {t('Статистика')}
-              </button>
-            </div>
-            {myPosts.length === 0 ? (
-              <p className="text-sm text-slate-400 dark:text-slate-500 py-4 text-center">{t('Пока нет публикаций')}</p>
-            ) : (
-              <div className="grid grid-cols-3 gap-1.5">
-                {myPosts.map(p => (
-                  <div key={p.id} className="relative aspect-square rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 group">
-                    {p.type === 'text'
-                      ? <div className="w-full h-full flex items-center justify-center p-2"><span className="text-xs text-slate-500 dark:text-slate-400 line-clamp-4 text-center">{p.content}</span></div>
-                      : p.type === 'video'
-                        ? <video src={p.content} className="w-full h-full object-cover" />
-                        : <img src={p.content} className="w-full h-full object-cover" />}
-                    <button onClick={() => deletePost(p.id)}
-                      className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 flex items-center justify-center opacity-0 group-active:opacity-100 transition-opacity">
-                      <Icon name="Trash2" size={12} className="text-white" />
-                    </button>
-                    <div className="absolute bottom-1 left-1 flex items-center gap-1 bg-black/50 rounded-full px-1.5 py-0.5">
-                      <Icon name="Heart" size={10} className="text-white" />
-                      <span className="text-[10px] text-white font-medium">{p.likes_count}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Настройки — сворачиваемая секция со всем внутри */}
+          {/* Настройки — сворачиваемая секция со всем внутри, сразу под Редактировать */}
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-100 dark:border-slate-800">
             <button onClick={() => setSettingsOpen(v => !v)} className="w-full flex items-center gap-3 py-1 px-1">
               <div className="w-9 h-9 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
@@ -2176,9 +2502,93 @@ function ProfileTab({ user, onLogout, onUpdate, onFollowers, lightTheme, onToggl
               </div>
             )}
           </div>
+
+          {/* Публикация — грид моих постов */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-100 dark:border-slate-800">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider px-1">{t('Публикации')}</p>
+              <button onClick={loadStats} className="text-xs font-semibold text-blue-600 flex items-center gap-1 px-1">
+                <Icon name="BarChart2" size={13} /> {t('Статистика')}
+              </button>
+            </div>
+            {myPosts.length === 0 ? (
+              <p className="text-sm text-slate-400 dark:text-slate-500 py-4 text-center">{t('Пока нет публикаций')}</p>
+            ) : (
+              <div className="grid grid-cols-3 gap-1.5">
+                {myPosts.map(p => (
+                  <div key={p.id} className="relative aspect-square rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 group"
+                    onClick={() => setViewPost(p)}>
+                    {p.type === 'text'
+                      ? <div className="w-full h-full flex items-center justify-center p-2"><span className="text-xs text-slate-500 dark:text-slate-400 line-clamp-4 text-center">{p.content}</span></div>
+                      : p.type === 'video'
+                        ? <video src={p.content} className="w-full h-full object-cover" />
+                        : <img src={p.media_urls?.[0] || p.content} className="w-full h-full object-cover" />}
+                    {p.type === 'video' && (
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center">
+                          <Icon name="Play" size={14} className="text-white ml-0.5" />
+                        </div>
+                      </div>
+                    )}
+                    {p.media_urls && p.media_urls.length > 1 && (
+                      <div className="absolute top-1.5 right-1.5"><Icon name="Copy" size={13} className="text-white drop-shadow" /></div>
+                    )}
+                    <button onClick={(e) => { e.stopPropagation(); setPostMenuId(postMenuId === p.id ? null : p.id); }}
+                      className="absolute top-1 left-1 w-6 h-6 rounded-full bg-black/50 flex items-center justify-center">
+                      <Icon name="MoreHorizontal" size={13} className="text-white" />
+                    </button>
+                    {postMenuId === p.id && (
+                      <div className="absolute top-8 left-1 z-20 bg-white dark:bg-slate-900 rounded-xl p-1 shadow-xl border border-slate-100 dark:border-slate-800 w-32"
+                        onClick={e => e.stopPropagation()}>
+                        <button onClick={() => { setPostMenuId(null); setEditingPost(p); }}
+                          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-xs text-slate-700 dark:text-slate-200">
+                          <Icon name="Pencil" size={12} className="text-blue-600" /> {t('Редактировать')}
+                        </button>
+                        <button onClick={() => { setPostMenuId(null); deletePost(p.id); }}
+                          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 text-xs text-red-500">
+                          <Icon name="Trash2" size={12} /> {t('Удалить')}
+                        </button>
+                      </div>
+                    )}
+                    <div className="absolute bottom-1 left-1 flex items-center gap-1 bg-black/50 rounded-full px-1.5 py-0.5">
+                      <Icon name="Heart" size={10} className="text-white" />
+                      <span className="text-[10px] text-white font-medium">{p.likes_count}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
       </div>
+
+      {/* Просмотр публикации на весь экран (как в ленте) */}
+      {viewPost && (
+        <div className="fixed inset-0 z-50 bg-white dark:bg-slate-950 overflow-y-auto" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+          <div className="shrink-0 flex items-center px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+            <button onClick={() => setViewPost(null)} className="w-9 h-9 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center">
+              <Icon name="ArrowLeft" size={20} className="text-slate-600 dark:text-slate-300" />
+            </button>
+          </div>
+          <div className="p-3">
+            <PostCard post={viewPost} user={user}
+              onOpenProfile={() => {}}
+              onChanged={(p) => { setViewPost(p); setMyPosts(ps => ps.map(x => x.id === p.id ? p : x)); }}
+              onDeleted={(id) => { setViewPost(null); setMyPosts(ps => ps.filter(x => x.id !== id)); }}
+              onEdit={(p) => { setViewPost(null); setEditingPost(p); }} />
+          </div>
+        </div>
+      )}
+
+      {/* Редактирование публикации */}
+      {editingPost && (
+        <PostCreateModal user={user} editPost={editingPost} onClose={() => setEditingPost(null)}
+          onCreated={(updated) => {
+            if (updated) setMyPosts(ps => ps.map(x => x.id === updated.id ? updated : x));
+            setEditingPost(null);
+          }} />
+      )}
 
       {/* Модальное окно заблокированных */}
       {showBlocked && (
