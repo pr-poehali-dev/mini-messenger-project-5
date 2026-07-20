@@ -4,91 +4,92 @@
 
 @layer base {
   :root {
-    --background: 214 100% 97%;
-    --foreground: 214 60% 10%;
+    /* Вай Чат — Telegram Premium стиль: #3F8CFF основной, #5BA0FF акцент */
+    --background: 220 33% 98%;
+    --foreground: 0 0% 0%;
 
     --card: 0 0% 100%;
-    --card-foreground: 214 60% 10%;
+    --card-foreground: 0 0% 0%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 214 60% 10%;
+    --popover-foreground: 0 0% 0%;
 
-    --primary: 217 91% 50%;
+    --primary: 215 100% 63%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 214 40% 92%;
-    --secondary-foreground: 214 60% 20%;
+    --secondary: 220 25% 95%;
+    --secondary-foreground: 215 20% 30%;
 
-    --muted: 214 30% 90%;
-    --muted-foreground: 214 20% 50%;
+    --muted: 220 20% 94%;
+    --muted-foreground: 213 12% 60%;
 
-    --accent: 217 91% 50%;
+    --accent: 213 100% 68%;
     --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 84% 60%;
+    --destructive: 4 100% 59%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 214 30% 86%;
-    --input: 214 30% 86%;
-    --ring: 217 91% 50%;
+    --border: 220 20% 90%;
+    --input: 220 20% 90%;
+    --ring: 215 100% 63%;
 
     --radius: 0.875rem;
 
     --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 214 60% 10%;
-    --sidebar-primary: 217 91% 50%;
+    --sidebar-foreground: 0 0% 0%;
+    --sidebar-primary: 215 100% 63%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 214 40% 92%;
-    --sidebar-accent-foreground: 214 60% 20%;
-    --sidebar-border: 214 30% 86%;
-    --sidebar-ring: 217 91% 50%;
+    --sidebar-accent: 220 25% 95%;
+    --sidebar-accent-foreground: 215 20% 30%;
+    --sidebar-border: 220 20% 90%;
+    --sidebar-ring: 215 100% 63%;
   }
 
   .dark {
-    --background: 222 47% 7%;
-    --foreground: 210 40% 96%;
-    --card: 222 40% 10%;
-    --card-foreground: 210 40% 96%;
-    --popover: 222 40% 10%;
-    --popover-foreground: 210 40% 96%;
-    --primary: 217 91% 55%;
+    --background: 0 0% 4%;
+    --foreground: 0 0% 100%;
+    --card: 0 0% 12%;
+    --card-foreground: 0 0% 100%;
+    --popover: 0 0% 12%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 215 100% 63%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 222 35% 15%;
-    --secondary-foreground: 210 40% 90%;
-    --muted: 222 30% 18%;
-    --muted-foreground: 214 20% 55%;
-    --accent: 199 89% 55%;
-    --accent-foreground: 222 47% 7%;
-    --destructive: 0 72% 55%;
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 92%;
+    --muted: 0 0% 17%;
+    --muted-foreground: 213 8% 62%;
+    --accent: 213 100% 68%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 4 100% 59%;
     --destructive-foreground: 0 0% 100%;
-    --border: 222 30% 18%;
-    --input: 222 30% 18%;
-    --ring: 217 91% 55%;
+    --border: 0 0% 17%;
+    --input: 0 0% 17%;
+    --ring: 215 100% 63%;
     --radius: 0.875rem;
   }
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: 222 47% 7%;
-    --foreground: 210 40% 96%;
-    --card: 222 40% 10%;
-    --card-foreground: 210 40% 96%;
-    --popover: 222 40% 10%;
-    --popover-foreground: 210 40% 96%;
-    --primary: 217 91% 55%;
+    --background: 0 0% 4%;
+    --foreground: 0 0% 100%;
+    --card: 0 0% 12%;
+    --card-foreground: 0 0% 100%;
+    --popover: 0 0% 12%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 215 100% 63%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 222 35% 15%;
-    --secondary-foreground: 210 40% 90%;
-    --muted: 222 30% 18%;
-    --muted-foreground: 214 20% 55%;
-    --accent: 199 89% 55%;
-    --accent-foreground: 222 47% 7%;
-    --destructive: 0 72% 55%;
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 92%;
+    --muted: 0 0% 17%;
+    --muted-foreground: 213 8% 62%;
+    --accent: 213 100% 68%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 4 100% 59%;
     --destructive-foreground: 0 0% 100%;
-    --border: 222 30% 18%;
-    --input: 222 30% 18%;
-    --ring: 217 91% 55%;
+    --border: 0 0% 17%;
+    --input: 0 0% 17%;
+    --ring: 215 100% 63%;
     --radius: 0.875rem;
   }
 }

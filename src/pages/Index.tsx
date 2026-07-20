@@ -106,9 +106,9 @@ const VerifiedBadge = ({ size = 16 }: { size?: number }) => (
 // ── types ─────────────────────────────────────────────────────────────────────
 type User = { id: number; nick: string; avatar_url?: string | null; profile_complete?: boolean; is_online?: boolean; is_verified?: boolean };
 type Profile = User & { city?: string; birthdate?: string; about?: string; is_online?: boolean; last_seen?: string; followers: number; following: number; i_follow?: boolean; i_blocked?: boolean };
-type ChatItem = { chat_id: number; kind: 'dm' | 'group'; peer_id?: number; peer_nick?: string; peer_avatar?: string | null; peer_online?: boolean; peer_verified?: boolean; group_id?: number; group_name?: string; group_avatar?: string | null; last_text?: string | null; last_at?: string | null; unread_count?: number };
-type Message = { id: number; sender_id: number; sender_nick: string; sender_avatar?: string | null; sender_verified?: boolean; text?: string | null; image_url?: string | null; media_type?: string | null; media_url?: string | null; created_at: string; is_removed?: boolean; is_read?: boolean; reactions?: { emoji: string; user_id: number }[] };
-type Tab = 'feed' | 'search' | 'chats' | 'notifications' | 'profile';
+type ChatItem = { chat_id: number; kind: 'dm' | 'group'; peer_id?: number; peer_nick?: string; peer_avatar?: string | null; peer_online?: boolean; peer_verified?: boolean; group_id?: number; group_name?: string; group_avatar?: string | null; last_text?: string | null; last_at?: string | null; unread_count?: number; pinned?: boolean };
+type Message = { id: number; sender_id: number; sender_nick: string; sender_avatar?: string | null; sender_verified?: boolean; text?: string | null; image_url?: string | null; media_type?: string | null; media_url?: string | null; created_at: string; is_removed?: boolean; is_read?: boolean; reactions?: { emoji: string; user_id: number }[]; reply_to_id?: number | null; reply_to_text?: string | null; reply_to_nick?: string | null };
+type Tab = 'chats' | 'notifications' | 'profile';
 type Post = { id: number; user_id: number; nick: string; avatar_url?: string | null; is_verified?: boolean; type: 'photo' | 'video' | 'text'; content: string; caption?: string | null; media_urls?: string[] | null; created_at: string; likes_count: number; comments_count: number; views_count: number; liked_by_me: boolean };
 type PostComment = { id: number; post_id: number; user_id: number; nick: string; avatar_url?: string | null; is_verified?: boolean; text: string; reply_to_user_id?: number | null; reply_to_nick?: string | null; created_at: string; is_edited?: boolean };
 type Notif = { id: number; type: string; from_user_id?: number; from_nick?: string; from_avatar?: string | null; chat_id?: number; group_id?: number; payload?: string; is_read: boolean; created_at: string };
@@ -120,7 +120,6 @@ type StatusFeedItem = { user_id: number; nick: string; avatar_url?: string | nul
 // ── screens ───────────────────────────────────────────────────────────────────
 type Screen =
   | { name: 'login' }
-  | { name: 'setup' }
   | { name: 'tabs'; tab: Tab }
   | { name: 'chat'; chatId: number; peer?: User; groupName?: string; groupId?: number; groupPhotoUrl?: string | null }
   | { name: 'user_profile'; userId: number }
@@ -136,7 +135,7 @@ export default function Index() {
   });
   const [screen, setScreen] = useState<Screen>(() => {
     const r = localStorage.getItem('orbit_user');
-    if (r) { const u = JSON.parse(r); return u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' }; }
+    if (r) return { name: 'tabs', tab: 'chats' };
     return { name: 'login' };
   });
   const [loginError, setLoginError] = useState('');
@@ -192,13 +191,13 @@ export default function Index() {
     if (user || didLogout.current) return;
     let cancelled = false;
     const device_id = getDeviceId();
-    api('login', 'POST', { nick: '', device_id }).then(data => {
+    api('auth_check_device', 'POST', { device_id }).then(data => {
       if (cancelled) return;
       if (data.user) {
-        const u = data.user as User & { profile_complete: boolean };
+        const u = data.user as User;
         localStorage.setItem('orbit_user', JSON.stringify(u));
         setUser(u);
-        setScreen(u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' });
+        setScreen({ name: 'tabs', tab: 'chats' });
       } else {
         // Нет сохранённой сессии — показываем экран логина, убираем splash
         if (typeof window.__hideSplash === 'function') window.__hideSplash();
@@ -209,26 +208,26 @@ export default function Index() {
     return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const login = async (nick: string, password: string) => {
+  const loginEmail = async (email: string, password: string) => {
     setLoginError('');
-    const data = await api('login', 'POST', { nick: nick.trim().toLowerCase(), password, device_id: getDeviceId() });
+    const data = await api('login_email', 'POST', { email: email.trim().toLowerCase(), password, device_id: getDeviceId() });
     if (data.error) { setLoginError(data.error as string); return; }
     if (!data.user) { setLoginError('Нет соединения. Проверь интернет и попробуй снова.'); return; }
-    const u = data.user as User & { profile_complete: boolean };
+    const u = data.user as User;
     localStorage.setItem('orbit_user', JSON.stringify(u));
     setUser(u);
-    setScreen(u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' });
+    setScreen({ name: 'tabs', tab: 'chats' });
   };
 
-  const loginByNick = async (nick: string, password: string) => {
+  const registerUser = async (payload: Record<string, unknown>) => {
     setLoginError('');
-    const data = await api('login_by_nick', 'POST', { nick: nick.trim().toLowerCase(), password, device_id: getDeviceId() });
+    const data = await api('register', 'POST', { ...payload, device_id: getDeviceId() });
     if (data.error) { setLoginError(data.error as string); return; }
     if (!data.user) { setLoginError('Нет соединения. Проверь интернет и попробуй снова.'); return; }
-    const u = data.user as User & { profile_complete: boolean };
+    const u = data.user as User;
     localStorage.setItem('orbit_user', JSON.stringify(u));
     setUser(u);
-    setScreen(u.profile_complete ? { name: 'tabs', tab: 'chats' } : { name: 'setup' });
+    setScreen({ name: 'tabs', tab: 'chats' });
   };
 
   const logout = () => {
@@ -323,8 +322,7 @@ export default function Index() {
     return () => { clearInterval(iv); window.removeEventListener('beforeunload', off); };
   }, [user]);  
 
-  if (screen.name === 'login' || !user) return <LoginScreen onRegister={login} onLogin={loginByNick} error={loginError} setError={setLoginError} />;
-  if (screen.name === 'setup') return <SetupScreen user={user} onDone={(u) => { setUser(u); localStorage.setItem('orbit_user', JSON.stringify(u)); push({ name: 'tabs', tab: 'chats' }); }} />;
+  if (screen.name === 'login' || !user) return <LoginScreen onRegister={registerUser} onLogin={loginEmail} error={loginError} setError={setLoginError} />;
 
   const renderScreen = () => {
     if (screen.name === 'chat') return <ChatScreen user={user} chatId={screen.chatId} peer={screen.peer} groupName={screen.groupName} groupId={screen.groupId} groupPhotoUrl={screen.groupPhotoUrl}
@@ -348,23 +346,19 @@ export default function Index() {
       onBack={() => push({ name: 'tabs', tab: 'chats' })}
       onOpenChat={(name, photoUrl) => push({ name: 'chat', chatId: screen.chatId, groupId: screen.groupId, groupName: name, groupPhotoUrl: photoUrl })}
       onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />;
-    if (screen.name === 'status_create') return <StatusCreateScreen user={user} onBack={() => push({ name: 'tabs', tab: 'feed' })} onCreated={() => push({ name: 'tabs', tab: 'feed' })} />;
-    if (screen.name === 'status_view') return <StatusViewScreen me={user} userId={screen.userId} onBack={() => push({ name: 'tabs', tab: 'feed' })}
+    if (screen.name === 'status_create') return <StatusCreateScreen user={user} onBack={() => push({ name: 'tabs', tab: 'chats' })} onCreated={() => push({ name: 'tabs', tab: 'chats' })} />;
+    if (screen.name === 'status_view') return <StatusViewScreen me={user} userId={screen.userId} onBack={() => push({ name: 'tabs', tab: 'chats' })}
       onOpenChat={async (peerId) => { const d = await api('open_chat', 'POST', { user_id: user.id, peer_id: peerId }); push({ name: 'chat', chatId: d.chat_id as number, peer: d.peer as User }); }}
       onOpenProfile={(uid) => push({ name: 'user_profile', userId: uid })} />;
     const tab = (screen as { name: 'tabs'; tab: Tab }).tab;
     return (
       <TabsShell tab={tab} onTab={(t) => push({ name: 'tabs', tab: t })} user={user}>
-        {tab === 'feed' && <FeedTab user={user}
-          onOpenProfile={(id) => push({ name: 'user_profile', userId: id })}
-          onCreateStatus={() => push({ name: 'status_create' })}
-          onOpenStatus={(uid) => push({ name: 'status_view', userId: uid })} />}
-        {tab === 'search' && <SearchTab user={user} onOpenProfile={(id) => push({ name: 'user_profile', userId: id })} />}
         {tab === 'chats' && <ChatsTab user={user}
           onOpenChat={(c) => push({ name: 'chat', chatId: c.chat_id, peer: c.peer_id ? { id: c.peer_id, nick: c.peer_nick!, avatar_url: c.peer_avatar } : undefined, groupName: c.group_name, groupId: c.group_id, groupPhotoUrl: c.group_avatar })}
           onNewGroup={() => push({ name: 'new_group' })}
           onOpenGroup={(gid, chatId) => push({ name: 'group_info', groupId: gid, chatId })}
-          onOpenNotifications={() => push({ name: 'tabs', tab: 'notifications' })} />}
+          onCreateStatus={() => push({ name: 'status_create' })}
+          onOpenStatus={(uid) => push({ name: 'status_view', userId: uid })} />}
         {tab === 'notifications' && <NotificationsTab user={user}
           onOpenChat={(chatId) => push({ name: 'chat', chatId })}
           onOpenProfile={(id) => push({ name: 'user_profile', userId: id })}
@@ -414,206 +408,81 @@ export default function Index() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// LOGIN
+// Города РФ + Северный Кавказ
+// ══════════════════════════════════════════════════════════════════════════════
+const RU_CITIES = [
+  'Москва', 'Санкт-Петербург', 'Новосибирск', 'Екатеринбург', 'Казань', 'Нижний Новгород',
+  'Челябинск', 'Красноярск', 'Самара', 'Уфа', 'Ростов-на-Дону', 'Краснодар', 'Омск',
+  'Воронеж', 'Пермь', 'Волгоград', 'Саратов', 'Тюмень', 'Тольятти', 'Барнаул', 'Ижевск',
+  'Ульяновск', 'Иркутск', 'Хабаровск', 'Ярославль', 'Владивосток', 'Махачкала', 'Томск',
+  'Оренбург', 'Кемерово', 'Новокузнецк', 'Рязань', 'Астрахань', 'Пенза', 'Липецк', 'Тула',
+  'Киров', 'Чебоксары', 'Калининград', 'Брянск', 'Курск', 'Иваново', 'Магнитогорск',
+  'Тверь', 'Ставрополь', 'Симферополь', 'Белгород', 'Архангельск', 'Владимир', 'Сочи',
+  'Курган', 'Смоленск', 'Калуга', 'Чита', 'Орёл', 'Волжский', 'Череповец', 'Владикавказ',
+  'Мурманск', 'Сургут', 'Вологда', 'Саранск', 'Якутск', 'Йошкар-Ола', 'Нальчик',
+  // Северный Кавказ
+  'Грозный', 'Назрань', 'Черкесск', 'Майкоп', 'Пятигорск', 'Кисловодск', 'Ессентуки',
+  'Дербент', 'Хасавюрт', 'Каспийск', 'Буйнакск', 'Магас', 'Беслан', 'Нефтекумск',
+];
+
+// ══════════════════════════════════════════════════════════════════════════════
+// LOGIN / REGISTER
 // ══════════════════════════════════════════════════════════════════════════════
 function LoginScreen({ onRegister, onLogin, error, setError }: {
-  onRegister: (nick: string, password: string) => void;
-  onLogin: (nick: string, password: string) => void;
+  onRegister: (payload: Record<string, unknown>) => void;
+  onLogin: (email: string, password: string) => void;
   error: string; setError: (e: string) => void;
 }) {
   const { t } = useLang();
-  const [tab, setTab] = useState<'start' | 'login' | 'register'>('start');
-  const [nick, setNick] = useState('');
-  const [password, setPassword] = useState('');
+  const [tab, setTab] = useState<'start' | 'login' | 'register' | 'forgot' | 'reset'>('start');
+  const [regStep, setRegStep] = useState<1 | 2>(1);
+
+  // Вход
+  const [loginEmailVal, setLoginEmailVal] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
-  const [nickStatus, setNickStatus] = useState<'idle' | 'checking' | 'ok' | 'taken'>('idle');
-  const [nickHint, setNickHint] = useState('');
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => { setError(''); setNick(''); setPassword(''); setNickStatus('idle'); setNickHint(''); }, [tab]); // eslint-disable-line
+  // Регистрация — шаг 1: согласия
+  const [c152, setC152] = useState(false);
+  const [cTerms, setCTerms] = useState(false);
+  const [cRules, setCRules] = useState(false);
+
+  // Регистрация — шаг 2: профиль
+  const [avatar, setAvatar] = useState<string | null>(null);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [city, setCity] = useState('');
+  const [citySuggestOpen, setCitySuggestOpen] = useState(false);
+  const [birthdate, setBirthdate] = useState('');
+  const [about, setAbout] = useState('');
+  const [phone, setPhone] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Забыли пароль
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [resetCode, setResetCode] = useState('');
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetTimer, setResetTimer] = useState(0);
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotInfo, setForgotInfo] = useState('');
+
+  useEffect(() => { setError(''); }, [tab]); // eslint-disable-line
 
   useEffect(() => {
-    if (tab !== 'register') return;
-    const q = nick.trim().toLowerCase();
-    if (q.length < 2) { setNickStatus('idle'); setNickHint(''); return; }
-    setNickStatus('checking');
-    const tm = setTimeout(async () => {
-      const d = await api(`check_nick&nick=${encodeURIComponent(q)}&user_id=0`);
-      if (d.available) { setNickStatus('ok'); setNickHint(t('Ник свободен!')); }
-      else { setNickStatus('taken'); setNickHint(d.error || t('Ник уже занят')); }
-    }, 500);
-    return () => clearTimeout(tm);
-  }, [nick, tab]);
+    if (resetTimer <= 0) return;
+    const iv = setInterval(() => setResetTimer(t => t - 1), 1000);
+    return () => clearInterval(iv);
+  }, [resetTimer]);
 
   const inputCls = (extra = '') =>
     `w-full bg-slate-50 border-2 rounded-2xl px-4 py-3.5 outline-none focus:border-blue-500 transition-all text-slate-800 text-base ${extra}`;
 
   const btnPrimary = 'w-full py-4 rounded-2xl font-bold text-white text-base mb-3 transition-all active:scale-[0.98] disabled:opacity-40';
   const btnSecondary = 'w-full py-3.5 rounded-2xl font-semibold text-slate-600 text-sm bg-slate-100 active:bg-slate-200 transition-all';
-
-  const handleRegister = async () => {
-    if (loading || nick.trim().length < 2 || nickStatus !== 'ok' || password.length < 4) return;
-    setLoading(true);
-    await onRegister(nick, password);
-    setLoading(false);
-  };
-
-  const handleLogin = async () => {
-    if (loading || nick.trim().length < 2 || !password) return;
-    setLoading(true);
-    await onLogin(nick, password);
-    setLoading(false);
-  };
-
-  return (
-    <div className="flex flex-col overflow-hidden relative"
-      style={{ background: 'linear-gradient(160deg, #1a56db 0%, #1e3a8a 55%, #0f172a 100%)', height: '100dvh', paddingTop: 'env(safe-area-inset-top)' }}>
-      <div className="absolute top-[-60px] right-[-60px] w-72 h-72 rounded-full opacity-20 pointer-events-none"
-        style={{ background: 'radial-gradient(circle, #60a5fa, transparent)' }} />
-      <div className="absolute bottom-[35%] left-[-80px] w-56 h-56 rounded-full opacity-10 pointer-events-none"
-        style={{ background: 'radial-gradient(circle, #93c5fd, transparent)' }} />
-
-      {/* Лого */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 pb-6 pt-16">
-        <div className="w-20 h-20 rounded-[24px] mb-5 flex items-center justify-center shadow-2xl"
-          style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.22)' }}>
-          <svg width="46" height="42" viewBox="0 0 62 56" fill="none">
-            <rect x="2" y="4" width="34" height="26" rx="9" fill="white" fillOpacity="0.95"/>
-            <path d="M10 30 L4 42 L20 30 Z" fill="white" fillOpacity="0.95"/>
-            <rect x="22" y="22" width="36" height="26" rx="9" fill="white" fillOpacity="0.4"/>
-            <path d="M50 48 L58 58 L42 48 Z" fill="white" fillOpacity="0.4"/>
-          </svg>
-        </div>
-        <h1 className="text-white font-bold text-2xl tracking-tight mb-1">{t('Вай Мессенджер')}</h1>
-        <p className="text-blue-200 text-sm">{t('Быстро. Просто. Надёжно.')}</p>
-      </div>
-
-      {/* Карточка */}
-      <div className="rounded-t-[32px] px-6 pt-7 pb-10 bg-white dark:bg-slate-900">
-
-        {/* START */}
-        {tab === 'start' && (
-          <>
-            <h2 className="text-slate-800 dark:text-white font-bold text-xl mb-1">{t('Добро пожаловать')}</h2>
-            <p className="text-slate-400 text-sm mb-7">{t('Войди или создай новый аккаунт')}</p>
-            <button onClick={() => setTab('register')} className={btnPrimary}
-              style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}>
-              {t('Создать аккаунт')}
-            </button>
-            <button onClick={() => setTab('login')} className={btnSecondary}>
-              {t('Уже есть аккаунт? Войти')}
-            </button>
-          </>
-        )}
-
-        {/* REGISTER */}
-        {tab === 'register' && (
-          <>
-            <button onClick={() => setTab('start')} className="flex items-center gap-1.5 text-slate-400 text-sm mb-5 -ml-1">
-              <Icon name="ArrowLeft" size={16} /> {t('Назад')}
-            </button>
-            <h2 className="text-slate-800 dark:text-white font-bold text-xl mb-1">{t('Создать аккаунт')}</h2>
-            <p className="text-slate-400 text-sm mb-5">{t('Придумай ник и пароль')}</p>
-
-            {/* Ник */}
-            <label className="text-xs font-semibold text-slate-500 mb-1.5 block">{t('Ник')}</label>
-            <div className="relative mb-4">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium select-none">@</span>
-              <input value={nick} autoFocus placeholder="my_nickname" maxLength={30}
-                onChange={e => setNick(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
-                className={inputCls(`pl-9 pr-10 ${nickStatus === 'ok' ? 'border-green-400' : nickStatus === 'taken' ? 'border-red-400' : 'border-slate-200'}`)} />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2">
-                {nickStatus === 'checking' && <span className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin block" />}
-                {nickStatus === 'ok' && <Icon name="CheckCircle" size={17} className="text-green-500" />}
-                {nickStatus === 'taken' && <Icon name="XCircle" size={17} className="text-red-400" />}
-              </span>
-            </div>
-            <p className={`text-xs mb-4 -mt-3 px-1 h-4 ${nickStatus === 'ok' ? 'text-green-500' : nickStatus === 'taken' ? 'text-red-400' : 'text-slate-400'}`}>
-              {nickHint || t('Только латиница, цифры и _')}
-            </p>
-
-            {/* Пароль */}
-            <label className="text-xs font-semibold text-slate-500 mb-1.5 block">{t('Пароль')}</label>
-            <div className="relative mb-5">
-              <input value={password} type={showPw ? 'text' : 'password'} placeholder={t('Минимум 4 символа')}
-                onChange={e => setPassword(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleRegister()}
-                className={inputCls('pr-12 border-slate-200')} />
-              <button type="button" onClick={() => setShowPw(v => !v)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
-                <Icon name={showPw ? 'EyeOff' : 'Eye'} size={18} />
-              </button>
-            </div>
-
-            {error && <p className="text-red-500 text-sm mb-4 px-1">{error}</p>}
-            <button onClick={handleRegister}
-              disabled={loading || nick.trim().length < 2 || nickStatus !== 'ok' || password.length < 4}
-              className={btnPrimary} style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}>
-              {loading ? t('Создаю...') : t('Зарегистрироваться')}
-            </button>
-            <button onClick={() => setTab('login')} className={btnSecondary}>
-              {t('Уже есть аккаунт? Войти')}
-            </button>
-          </>
-        )}
-
-        {/* LOGIN */}
-        {tab === 'login' && (
-          <>
-            <button onClick={() => setTab('start')} className="flex items-center gap-1.5 text-slate-400 text-sm mb-5 -ml-1">
-              <Icon name="ArrowLeft" size={16} /> {t('Назад')}
-            </button>
-            <h2 className="text-slate-800 dark:text-white font-bold text-xl mb-1">{t('С возвращением!')}</h2>
-            <p className="text-slate-400 text-sm mb-5">{t('Введи ник и пароль')}</p>
-
-            <label className="text-xs font-semibold text-slate-500 mb-1.5 block">{t('Ник')}</label>
-            <div className="relative mb-4">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium select-none">@</span>
-              <input value={nick} autoFocus placeholder="my_nickname" maxLength={30}
-                onChange={e => setNick(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
-                className={inputCls('pl-9 border-slate-200')} />
-            </div>
-
-            <label className="text-xs font-semibold text-slate-500 mb-1.5 block">{t('Пароль')}</label>
-            <div className="relative mb-5">
-              <input value={password} type={showPw ? 'text' : 'password'} placeholder={t('Твой пароль')}
-                onChange={e => setPassword(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                className={inputCls('pr-12 border-slate-200')} />
-              <button type="button" onClick={() => setShowPw(v => !v)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
-                <Icon name={showPw ? 'EyeOff' : 'Eye'} size={18} />
-              </button>
-            </div>
-
-            {error && <p className="text-red-500 text-sm mb-4 px-1">{error}</p>}
-            <button onClick={handleLogin}
-              disabled={loading || nick.trim().length < 2 || !password}
-              className={btnPrimary} style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}>
-              {loading ? t('Вхожу...') : t('Войти')}
-            </button>
-            <button onClick={() => setTab('register')} className={btnSecondary}>
-              {t('Нет аккаунта? Зарегистрироваться')}
-            </button>
-          </>
-        )}
-
-      </div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// SETUP PROFILE
-// ══════════════════════════════════════════════════════════════════════════════
-function SetupScreen({ user, onDone }: { user: User; onDone: (u: User) => void }) {
-  const { t } = useLang();
-  const [avatar, setAvatar] = useState<string | null>(null);
-  const [city, setCity] = useState('');
-  const [birthdate, setBirthdate] = useState('');
-  const [about, setAbout] = useState('');
-  const [saving, setSaving] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const brandBg = { background: 'linear-gradient(135deg, #3F8CFF, #2563eb)' };
 
   const pickAvatar = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -622,101 +491,325 @@ function SetupScreen({ user, onDone }: { user: User; onDone: (u: User) => void }
     reader.readAsDataURL(file);
   };
 
-  const save = async () => {
-    setSaving(true);
-    let avatar_url = null;
+  const phoneDigits = phone.replace(/\D/g, '');
+  const emailValid = /^[^@\s]+@mail\.ru$/i.test(regEmail.trim());
+  const canSubmitStep1 = c152 && cTerms && cRules;
+  const age = birthdate ? Math.floor((Date.now() - new Date(birthdate).getTime()) / (365.25 * 24 * 3600 * 1000)) : 0;
+  const canSubmitStep2 = firstName.trim().length >= 2 && lastName.trim().length >= 2 && emailValid
+    && regPassword.length >= 6 && city.trim() && birthdate && age >= 14 && phoneDigits.length >= 11;
+
+  const handleLogin = async () => {
+    if (loading || !loginEmailVal.trim() || !loginPassword) return;
+    setLoading(true);
+    await onLogin(loginEmailVal, loginPassword);
+    setLoading(false);
+  };
+
+  const handleRegisterSubmit = async () => {
+    if (loading || !canSubmitStep2) return;
+    setLoading(true);
+    let avatar_url: string | null = null;
     if (avatar) {
       const [header, b64] = avatar.split(',');
       const ext = header.includes('png') ? 'png' : 'jpg';
-      const d = await api('upload_avatar', 'POST', { user_id: user.id, data: b64, ext });
-      avatar_url = d.url;
+      const up = await api('upload_avatar', 'POST', { user_id: 0, data: b64, ext });
+      avatar_url = (up.url as string) || null;
     }
-    const d = await api('profile_update', 'POST', { user_id: user.id, avatar_url, city: city || null, birthdate: birthdate || null, about: about || null });
-    setSaving(false);
-    onDone(d.user);
+    await onRegister({
+      email: regEmail.trim().toLowerCase(), password: regPassword,
+      first_name: firstName.trim(), last_name: lastName.trim(),
+      city: city.trim(), birthdate, about: about.trim(), phone,
+      avatar_url, consent_152: c152, consent_terms: cTerms, consent_rules: cRules,
+    });
+    setLoading(false);
   };
 
-  const canSave = city.trim() && birthdate;
+  const sendForgotCode = async () => {
+    if (forgotLoading || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(forgotEmail.trim())) return;
+    setForgotLoading(true); setForgotInfo(''); setError('');
+    const d = await api('forgot_password', 'POST', { email: forgotEmail.trim().toLowerCase() });
+    setForgotLoading(false);
+    if (d.error) { setError(d.error as string); return; }
+    setResetTimer(120);
+    setTab('reset');
+  };
 
-  const field = 'w-full bg-slate-50 border-2 border-slate-200 rounded-2xl px-4 py-3.5 outline-none focus:border-blue-500 transition-all text-slate-800 text-sm';
-  const label = 'text-xs font-semibold text-slate-500 mb-1.5 block';
+  const submitReset = async () => {
+    if (forgotLoading || resetCode.length !== 4 || resetPassword.length < 6) return;
+    setForgotLoading(true); setError('');
+    const d = await api('reset_password', 'POST', { email: forgotEmail.trim().toLowerCase(), code: resetCode, new_password: resetPassword });
+    setForgotLoading(false);
+    if (d.error) { setError(d.error as string); return; }
+    setForgotInfo(t('Пароль изменён! Теперь можно войти.'));
+    setTab('login');
+  };
+
+  const cityMatches = city.trim() ? RU_CITIES.filter(c => c.toLowerCase().includes(city.trim().toLowerCase())).slice(0, 6) : [];
+
+  const Logo = ({ size = 20 }: { size?: number }) => (
+    <div className="rounded-[24px] flex items-center justify-center shadow-2xl mx-auto"
+      style={{ width: size * 4, height: size * 4, background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.22)' }}>
+      <svg width={size * 2.3} height={size * 2.1} viewBox="0 0 62 56" fill="none">
+        <rect x="2" y="4" width="34" height="26" rx="9" fill="white" fillOpacity="0.95"/>
+        <path d="M10 30 L4 42 L20 30 Z" fill="white" fillOpacity="0.95"/>
+        <rect x="22" y="22" width="36" height="26" rx="9" fill="white" fillOpacity="0.4"/>
+        <path d="M50 48 L58 58 L42 48 Z" fill="white" fillOpacity="0.4"/>
+      </svg>
+    </div>
+  );
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(160deg, #1a56db 0%, #1e3a8a 45%, #0f172a 100%)' }}>
-      {/* Шапка */}
-      <div className="flex flex-col items-center pt-12 pb-6 px-6">
-        <div className="w-16 h-16 rounded-[20px] mb-4 flex items-center justify-center"
-          style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.22)' }}>
-          <svg width="36" height="32" viewBox="0 0 62 56" fill="none">
-            <rect x="2" y="4" width="34" height="26" rx="9" fill="white" fillOpacity="0.95"/>
-            <path d="M10 30 L4 42 L20 30 Z" fill="white" fillOpacity="0.95"/>
-            <rect x="22" y="22" width="36" height="26" rx="9" fill="white" fillOpacity="0.4"/>
-            <path d="M50 48 L58 58 L42 48 Z" fill="white" fillOpacity="0.4"/>
-          </svg>
-        </div>
-        <h1 className="text-white font-bold text-xl mb-1">{t('Расскажи о себе')}</h1>
-        <p className="text-blue-200 text-sm text-center">{t('Заполни профиль чтобы продолжить')}</p>
-      </div>
+    <div className="flex flex-col overflow-hidden relative"
+      style={{ background: 'linear-gradient(160deg, #E8F0FE 0%, #FFFFFF 60%)', height: '100dvh', paddingTop: 'env(safe-area-inset-top)' }}>
 
-      {/* Карточка */}
-      <div className="flex-1 rounded-t-[32px] px-6 pt-6 pb-10 overflow-y-auto bg-white dark:bg-slate-900">
-        {/* Аватар */}
-        <div className="flex flex-col items-center mb-6">
-          <button onClick={() => fileRef.current?.click()} className="relative group">
-            {avatar
-              ? <img src={avatar} className="w-20 h-20 rounded-full object-cover ring-4 ring-blue-100" />
-              : <div className="w-20 h-20 rounded-full bg-blue-50 border-2 border-dashed border-blue-200 flex items-center justify-center">
-                  <Icon name="Camera" size={26} className="text-blue-400" />
-                </div>
-            }
-            <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center shadow-md">
-              <Icon name="Plus" size={13} className="text-white" />
+      {tab === 'start' && (
+        <>
+          <div className="flex-1 flex flex-col items-center justify-center px-6 pb-6 pt-16">
+            <div className="rounded-[24px] mb-5 flex items-center justify-center shadow-xl w-20 h-20" style={{ background: 'linear-gradient(135deg, #3F8CFF, #5BA0FF)' }}>
+              <svg width="46" height="42" viewBox="0 0 62 56" fill="none">
+                <rect x="2" y="4" width="34" height="26" rx="9" fill="white" fillOpacity="0.95"/>
+                <path d="M10 30 L4 42 L20 30 Z" fill="white" fillOpacity="0.95"/>
+                <rect x="22" y="22" width="36" height="26" rx="9" fill="white" fillOpacity="0.4"/>
+                <path d="M50 48 L58 58 L42 48 Z" fill="white" fillOpacity="0.4"/>
+              </svg>
             </div>
-          </button>
-          <input ref={fileRef} type="file" accept="image/*" hidden onChange={pickAvatar} />
-          <span className="text-xs text-slate-400 mt-2">{t('Фото (необязательно)')}</span>
-        </div>
-
-        <div className="space-y-4">
-          {/* Ник */}
-          <div>
-            <label className={label}>{t('Ник')}</label>
-            <div className="w-full bg-blue-50 border-2 border-blue-100 rounded-2xl px-4 py-3.5 text-blue-700 text-sm font-medium">
-              @{user.nick}
-            </div>
+            <h1 className="text-slate-900 font-bold text-2xl tracking-tight mb-1">{t('Вай Чат')}</h1>
+            <p className="text-slate-500 text-sm italic">{t('Будь всегда на связи')}</p>
           </div>
-
-          <div>
-            <label className={label}>{t('Город')} <span className="text-red-400">*</span></label>
-            <input value={city} onChange={e => setCity(e.target.value)} placeholder={t('Москва')} className={field} />
+          <div className="rounded-t-[32px] px-6 pt-7 pb-10 bg-white dark:bg-slate-900">
+            <h2 className="text-slate-800 dark:text-white font-bold text-xl mb-1">{t('Добро пожаловать')}</h2>
+            <p className="text-slate-400 text-sm mb-7">{t('Войди или создай новый аккаунт')}</p>
+            <button onClick={() => { setTab('register'); setRegStep(1); }} className={btnPrimary} style={brandBg}>
+              {t('Создать аккаунт')}
+            </button>
+            <button onClick={() => setTab('login')} className={btnSecondary}>
+              {t('Уже есть аккаунт? Войти')}
+            </button>
           </div>
+        </>
+      )}
 
-          <div>
-            <label className={label}>{t('Дата рождения')} <span className="text-red-400">*</span></label>
-            <input type="date" value={birthdate} onChange={e => setBirthdate(e.target.value)} className={field} />
-          </div>
+      {tab !== 'start' && (
+        <div className="flex-1 overflow-y-auto px-6 pt-8 pb-10 bg-white dark:bg-slate-900">
+          {/* LOGIN */}
+          {tab === 'login' && (
+            <>
+              <button onClick={() => setTab('start')} className="flex items-center gap-1.5 text-slate-400 text-sm mb-5 -ml-1">
+                <Icon name="ArrowLeft" size={16} /> {t('Назад')}
+              </button>
+              <Logo size={16} />
+              <h2 className="text-slate-800 dark:text-white font-bold text-xl mb-1 mt-5 text-center">{t('С возвращением!')}</h2>
+              <p className="text-slate-400 text-sm mb-5 text-center">{t('Введи почту и пароль')}</p>
 
-          <div>
-            <label className={label}>{t('О себе')}</label>
-            <textarea value={about} onChange={e => setAbout(e.target.value)} rows={3}
-              placeholder={t('Расскажи немного о себе...')}
-              className={`${field} resize-none`} />
-          </div>
+              <label className="text-xs font-semibold text-slate-500 mb-1.5 block">{t('Почта')}</label>
+              <input value={loginEmailVal} autoFocus type="email" placeholder="name@mail.ru"
+                onChange={e => setLoginEmailVal(e.target.value)}
+                className={inputCls('mb-4 border-slate-200')} />
 
-          {!canSave && (
-            <p className="text-xs text-slate-400 text-center flex items-center justify-center gap-1">
-              <Icon name="Info" size={13} className="text-blue-400" />
-              {t('Заполни город и дату рождения')}
-            </p>
+              <label className="text-xs font-semibold text-slate-500 mb-1.5 block">{t('Пароль')}</label>
+              <div className="relative mb-2">
+                <input value={loginPassword} type={showPw ? 'text' : 'password'} placeholder={t('Твой пароль')}
+                  onChange={e => setLoginPassword(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                  className={inputCls('pr-12 border-slate-200')} />
+                <button type="button" onClick={() => setShowPw(v => !v)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
+                  <Icon name={showPw ? 'EyeOff' : 'Eye'} size={18} />
+                </button>
+              </div>
+              <button onClick={() => { setForgotEmail(loginEmailVal); setTab('forgot'); }} className="text-blue-600 text-xs font-semibold mb-5 block">
+                {t('Забыли пароль?')}
+              </button>
+
+              {error && <p className="text-red-500 text-sm mb-4 px-1">{error}</p>}
+              <button onClick={handleLogin}
+                disabled={loading || !loginEmailVal.trim() || !loginPassword}
+                className={btnPrimary} style={brandBg}>
+                {loading ? t('Вхожу...') : t('Войти')}
+              </button>
+              <button onClick={() => { setTab('register'); setRegStep(1); }} className={btnSecondary}>
+                {t('Нет аккаунта? Зарегистрироваться')}
+              </button>
+            </>
           )}
 
-          <button onClick={save} disabled={saving || !canSave}
-            className="w-full py-4 rounded-2xl font-bold text-white text-base disabled:opacity-40 transition-all active:scale-[0.98]"
-            style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}>
-            {saving ? t('Сохраняю...') : t('Продолжить')}
-          </button>
+          {/* FORGOT — ввод почты */}
+          {tab === 'forgot' && (
+            <>
+              <button onClick={() => setTab('login')} className="flex items-center gap-1.5 text-slate-400 text-sm mb-5 -ml-1">
+                <Icon name="ArrowLeft" size={16} /> {t('Назад')}
+              </button>
+              <h2 className="text-slate-800 dark:text-white font-bold text-xl mb-1">{t('Забыли пароль?')}</h2>
+              <p className="text-slate-400 text-sm mb-5">{t('Введи почту — пришлём код для восстановления')}</p>
+              <label className="text-xs font-semibold text-slate-500 mb-1.5 block">{t('Почта')}</label>
+              <input value={forgotEmail} autoFocus type="email" placeholder="name@mail.ru"
+                onChange={e => setForgotEmail(e.target.value)}
+                className={inputCls('mb-5 border-slate-200')} />
+              {error && <p className="text-red-500 text-sm mb-4 px-1">{error}</p>}
+              <button onClick={sendForgotCode} disabled={forgotLoading || !forgotEmail.trim()}
+                className={btnPrimary} style={brandBg}>
+                {forgotLoading ? t('Отправляю...') : t('Отправить код')}
+              </button>
+            </>
+          )}
+
+          {/* RESET — ввод кода + новый пароль */}
+          {tab === 'reset' && (
+            <>
+              <button onClick={() => setTab('forgot')} className="flex items-center gap-1.5 text-slate-400 text-sm mb-5 -ml-1">
+                <Icon name="ArrowLeft" size={16} /> {t('Назад')}
+              </button>
+              <h2 className="text-slate-800 dark:text-white font-bold text-xl mb-1">{t('Введи код')}</h2>
+              <p className="text-slate-400 text-sm mb-5">{t('Код отправлен на')} {forgotEmail}. {resetTimer > 0 ? `${t('Действителен')} ${Math.floor(resetTimer / 60)}:${String(resetTimer % 60).padStart(2, '0')}` : t('Код истёк, запроси новый')}</p>
+              <label className="text-xs font-semibold text-slate-500 mb-1.5 block">{t('Код из письма')}</label>
+              <input value={resetCode} maxLength={4} inputMode="numeric" placeholder="0000"
+                onChange={e => setResetCode(e.target.value.replace(/\D/g, ''))}
+                className={inputCls('mb-4 border-slate-200 text-center text-2xl tracking-[0.5em] font-bold')} />
+              <label className="text-xs font-semibold text-slate-500 mb-1.5 block">{t('Новый пароль')}</label>
+              <input value={resetPassword} type="password" placeholder={t('Минимум 6 символов')}
+                onChange={e => setResetPassword(e.target.value)}
+                className={inputCls('mb-5 border-slate-200')} />
+              {error && <p className="text-red-500 text-sm mb-4 px-1">{error}</p>}
+              {forgotInfo && <p className="text-green-600 text-sm mb-4 px-1">{forgotInfo}</p>}
+              <button onClick={submitReset} disabled={forgotLoading || resetCode.length !== 4 || resetPassword.length < 6}
+                className={btnPrimary} style={brandBg}>
+                {forgotLoading ? t('Сохраняю...') : t('Сохранить пароль')}
+              </button>
+              {resetTimer <= 0 && (
+                <button onClick={sendForgotCode} className={btnSecondary}>{t('Отправить код заново')}</button>
+              )}
+            </>
+          )}
+
+          {/* REGISTER — ШАГ 1: 3 галочки */}
+          {tab === 'register' && regStep === 1 && (
+            <>
+              <button onClick={() => setTab('start')} className="flex items-center gap-1.5 text-slate-400 text-sm mb-5 -ml-1">
+                <Icon name="ArrowLeft" size={16} /> {t('Назад')}
+              </button>
+              <h2 className="text-slate-800 dark:text-white font-bold text-xl mb-1">{t('Прежде чем начать')}</h2>
+              <p className="text-slate-400 text-sm mb-6">{t('Подтверди согласия — это займёт секунду')}</p>
+
+              <div className="space-y-3 mb-6">
+                {[
+                  { v: c152, set: setC152, label: t('Согласен(на) на обработку персональных данных (152-ФЗ)') },
+                  { v: cTerms, set: setCTerms, label: t('Принимаю Пользовательское соглашение') },
+                  { v: cRules, set: setCRules, label: t('Принимаю Правила чата') },
+                ].map((c, i) => (
+                  <button key={i} onClick={() => c.set(v => !v)}
+                    className={`w-full flex items-start gap-3 p-4 rounded-2xl border-2 transition-all text-left ${c.v ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30' : 'border-slate-200 dark:border-slate-700'}`}>
+                    <div className={`w-6 h-6 rounded-lg shrink-0 flex items-center justify-center transition-all mt-0.5 ${c.v ? 'bg-blue-600' : 'bg-slate-100 dark:bg-slate-800'}`}>
+                      {c.v && <Icon name="Check" size={15} className="text-white" />}
+                    </div>
+                    <span className="text-sm text-slate-700 dark:text-slate-200 leading-snug">{c.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              <button onClick={() => setRegStep(2)} disabled={!canSubmitStep1}
+                className={btnPrimary} style={brandBg}>
+                {t('Далее')}
+              </button>
+            </>
+          )}
+
+          {/* REGISTER — ШАГ 2: профиль */}
+          {tab === 'register' && regStep === 2 && (
+            <>
+              <button onClick={() => setRegStep(1)} className="flex items-center gap-1.5 text-slate-400 text-sm mb-5 -ml-1">
+                <Icon name="ArrowLeft" size={16} /> {t('Назад')}
+              </button>
+              <h2 className="text-slate-800 dark:text-white font-bold text-xl mb-1">{t('Расскажи о себе')}</h2>
+              <p className="text-slate-400 text-sm mb-5">{t('Заполни профиль чтобы продолжить')}</p>
+
+              {/* Аватар */}
+              <div className="flex flex-col items-center mb-5">
+                <button onClick={() => fileRef.current?.click()} className="relative">
+                  {avatar
+                    ? <img src={avatar} className="w-20 h-20 rounded-full object-cover ring-4 ring-blue-100" />
+                    : <div className="w-20 h-20 rounded-full bg-blue-50 border-2 border-dashed border-blue-200 flex items-center justify-center">
+                        <Icon name="Camera" size={26} className="text-blue-400" />
+                      </div>
+                  }
+                  <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center shadow-md">
+                    <Icon name="Plus" size={13} className="text-white" />
+                  </div>
+                </button>
+                <input ref={fileRef} type="file" accept="image/*" hidden onChange={pickAvatar} />
+                <span className="text-xs text-slate-400 mt-2">{t('Фото (необязательно)')}</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 mb-1.5 block">{t('Имя')}</label>
+                  <input value={firstName} onChange={e => setFirstName(e.target.value)} placeholder={t('Иван')} className={inputCls('border-slate-200')} />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 mb-1.5 block">{t('Фамилия')}</label>
+                  <input value={lastName} onChange={e => setLastName(e.target.value)} placeholder={t('Иванов')} className={inputCls('border-slate-200')} />
+                </div>
+              </div>
+
+              <label className="text-xs font-semibold text-slate-500 mb-1.5 block">{t('Почта')}</label>
+              <input value={regEmail} type="email" placeholder="name@mail.ru"
+                onChange={e => setRegEmail(e.target.value)}
+                className={inputCls(`mb-1 ${regEmail && !emailValid ? 'border-red-300' : 'border-slate-200'}`)} />
+              <p className="text-xs text-slate-400 mb-4 px-1">{t('Только почта @mail.ru')}</p>
+
+              <label className="text-xs font-semibold text-slate-500 mb-1.5 block">{t('Пароль')}</label>
+              <div className="relative mb-4">
+                <input value={regPassword} type={showPw ? 'text' : 'password'} placeholder={t('Минимум 6 символов')}
+                  onChange={e => setRegPassword(e.target.value)}
+                  className={inputCls('pr-12 border-slate-200')} />
+                <button type="button" onClick={() => setShowPw(v => !v)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
+                  <Icon name={showPw ? 'EyeOff' : 'Eye'} size={18} />
+                </button>
+              </div>
+
+              <div className="relative mb-4">
+                <label className="text-xs font-semibold text-slate-500 mb-1.5 block">{t('Город')}</label>
+                <input value={city}
+                  onChange={e => { setCity(e.target.value); setCitySuggestOpen(true); }}
+                  onFocus={() => setCitySuggestOpen(true)}
+                  placeholder={t('Начни вводить город…')} className={inputCls('border-slate-200')} />
+                {citySuggestOpen && cityMatches.length > 0 && (
+                  <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700 max-h-48 overflow-y-auto">
+                    {cityMatches.map(c => (
+                      <button key={c} onClick={() => { setCity(c); setCitySuggestOpen(false); }}
+                        className="w-full text-left px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-slate-700">
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <label className="text-xs font-semibold text-slate-500 mb-1.5 block">{t('Дата рождения')}</label>
+              <input type="date" value={birthdate} onChange={e => setBirthdate(e.target.value)} className={inputCls('mb-1 border-slate-200')} />
+              {birthdate && age < 14 && <p className="text-xs text-red-400 mb-3 px-1">{t('Регистрация доступна с 14 лет')}</p>}
+              {(!birthdate || age >= 14) && <div className="mb-4" />}
+
+              <label className="text-xs font-semibold text-slate-500 mb-1.5 block">{t('О себе')} <span className="text-slate-300">({about.length}/150)</span></label>
+              <textarea value={about} onChange={e => setAbout(e.target.value.slice(0, 150))} rows={2}
+                placeholder={t('Расскажи немного о себе...')}
+                className={`${inputCls('border-slate-200')} resize-none mb-4`} />
+
+              <label className="text-xs font-semibold text-slate-500 mb-1.5 block">{t('Телефон')}</label>
+              <input value={phone} placeholder="+7 999 123-45-67"
+                onChange={e => setPhone(e.target.value)}
+                className={inputCls('mb-1 border-slate-200')} />
+              <p className="text-xs text-slate-400 mb-5 px-1">{t('Без СМС-подтверждения, но обязательно')}</p>
+
+              {error && <p className="text-red-500 text-sm mb-4 px-1">{error}</p>}
+              <button onClick={handleRegisterSubmit} disabled={loading || !canSubmitStep2}
+                className={btnPrimary} style={brandBg}>
+                {loading ? t('Создаю...') : t('Продолжить')}
+              </button>
+            </>
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -739,9 +832,17 @@ function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (tabKey: T
     return () => clearInterval(iv);
   }, [user.id]);
 
+  const [unreadNotifs, setUnreadNotifs] = useState(0);
+
+  useEffect(() => {
+    const loadNotifs = () => api(`notifications&user_id=${user.id}`).then(d => setUnreadNotifs(Number(d.unread) || 0));
+    loadNotifs();
+    const iv = setInterval(loadNotifs, 20000);
+    return () => clearInterval(iv);
+  }, [user.id]);
+
   const tabs: { key: Tab; icon: string; label: string; badge?: number; emoji?: string }[] = [
-    { key: 'feed', icon: 'LayoutGrid', label: t('Лента') },
-    { key: 'search', icon: 'Search', label: t('Поиск') },
+    { key: 'notifications', icon: 'Bell', label: t('Уведомления'), badge: unreadNotifs },
     { key: 'chats', icon: 'MessageCircle', label: t('Чаты'), badge: unreadChats },
     { key: 'profile', icon: 'User', label: t('Профиль') },
   ];
@@ -781,30 +882,21 @@ function TabsShell({ tab, onTab, children, user }: { tab: Tab; onTab: (tabKey: T
 // ══════════════════════════════════════════════════════════════════════════════
 // CHATS TAB
 // ══════════════════════════════════════════════════════════════════════════════
-function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenNotifications }: { user: User; onOpenChat: (c: ChatItem) => void; onNewGroup: () => void; onOpenGroup: (gid: number, chatId: number) => void; onOpenNotifications?: () => void }) {
+function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onCreateStatus, onOpenStatus }: { user: User; onOpenChat: (c: ChatItem) => void; onNewGroup: () => void; onOpenGroup: (gid: number, chatId: number) => void; onCreateStatus: () => void; onOpenStatus: (userId: number) => void }) {
   const { t } = useLang();
   const [chats, setChats] = useState<ChatItem[]>([]);
   const [showMenu, setShowMenu] = useState(false);
-  const [swipedId, setSwipedId] = useState<number | null>(null);
+  const [swipedId, setSwipedId] = useState<'left' | 'right' | null>(null);
+  const [swipedChatId, setSwipedChatId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<'all' | 'unread' | 'groups'>('all');
-  const [unreadNotifs, setUnreadNotifs] = useState(0);
+  const [filter, setFilter] = useState<'all' | 'unread' | 'favorites' | 'groups'>('all');
 
   const load = useCallback(async () => {
     const d = await api(`chats&user_id=${user.id}`);
-    setChats(d.chats || []);
+    setChats((d.chats as ChatItem[]) || []);
   }, [user.id]);
 
   useEffect(() => { load(); const iv = setInterval(load, 15000); return () => clearInterval(iv); }, [load]);
-
-  useEffect(() => {
-    const loadNotifs = () => api(`notifications&user_id=${user.id}`).then(d => {
-      setUnreadNotifs(Number(d.unread) || 0);
-    });
-    loadNotifs();
-    const iv = setInterval(loadNotifs, 20000);
-    return () => clearInterval(iv);
-  }, [user.id]);
 
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
 
@@ -815,40 +907,37 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenNotificatio
       await api('hide_chat', 'POST', { user_id: user.id, chat_id: chatId });
     }
     setChats(cs => cs.filter(c => c.chat_id !== chatId));
-    setSwipedId(null);
+    setSwipedChatId(null);
     setDeleteConfirm(null);
+  };
+
+  const togglePin = async (chatId: number) => {
+    setChats(cs => cs.map(c => c.chat_id === chatId ? { ...c, pinned: !c.pinned } : c));
+    setSwipedChatId(null);
+    await api('pin_chat', 'POST', { user_id: user.id, chat_id: chatId });
+    load();
   };
 
   const unreadCount = chats.filter(c => (c.unread_count || 0) > 0).length;
   const groupCount = chats.filter(c => c.kind === 'group').length;
+  const favCount = chats.filter(c => c.pinned).length;
 
   const visibleChats = chats.filter(c => {
     const name = c.kind === 'group' ? (c.group_name || '') : (c.peer_nick || '');
     if (search && !name.toLowerCase().includes(search.toLowerCase())) return false;
     if (filter === 'unread') return (c.unread_count || 0) > 0;
+    if (filter === 'favorites') return c.pinned;
     if (filter === 'groups') return c.kind === 'group';
     return true;
   });
 
   return (
-    <div className="flex flex-col h-full" onClick={() => { setShowMenu(false); setSwipedId(null); }}>
+    <div className="flex flex-col h-full" onClick={() => { setShowMenu(false); setSwipedChatId(null); }}>
       {/* Фиксированная шапка */}
       <div className="shrink-0 bg-white dark:bg-slate-900 px-4 pt-6 pb-2 border-b border-slate-100 dark:border-slate-800" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3 relative">
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100" style={{ letterSpacing: '-0.5px' }}>{t('Чаты')}</h1>
           <div className="flex items-center gap-4">
-            {onOpenNotifications && (
-              <button onClick={() => onOpenNotifications()}
-                className="relative w-9 h-9 rounded-xl flex items-center justify-center shadow-sm transition-all active:scale-90 bell-shake"
-                style={{ background: 'linear-gradient(145deg, #3b82f6, #1d4ed8)', boxShadow: '0 2px 8px rgba(37,99,235,0.4)' }}>
-                <Icon name="Bell" size={17} className="text-white" />
-                {unreadNotifs > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5 shadow-sm border-2 border-white dark:border-slate-900">
-                    {unreadNotifs > 99 ? '99+' : unreadNotifs}
-                  </span>
-                )}
-              </button>
-            )}
             <div className="relative">
               <button onClick={() => setShowMenu(v => !v)}
                 className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm shadow-blue-200 transition-all active:scale-95">
@@ -878,6 +967,7 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenNotificatio
           {([
             { key: 'all', label: t('Все') },
             { key: 'unread', label: `${t('Непрочитанные')}${unreadCount > 0 ? ` ${unreadCount}` : ''}` },
+            { key: 'favorites', label: `${t('Избранное')}${favCount > 0 ? ` ${favCount}` : ''}` },
             { key: 'groups', label: `${t('Группы')}${groupCount > 0 ? ` ${groupCount}` : ''}` },
           ] as const).map(f => (
             <button key={f.key} onClick={() => setFilter(f.key)}
@@ -887,6 +977,8 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenNotificatio
           ))}
         </div>
       </div>
+
+      <StatusBar user={user} onCreateStatus={onCreateStatus} onOpenStatus={onOpenStatus} />
 
       <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-2 bg-white dark:bg-slate-950">
         {visibleChats.length === 0 && (
@@ -900,11 +992,19 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenNotificatio
         )}
         {visibleChats.map(c => (
           <div key={c.chat_id} className="relative overflow-hidden rounded-2xl">
-            {swipedId === c.chat_id && (
+            {swipedChatId === c.chat_id && swipedId === 'left' && (
               <div className="absolute right-0 top-0 bottom-0 flex items-center pr-2 animate-slide-in-right">
-                <button onClick={e => { e.stopPropagation(); setDeleteConfirm(c.chat_id); setSwipedId(null); }}
+                <button onClick={e => { e.stopPropagation(); setDeleteConfirm(c.chat_id); setSwipedChatId(null); }}
                   className="h-12 px-4 rounded-xl bg-red-500 text-white text-sm font-semibold flex items-center gap-1.5">
-                  <Icon name="Trash2" size={15} /> {t('Удалить')}
+                  <Icon name="Archive" size={15} /> {t('Архив')}
+                </button>
+              </div>
+            )}
+            {swipedChatId === c.chat_id && swipedId === 'right' && (
+              <div className="absolute left-0 top-0 bottom-0 flex items-center pl-2 animate-slide-in-right">
+                <button onClick={e => { e.stopPropagation(); togglePin(c.chat_id); }}
+                  className="h-12 px-4 rounded-xl bg-blue-600 text-white text-sm font-semibold flex items-center gap-1.5">
+                  <Icon name="Pin" size={15} /> {c.pinned ? t('Открепить') : t('Закрепить')}
                 </button>
               </div>
             )}
@@ -927,17 +1027,21 @@ function ChatsTab({ user, onOpenChat, onNewGroup, onOpenGroup, onOpenNotificatio
               </div>
             )}
             <button
-              onClick={() => swipedId === c.chat_id ? setSwipedId(null) : onOpenChat(c)}
+              onClick={() => swipedChatId === c.chat_id ? setSwipedChatId(null) : onOpenChat(c)}
               onTouchStart={e => { (e.currentTarget as HTMLButtonElement).dataset.sx = String(e.touches[0].clientX); (e.currentTarget as HTMLButtonElement).dataset.sy = String(e.touches[0].clientY); }}
               onTouchEnd={e => {
                 const sx = Number((e.currentTarget as HTMLButtonElement).dataset.sx || 0);
                 const sy = Number((e.currentTarget as HTMLButtonElement).dataset.sy || 0);
                 const dx = e.changedTouches[0].clientX - sx;
                 const dy = Math.abs(e.changedTouches[0].clientY - sy);
-                if (dx < -50 && dy < 40) { setSwipedId(c.chat_id); return; }
-                if (dx > 30 && dy < 40) { setSwipedId(null); return; }
+                if (dx < -50 && dy < 40) { setSwipedId('left'); setSwipedChatId(c.chat_id); return; }
+                if (dx > 50 && dy < 40) { setSwipedId('right'); setSwipedChatId(c.chat_id); return; }
+                if (Math.abs(dx) < 10) { setSwipedChatId(null); return; }
               }}
-              className={`w-full flex items-center gap-3 px-2 py-3 rounded-2xl transition-all active:bg-blue-50 ${swipedId === c.chat_id ? 'translate-x-[-88px]' : 'translate-x-0'}`}>
+              className={`w-full flex items-center gap-3 px-2 py-3 rounded-2xl transition-all active:bg-blue-50 ${swipedChatId === c.chat_id && swipedId === 'left' ? 'translate-x-[-88px]' : swipedChatId === c.chat_id && swipedId === 'right' ? 'translate-x-[88px]' : 'translate-x-0'}`}>
+              {c.pinned && (
+                <Icon name="Pin" size={12} className="text-blue-400 absolute left-1 top-1" />
+              )}
               {c.kind === 'group'
                 ? <div className="w-12 h-12 rounded-2xl shrink-0 overflow-hidden">
                     {c.group_avatar
@@ -3513,6 +3617,7 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
   const [readByMsg, setReadByMsg] = useState<{ msgId: number; readers: { id: number; nick: string; avatar_url?: string | null }[] } | null>(null);
+  const [replyMsg, setReplyMsg] = useState<MsgExt | null>(null);
   const lastIdRef = useRef(0);
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLElement>(null);
@@ -3614,6 +3719,8 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
     if (!text) setInput('');
     if (typingTimer.current) clearTimeout(typingTimer.current);
     playSendSound();
+    const replying = replyMsg;
+    setReplyMsg(null);
 
     // Optimistic update — сообщение появляется в чате мгновенно, не дожидаясь сервера
     const tempId = -Date.now();
@@ -3628,6 +3735,9 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
       media_type: media_type || null,
       created_at: new Date().toISOString(),
       is_read: false,
+      reply_to_id: replying?.id,
+      reply_to_text: replying?.text,
+      reply_to_nick: replying?.sender_nick,
     };
     setMessages(m => [...m, optimisticMsg]);
     isAtBottomRef.current = true;
@@ -3636,14 +3746,14 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
       if (el) el.scrollTop = el.scrollHeight;
     }, 0);
 
-    const d = await api('send', 'POST', { chat_id: chatId, user_id: user.id, text: txt || null, media_url: media_url || null, media_type: media_type || null });
+    const d = await api('send', 'POST', { chat_id: chatId, user_id: user.id, text: txt || null, media_url: media_url || null, media_type: media_type || null, reply_to_id: replying?.id });
     const real = d.message as MsgExt | undefined;
     if (real) {
       lastIdRef.current = Math.max(lastIdRef.current, real.id);
       setMessages(m => {
         // Если polling уже успел подтянуть это же сообщение — просто убираем "черновик"
         if (m.some(msg => msg.id === real.id)) return m.filter(msg => msg.id !== tempId);
-        return m.map(msg => msg.id === tempId ? { ...real, sender_nick: user.nick, sender_avatar: user.avatar_url, sender_verified: user.is_verified } : msg);
+        return m.map(msg => msg.id === tempId ? { ...real, sender_nick: user.nick, sender_avatar: user.avatar_url, sender_verified: user.is_verified, reply_to_text: replying?.text, reply_to_nick: replying?.sender_nick } : msg);
       });
     } else {
       // Отправка не удалась — убираем оптимистичное сообщение
@@ -3849,6 +3959,11 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
               api(`msg_read_by&message_id=${m.id}&chat_id=${chatId}&user_id=${user.id}`).then(d => {
                 setReadByMsg({ msgId: m.id, readers: d.readers || [] });
               });
+              return;
+            }
+            // Свайп вправо (палец двигается вправо) — быстрый ответ на сообщение
+            if (!m.is_removed && dx < -50) {
+              setReplyMsg(m);
             }
           };
 
@@ -3862,6 +3977,12 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
                 {!mine && groupName && <Avatar url={m.sender_avatar} nick={m.sender_nick} size={34} />}
                 <div className="relative">
                   <div className={`px-4 py-2.5 ${mine ? 'msg-bubble-mine' : 'msg-bubble-peer'} ${isSelected ? 'ring-2 ring-blue-400' : ''}`}>
+                    {!m.is_removed && m.reply_to_id && m.reply_to_text && (
+                      <div className={`mb-1.5 pl-2 border-l-2 rounded-sm ${mine ? 'border-white/50 text-white/75' : 'border-blue-400 text-slate-500'} text-xs`}>
+                        <div className="font-semibold">{m.reply_to_nick ? `@${m.reply_to_nick}` : t('Ответ')}</div>
+                        <div className="truncate max-w-[220px]">{m.reply_to_text}</div>
+                      </div>
+                    )}
                     {m.is_removed
                       ? <p className="text-xs italic opacity-60">{t('Сообщение удалено')}</p>
                       : m.media_type === 'image' || m.image_url
@@ -3926,6 +4047,10 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
               {/* Контекстное меню */}
               {isSelected && !m.is_removed && (
                 <div className={`flex gap-1 mt-1 animate-fade-up ${mine ? 'flex-row-reverse' : ''}`} onClick={e => e.stopPropagation()}>
+                  <button onClick={() => { setReplyMsg(m); setSelectedMsg(null); }}
+                    className="glass rounded-full px-3 py-1.5 text-xs flex items-center gap-1 hover:bg-secondary/80">
+                    <Icon name="Reply" size={12} /> {t('Ответить')}
+                  </button>
                   <button onClick={() => { setEmojiTarget(m.id); setSelectedMsg(null); }}
                     className="glass rounded-full px-3 py-1.5 text-xs flex items-center gap-1 hover:bg-secondary/80">
                     😊 {t('Реакция')}
@@ -3970,6 +4095,19 @@ function ChatScreen({ user, chatId, peer, groupName, groupId, groupPhotoUrl, onB
           reader.readAsDataURL(f);
           e.target.value = '';
         }} />
+
+        {/* Ответ на сообщение — превью над полем ввода */}
+        {replyMsg && (
+          <div className="flex items-center gap-2 px-3 py-2 mb-2 bg-blue-50 dark:bg-slate-800 rounded-xl border-l-4 border-blue-500">
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-semibold text-blue-600">{t('Ответ')} @{replyMsg.sender_nick}</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400 truncate">{replyMsg.text || t('Медиа')}</div>
+            </div>
+            <button onClick={() => setReplyMsg(null)} className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center hover:bg-blue-100 dark:hover:bg-slate-700">
+              <Icon name="X" size={14} className="text-slate-400" />
+            </button>
+          </div>
+        )}
 
         {/* Индикатор загрузки файла */}
         {uploading && (
