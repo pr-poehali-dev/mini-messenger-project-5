@@ -291,6 +291,10 @@ def handler(event: dict, context) -> dict:
                 suffix += 1
                 nick = f'{base_nick}{suffix}'
 
+            # Освобождаем device_id от старых/незавершённых аккаунтов — иначе конфликт уникального индекса
+            if device_id:
+                cur.execute("UPDATE users SET device_id=NULL WHERE device_id=%s", (device_id,))
+
             source_ip = (event.get('requestContext', {}).get('identity', {}) or {}).get('sourceIp', '')
             pw_hash = _hash_pw(password)
             cur.execute(
@@ -334,6 +338,9 @@ def handler(event: dict, context) -> dict:
                 cur.execute("UPDATE users SET failed_attempts=%s WHERE id=%s", (attempts, found['id']))
                 conn.commit()
                 return _resp(401, {'error': f'Неверный пароль. Осталось попыток: {3 - attempts}'})
+            # Освобождаем device_id от других аккаунтов — иначе конфликт уникального индекса
+            if device_id:
+                cur.execute("UPDATE users SET device_id=NULL WHERE device_id=%s AND id!=%s", (device_id, found['id']))
             cur.execute(
                 "UPDATE users SET failed_attempts=0, locked_until=NULL, device_id=%s, is_online=TRUE, last_seen=NOW() WHERE id=%s",
                 (device_id or None, found['id']),
