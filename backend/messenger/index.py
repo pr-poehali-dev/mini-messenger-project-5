@@ -5,11 +5,17 @@ import time
 import secrets
 import hashlib
 import base64
+import smtplib
+import random
 import urllib.request
+from email.mime.text import MIMEText
+from datetime import datetime, timedelta
 import psycopg2
 import boto3
 import requests
 from psycopg2.extras import RealDictCursor
+
+EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 
 ONESIGNAL_APP_ID = 'b50464b8-77e0-4bef-9897-aba0433d5f06'
 
@@ -78,6 +84,28 @@ def _s3_url(key: str) -> str:
 
 def _hash_pw(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
+
+
+def _send_reset_code(to_email: str, code: str) -> bool:
+    """Отправляет 4-значный код восстановления пароля на почту."""
+    host = os.environ.get('SMTP_HOST', '')
+    user = os.environ.get('SMTP_USER', '')
+    pwd = os.environ.get('SMTP_PASS', '')
+    if not host or not user or not pwd:
+        print('[SMTP] нет настроек SMTP — код не отправлен')
+        return False
+    try:
+        msg = MIMEText(f'Ваш код для восстановления пароля в Вай Чат: {code}\nКод действителен 2 минуты.', 'plain', 'utf-8')
+        msg['Subject'] = 'Код восстановления пароля — Вай Чат'
+        msg['From'] = user
+        msg['To'] = to_email
+        with smtplib.SMTP_SSL(host, 465, timeout=10) as server:
+            server.login(user, pwd)
+            server.sendmail(user, [to_email], msg.as_string())
+        return True
+    except Exception as e:
+        print(f'[SMTP] Ошибка отправки: {e}')
+        return False
 
 
 def _push(to_user_ids: list, title: str, body: str, url: str = '/') -> dict:
@@ -191,72 +219,171 @@ def handler(event: dict, context) -> dict:
             cur.execute("SELECT 1 FROM follows WHERE follower_id=%s AND following_id=%s", (viewer_id, owner_id))
             return cur.fetchone() is not None
 
-        # ── AUTH ──────────────────────────────────────────
-        if action == 'login' and method == 'POST':
-            nick = (body.get('nick') or '').strip().lower()
-            password = (body.get('password') or '').strip()
+        # ── AUTH: автовход по device_id (тихий вход при повторном открытии) ──
+        if action == 'auth_check_device' and method == 'POST':
             device_id = (body.get('device_id') or '').strip()
+            if not device_id:
+                return _resp(200, {'user': None})
+            cur.execute(
+                "SELECT id, nick, first_name, last_name, profile_complete, avatar_url, is_verified FROM users WHERE device_id = %s",
+                (device_id,)
+            )
+            by_device = cur.fetchone()
+            if by_device:
+                cur.execute("UPDATE users SET is_online=TRUE, last_seen=NOW() WHERE id=%s", (by_device['id'],))
+                conn.commit()
+                return _resp(200, {'user': by_device})
+            return _resp(200, {'user': None})
 
-            # Автовход по device_id (без ввода ника)
-            if device_id and not nick:
-                cur.execute(
-                    "SELECT id, nick, profile_complete, avatar_url, is_verified FROM users WHERE device_id = %s",
-                    (device_id,)
-                )
-                by_device = cur.fetchone()
-                if by_device:
-                    cur.execute("UPDATE users SET is_online=TRUE, last_seen=NOW() WHERE id=%s", (by_device['id'],))
-                    conn.commit()
-                    return _resp(200, {'user': by_device})
+        # ── REGISTER: email + пароль + профиль (создаётся сразу целиком) ───
+        if action == 'register' and method == 'POST':
+            email = (body.get('email') or '').strip().lower()
+            password = (body.get('password') or '').strip()
+            first_name = (body.get('first_name') or '').strip()
+            last_name = (body.get('last_name') or '').strip()
+            city = (body.get('city') or '').strip()
+            birthdate = (body.get('birthdate') or '').strip()
+            about = (body.get('about') or '').strip()[:150]
+            phone = (body.get('phone') or '').strip()
+            avatar_url = body.get('avatar_url') or None
+            device_id = (body.get('device_id') or '').strip()
+            consent_152 = bool(body.get('consent_152'))
+            consent_terms = bool(body.get('consent_terms'))
+            consent_rules = bool(body.get('consent_rules'))
 
-            # Регистрация с ником + паролем
-            if not nick or len(nick) < 2:
-                return _resp(400, {'error': 'Введи ник'})
-            if len(nick) > 30:
-                return _resp(400, {'error': 'Ник максимум 30 символов'})
-            if not password or len(password) < 4:
-                return _resp(400, {'error': 'Пароль минимум 4 символа'})
+            if not EMAIL_RE.match(email) or not email.endswith('@mail.ru'):
+                return _resp(400, {'error': 'Регистрация доступна только с почтой @mail.ru'})
+            if not password or len(password) < 6:
+                return _resp(400, {'error': 'Пароль минимум 6 символов'})
+            if not first_name or len(first_name) < 2 or not last_name or len(last_name) < 2:
+                return _resp(400, {'error': 'Введи имя и фамилию'})
+            if not city:
+                return _resp(400, {'error': 'Выбери город'})
+            if not birthdate:
+                return _resp(400, {'error': 'Укажи дату рождения'})
+            try:
+                bd = datetime.strptime(birthdate, '%Y-%m-%d')
+                age = (datetime.now() - bd).days // 365
+                if age < 14:
+                    return _resp(400, {'error': 'Регистрация доступна с 14 лет'})
+            except ValueError:
+                return _resp(400, {'error': 'Некорректная дата рождения'})
+            phone_digits = re.sub(r'\D', '', phone)
+            if len(phone_digits) < 11:
+                return _resp(400, {'error': 'Укажи телефон полностью'})
+            if not (consent_152 and consent_terms and consent_rules):
+                return _resp(400, {'error': 'Нужно принять все условия'})
 
-            # Ник занят?
-            cur.execute("SELECT id FROM users WHERE nick = %s", (nick,))
+            cur.execute("SELECT id FROM users WHERE email=%s", (email,))
             if cur.fetchone():
-                return _resp(409, {'error': 'Этот ник уже занят. Придумай другой.'})
+                return _resp(409, {'error': 'Аккаунт с такой почтой уже существует'})
+            cur.execute("SELECT id FROM users WHERE phone=%s", (phone_digits,))
+            if cur.fetchone():
+                return _resp(409, {'error': 'Этот номер телефона уже используется'})
 
+            base_nick = re.sub(r'[^a-z0-9_]', '', email.split('@')[0].lower()) or 'user'
+            nick = base_nick
+            suffix = 0
+            while True:
+                cur.execute("SELECT id FROM users WHERE nick=%s", (nick,))
+                if not cur.fetchone():
+                    break
+                suffix += 1
+                nick = f'{base_nick}{suffix}'
+
+            source_ip = (event.get('requestContext', {}).get('identity', {}) or {}).get('sourceIp', '')
             pw_hash = _hash_pw(password)
             cur.execute(
-                "INSERT INTO users (nick, device_id, password_hash, is_online, last_seen, profile_complete) VALUES (%s, %s, %s, TRUE, NOW(), FALSE) RETURNING id, nick, profile_complete, avatar_url, is_verified",
-                (nick, device_id or None, pw_hash),
+                """INSERT INTO users (nick, email, password_hash, first_name, last_name, city, birthdate, about, phone,
+                       device_id, is_online, last_seen, profile_complete,
+                       consent_152, consent_terms, consent_rules, consent_at, consent_ip, avatar_url)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,NOW(),TRUE,%s,%s,%s,NOW(),%s,%s)
+                   RETURNING id, nick, first_name, last_name, profile_complete, avatar_url, is_verified""",
+                (nick, email, pw_hash, first_name, last_name, city, birthdate, about, phone_digits,
+                 device_id or None, consent_152, consent_terms, consent_rules, source_ip, avatar_url),
             )
             user = cur.fetchone()
             conn.commit()
             return _resp(200, {'user': user})
 
-        # ── LOGIN BY NICK + PASSWORD ────────────────────────
-        if action == 'login_by_nick' and method == 'POST':
-            nick = (body.get('nick') or '').strip().lower()
+        # ── LOGIN: email + пароль (с защитой от подбора) ────────────────────
+        if action == 'login_email' and method == 'POST':
+            email = (body.get('email') or '').strip().lower()
             password = (body.get('password') or '').strip()
             device_id = (body.get('device_id') or '').strip()
-            if not nick or len(nick) < 2:
-                return _resp(400, {'error': 'Введи ник'})
+            if not EMAIL_RE.match(email):
+                return _resp(400, {'error': 'Введи корректную почту'})
             if not password:
                 return _resp(400, {'error': 'Введи пароль'})
-            cur.execute("SELECT id, nick, profile_complete, avatar_url, password_hash, is_verified FROM users WHERE nick = %s", (nick,))
+            cur.execute(
+                "SELECT id, nick, first_name, last_name, profile_complete, avatar_url, password_hash, is_verified, failed_attempts, locked_until FROM users WHERE email=%s",
+                (email,)
+            )
             found = cur.fetchone()
             if not found:
-                return _resp(404, {'error': 'Аккаунт с таким ником не найден'})
-            # Если пароль уже установлен — проверяем
-            if found['password_hash'] and found['password_hash'] != _hash_pw(password):
-                return _resp(401, {'error': 'Неверный пароль'})
-            # Если пароль не был установлен — устанавливаем
-            if not found['password_hash']:
-                cur.execute("UPDATE users SET password_hash=%s WHERE id=%s", (_hash_pw(password), found['id']))
-            if device_id:
-                cur.execute("UPDATE users SET device_id=%s, is_online=TRUE, last_seen=NOW() WHERE id=%s", (device_id, found['id']))
-            else:
-                cur.execute("UPDATE users SET is_online=TRUE, last_seen=NOW() WHERE id=%s", (found['id'],))
+                return _resp(404, {'error': 'Аккаунт с такой почтой не найден'})
+            if found['locked_until'] and found['locked_until'] > datetime.now():
+                remain = int((found['locked_until'] - datetime.now()).total_seconds() // 60) + 1
+                return _resp(423, {'error': f'Слишком много попыток. Попробуй через {remain} мин.'})
+            if found['password_hash'] != _hash_pw(password):
+                attempts = (found['failed_attempts'] or 0) + 1
+                if attempts >= 3:
+                    cur.execute("UPDATE users SET failed_attempts=0, locked_until=NOW() + INTERVAL '5 minutes' WHERE id=%s", (found['id'],))
+                    conn.commit()
+                    return _resp(423, {'error': 'Слишком много попыток. Аккаунт заблокирован на 5 минут.'})
+                cur.execute("UPDATE users SET failed_attempts=%s WHERE id=%s", (attempts, found['id']))
+                conn.commit()
+                return _resp(401, {'error': f'Неверный пароль. Осталось попыток: {3 - attempts}'})
+            cur.execute(
+                "UPDATE users SET failed_attempts=0, locked_until=NULL, device_id=%s, is_online=TRUE, last_seen=NOW() WHERE id=%s",
+                (device_id or None, found['id']),
+            )
             conn.commit()
-            result = {'id': found['id'], 'nick': found['nick'], 'profile_complete': found['profile_complete'], 'avatar_url': found['avatar_url'], 'is_verified': found['is_verified']}
+            result = {'id': found['id'], 'nick': found['nick'], 'first_name': found['first_name'], 'last_name': found['last_name'],
+                       'profile_complete': found['profile_complete'], 'avatar_url': found['avatar_url'], 'is_verified': found['is_verified']}
             return _resp(200, {'user': result})
+
+        # ── FORGOT PASSWORD: отправка 4-значного кода на почту ──────────────
+        if action == 'forgot_password' and method == 'POST':
+            email = (body.get('email') or '').strip().lower()
+            if not EMAIL_RE.match(email):
+                return _resp(400, {'error': 'Введи корректную почту'})
+            cur.execute("SELECT id FROM users WHERE email=%s", (email,))
+            found = cur.fetchone()
+            if not found:
+                return _resp(404, {'error': 'Аккаунт с такой почтой не найден'})
+            code = f'{random.randint(0, 9999):04d}'
+            cur.execute(
+                "UPDATE users SET reset_code=%s, reset_code_expires=NOW() + INTERVAL '2 minutes' WHERE id=%s",
+                (code, found['id']),
+            )
+            conn.commit()
+            sent = _send_reset_code(email, code)
+            if not sent:
+                return _resp(500, {'error': 'Не удалось отправить код. Попробуй позже.'})
+            return _resp(200, {'ok': True})
+
+        # ── RESET PASSWORD: проверка кода + установка нового пароля ─────────
+        if action == 'reset_password' and method == 'POST':
+            email = (body.get('email') or '').strip().lower()
+            code = (body.get('code') or '').strip()
+            new_password = (body.get('new_password') or '').strip()
+            if not EMAIL_RE.match(email):
+                return _resp(400, {'error': 'Введи корректную почту'})
+            if len(new_password) < 6:
+                return _resp(400, {'error': 'Пароль минимум 6 символов'})
+            cur.execute("SELECT id, reset_code, reset_code_expires FROM users WHERE email=%s", (email,))
+            found = cur.fetchone()
+            if not found or not found['reset_code'] or found['reset_code'] != code:
+                return _resp(400, {'error': 'Неверный код'})
+            if not found['reset_code_expires'] or found['reset_code_expires'] < datetime.now():
+                return _resp(400, {'error': 'Код истёк. Запроси новый.'})
+            cur.execute(
+                "UPDATE users SET password_hash=%s, reset_code=NULL, reset_code_expires=NULL, failed_attempts=0, locked_until=NULL WHERE id=%s",
+                (_hash_pw(new_password), found['id']),
+            )
+            conn.commit()
+            return _resp(200, {'ok': True})
 
         # ── CHECK NICK ─────────────────────────────────────
         if action == 'check_nick' and method == 'GET':
@@ -301,7 +428,7 @@ def handler(event: dict, context) -> dict:
             me = int(params.get('me') or 0)
             cur.execute(
                 """
-                SELECT u.id, u.nick, u.avatar_url, u.city, u.birthdate, u.about, u.is_online, u.last_seen, u.is_verified,
+                SELECT u.id, u.nick, u.first_name, u.last_name, u.phone, u.avatar_url, u.city, u.birthdate, u.about, u.is_online, u.last_seen, u.is_verified,
                        (SELECT COUNT(*) FROM follows WHERE following_id = u.id) AS followers,
                        (SELECT COUNT(*) FROM follows WHERE follower_id = u.id) AS following,
                        (SELECT TRUE FROM follows WHERE follower_id=%s AND following_id=u.id) AS i_follow,
@@ -319,7 +446,7 @@ def handler(event: dict, context) -> dict:
         if action == 'profile_update' and method == 'POST':
             uid = int(body.get('user_id') or 0)
             fields = {}
-            for f in ('avatar_url', 'city', 'birthdate', 'about'):
+            for f in ('avatar_url', 'city', 'birthdate', 'about', 'first_name', 'last_name'):
                 if f in body:
                     fields[f] = body[f] or None
             if not fields:
@@ -327,7 +454,7 @@ def handler(event: dict, context) -> dict:
             fields['profile_complete'] = True
             set_clause = ', '.join(f"{k} = %s" for k in fields)
             cur.execute(
-                f"UPDATE users SET {set_clause} WHERE id = %s RETURNING id, nick, avatar_url, city, birthdate, about, profile_complete",
+                f"UPDATE users SET {set_clause} WHERE id = %s RETURNING id, nick, first_name, last_name, avatar_url, city, birthdate, about, profile_complete",
                 list(fields.values()) + [uid],
             )
             user = cur.fetchone()
@@ -429,13 +556,15 @@ def handler(event: dict, context) -> dict:
             me = int(params.get('user_id') or 0)
             cur.execute(
                 """
+                SELECT * FROM (
                 SELECT c.id AS chat_id,
                        NULL::int AS group_id, NULL AS group_name, NULL AS group_avatar,
                        u.id AS peer_id, u.nick AS peer_nick, u.avatar_url AS peer_avatar, u.is_online AS peer_online, u.is_verified AS peer_verified,
                        (SELECT text FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE ORDER BY m.id DESC LIMIT 1) AS last_text,
                        (SELECT created_at FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE ORDER BY m.id DESC LIMIT 1) AS last_at,
                        'dm' AS kind,
-                       (SELECT COUNT(*) FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE AND m.sender_id != %s AND m.id > COALESCE((SELECT last_read_id FROM chat_reads WHERE chat_id=c.id AND user_id=%s), 0)) AS unread_count
+                       (SELECT COUNT(*) FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE AND m.sender_id != %s AND m.id > COALESCE((SELECT last_read_id FROM chat_reads WHERE chat_id=c.id AND user_id=%s), 0)) AS unread_count,
+                       EXISTS(SELECT 1 FROM chat_pins cp WHERE cp.user_id=%s AND cp.chat_id=c.id) AS pinned
                 FROM chats c
                 JOIN users u ON u.id = CASE WHEN c.user_a=%s THEN c.user_b ELSE c.user_a END
                 WHERE (c.user_a=%s OR c.user_b=%s) AND c.group_id IS NULL
@@ -453,16 +582,32 @@ def handler(event: dict, context) -> dict:
                        (SELECT text FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE ORDER BY m.id DESC LIMIT 1) AS last_text,
                        (SELECT created_at FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE ORDER BY m.id DESC LIMIT 1) AS last_at,
                        'group' AS kind,
-                       (SELECT COUNT(*) FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE AND m.sender_id != %s AND m.id > COALESCE((SELECT last_read_id FROM chat_reads WHERE chat_id=c.id AND user_id=%s), 0)) AS unread_count
+                       (SELECT COUNT(*) FROM messages m WHERE m.chat_id=c.id AND m.is_removed=FALSE AND m.sender_id != %s AND m.id > COALESCE((SELECT last_read_id FROM chat_reads WHERE chat_id=c.id AND user_id=%s), 0)) AS unread_count,
+                       EXISTS(SELECT 1 FROM chat_pins cp WHERE cp.user_id=%s AND cp.chat_id=c.id) AS pinned
                 FROM chats c
                 JOIN groups g ON g.id=c.group_id
                 JOIN group_members gm ON gm.group_id=g.id AND gm.user_id=%s
                 WHERE c.id NOT IN (SELECT chat_id FROM hidden_chats WHERE user_id=%s)
-                ORDER BY last_at DESC NULLS FIRST, chat_id DESC
+                ) t
+                ORDER BY pinned DESC, last_at DESC NULLS FIRST, chat_id DESC
                 """,
-                (me, me, me, me, me, me, me, me, me, me),
+                (me, me, me, me, me, me, me, me, me, me, me, me),
             )
             return _resp(200, {'chats': cur.fetchall()})
+
+        # ── PIN / UNPIN CHAT ──────────────────────────────
+        if action == 'pin_chat' and method == 'POST':
+            uid = int(body.get('user_id') or 0)
+            chat_id = int(body.get('chat_id') or 0)
+            cur.execute("SELECT 1 FROM chat_pins WHERE user_id=%s AND chat_id=%s", (uid, chat_id))
+            if cur.fetchone():
+                cur.execute("DELETE FROM chat_pins WHERE user_id=%s AND chat_id=%s", (uid, chat_id))
+                pinned = False
+            else:
+                cur.execute("INSERT INTO chat_pins (user_id, chat_id) VALUES (%s, %s)", (uid, chat_id))
+                pinned = True
+            conn.commit()
+            return _resp(200, {'pinned': pinned})
 
         # ── OPEN DM CHAT ──────────────────────────────────
         if action == 'open_chat' and method == 'POST':
@@ -537,7 +682,8 @@ def handler(event: dict, context) -> dict:
                     """
                     SELECT m.id, m.sender_id, u.nick AS sender_nick, u.avatar_url AS sender_avatar, u.is_verified AS sender_verified,
                            m.text, m.image_url, m.media_type, m.media_url, m.created_at,
-                           m.is_removed, m.removed_by_sender, m.is_read,
+                           m.is_removed, m.removed_by_sender, m.is_read, m.reply_to_id,
+                           rm.text AS reply_to_text, ru.nick AS reply_to_nick,
                            COALESCE(
                                json_agg(json_build_object('emoji', r.emoji, 'user_id', r.user_id))
                                FILTER (WHERE r.message_id IS NOT NULL), '[]'
@@ -545,13 +691,15 @@ def handler(event: dict, context) -> dict:
                     FROM messages m
                     JOIN users u ON u.id = m.sender_id
                     LEFT JOIN message_reactions r ON r.message_id = m.id
+                    LEFT JOIN messages rm ON rm.id = m.reply_to_id
+                    LEFT JOIN users ru ON ru.id = rm.sender_id
                     WHERE m.chat_id=%s AND m.id>%s
                       AND NOT (m.removed_by_sender = TRUE AND m.sender_id = %s)
                       AND m.created_at > COALESCE(
                         (SELECT hidden_at FROM hidden_chats WHERE user_id=%s AND chat_id=%s),
                         '1970-01-01'::timestamptz
                       )
-                    GROUP BY m.id, u.nick, u.avatar_url, u.is_verified
+                    GROUP BY m.id, u.nick, u.avatar_url, u.is_verified, rm.text, ru.nick
                     ORDER BY m.id ASC LIMIT 200
                     """,
                     (chat_id, after, me, me, chat_id),
@@ -643,7 +791,8 @@ def handler(event: dict, context) -> dict:
                 """
                 SELECT m.id, m.sender_id, u.nick AS sender_nick, u.avatar_url AS sender_avatar, u.is_verified AS sender_verified,
                        m.text, m.image_url, m.media_type, m.media_url, m.created_at,
-                       m.is_removed, m.removed_by_sender, m.is_read,
+                       m.is_removed, m.removed_by_sender, m.is_read, m.reply_to_id,
+                       rm.text AS reply_to_text, ru.nick AS reply_to_nick,
                        COALESCE(
                            json_agg(json_build_object('emoji', r.emoji, 'user_id', r.user_id))
                            FILTER (WHERE r.message_id IS NOT NULL), '[]'
@@ -651,9 +800,11 @@ def handler(event: dict, context) -> dict:
                 FROM messages m
                 JOIN users u ON u.id = m.sender_id
                 LEFT JOIN message_reactions r ON r.message_id = m.id
+                LEFT JOIN messages rm ON rm.id = m.reply_to_id
+                LEFT JOIN users ru ON ru.id = rm.sender_id
                 WHERE m.chat_id=%s AND m.id>%s
                   AND NOT (m.removed_by_sender = TRUE AND m.sender_id = %s)
-                GROUP BY m.id, u.nick, u.avatar_url, u.is_verified
+                GROUP BY m.id, u.nick, u.avatar_url, u.is_verified, rm.text, ru.nick
                 ORDER BY m.id ASC LIMIT 200
                 """,
                 (chat_id, after, me),
@@ -718,6 +869,7 @@ def handler(event: dict, context) -> dict:
             image_url = body.get('image_url')
             media_type = body.get('media_type')
             media_url = body.get('media_url')
+            reply_to_id = body.get('reply_to_id')
             if not chat_id or not sender or (not text and not image_url and not media_url):
                 return _resp(400, {'error': 'Пустое сообщение'})
             # Приватность: может ли sender писать получателю (только для личных чатов)
@@ -728,10 +880,10 @@ def handler(event: dict, context) -> dict:
                 if not _privacy_allows(other_id, sender, 'privacy_messages'):
                     return _resp(403, {'error': 'Этот пользователь ограничил круг тех, кто может ему писать'})
             cur.execute(
-                """INSERT INTO messages (chat_id, sender_id, text, image_url, media_type, media_url)
-                   VALUES (%s, %s, %s, %s, %s, %s)
-                   RETURNING id, sender_id, text, image_url, media_type, media_url, created_at, is_removed""",
-                (chat_id, sender, text, image_url, media_type, media_url),
+                """INSERT INTO messages (chat_id, sender_id, text, image_url, media_type, media_url, reply_to_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)
+                   RETURNING id, sender_id, text, image_url, media_type, media_url, created_at, is_removed, reply_to_id""",
+                (chat_id, sender, text, image_url, media_type, media_url, int(reply_to_id) if reply_to_id else None),
             )
             msg = cur.fetchone()
             cur.execute("DELETE FROM typing_status WHERE chat_id=%s AND user_id=%s", (chat_id, sender))
@@ -1010,10 +1162,20 @@ def handler(event: dict, context) -> dict:
                 return _resp(400, {'error': 'Нет user_id'})
             # Удаляем все данные пользователя каскадно
             cur.execute("DELETE FROM typing_status WHERE user_id=%s", (uid,))
+            cur.execute("DELETE FROM message_reactions WHERE user_id=%s", (uid,))
             cur.execute("DELETE FROM messages WHERE sender_id=%s", (uid,))
             cur.execute("DELETE FROM follows WHERE follower_id=%s OR following_id=%s", (uid, uid))
             cur.execute("DELETE FROM blocks WHERE blocker_id=%s OR blocked_id=%s", (uid, uid))
             cur.execute("DELETE FROM group_members WHERE user_id=%s", (uid,))
+            cur.execute("DELETE FROM chat_pins WHERE user_id=%s", (uid,))
+            cur.execute("DELETE FROM hidden_chats WHERE user_id=%s", (uid,))
+            cur.execute("DELETE FROM post_comments WHERE user_id=%s", (uid,))
+            cur.execute("DELETE FROM post_likes WHERE user_id=%s", (uid,))
+            cur.execute("DELETE FROM post_views WHERE user_id=%s", (uid,))
+            cur.execute("DELETE FROM posts WHERE user_id=%s", (uid,))
+            cur.execute("DELETE FROM status_views WHERE viewer_id=%s OR status_id IN (SELECT id FROM statuses WHERE user_id=%s)", (uid, uid))
+            cur.execute("DELETE FROM statuses WHERE user_id=%s", (uid,))
+            cur.execute("DELETE FROM notifications WHERE user_id=%s OR from_user_id=%s", (uid, uid))
             # Чаты где пользователь один из участников (DM)
             cur.execute("DELETE FROM messages WHERE chat_id IN (SELECT id FROM chats WHERE user_a=%s OR user_b=%s)", (uid, uid))
             cur.execute("DELETE FROM chats WHERE user_a=%s OR user_b=%s", (uid, uid))

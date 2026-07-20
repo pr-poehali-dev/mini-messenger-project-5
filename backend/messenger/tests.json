@@ -1,12 +1,30 @@
 {
   "tests": [
     {
-      "name": "Login by nick - not found",
+      "name": "Login by email - not found",
       "method": "POST",
-      "path": "/?action=login_by_nick",
-      "body": {"nick": "zzz_not_exist_999", "password": "anypass", "device_id": "test-device-x"},
+      "path": "/?action=login_email",
+      "body": {"email": "zzz_not_exist_999@mail.ru", "password": "anypass", "device_id": "test-device-x"},
       "expectedStatus": 404,
-      "expectedBody": {"error": "Аккаунт с таким ником не найден"},
+      "expectedBody": {"error": "Аккаунт с такой почтой не найден"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Register - bad email domain",
+      "method": "POST",
+      "path": "/?action=register",
+      "body": {"email": "test@gmail.com", "password": "123456", "first_name": "Иван", "last_name": "Иванов", "city": "Москва", "birthdate": "2000-01-01", "phone": "+79991234567", "consent_152": true, "consent_terms": true, "consent_rules": true},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "Регистрация доступна только с почтой @mail.ru"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Forgot password - not found",
+      "method": "POST",
+      "path": "/?action=forgot_password",
+      "body": {"email": "zzz_not_exist_999@mail.ru"},
+      "expectedStatus": 404,
+      "expectedBody": {"error": "Аккаунт с такой почтой не найден"},
       "bodyMatcher": "partial"
     },
     {
